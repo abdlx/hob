@@ -57,7 +57,7 @@ export const ChatInput: React.FC = () => {
     <div className="w-full max-w-[640px] mx-auto px-3 md:px-4 pb-2 md:pb-3 pt-1">
       <form
         onSubmit={handleSubmit}
-        className="w-full h-[44px] bg-[#121212] border border-[#222222] focus-within:border-[#383838] rounded-full px-4 flex items-center gap-2.5 shadow-xs transition-colors"
+        className="w-full h-[34px] md:h-[44px] bg-[#121212] border border-[#222222] focus-within:border-[#383838] rounded-full px-2.5 md:px-4 flex items-center gap-1.5 md:gap-2.5 shadow-xs transition-colors"
       >
         {/* Plus button */}
         <button
@@ -65,7 +65,7 @@ export const ChatInput: React.FC = () => {
           title="Add context"
           className="text-white hover:text-white transition-colors shrink-0 cursor-pointer flex items-center justify-center p-0.5"
         >
-          <Plus size={15} strokeWidth={2} />
+          <Plus size={13} className="md:w-[15px] md:h-[15px]" strokeWidth={2} />
         </button>
 
         {/* Input */}
@@ -76,7 +76,7 @@ export const ChatInput: React.FC = () => {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Message"
-          className="flex-1 bg-transparent text-[#e5e5e5] placeholder-[#73716c] text-[13.5px] focus:outline-none resize-none leading-normal py-0.5"
+          className="flex-1 bg-transparent text-[#e5e5e5] placeholder-[#73716c] text-[12.5px] md:text-[13.5px] focus:outline-none resize-none leading-tight md:leading-normal py-0"
         />
 
         {/* Send Button */}
@@ -84,15 +84,15 @@ export const ChatInput: React.FC = () => {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-7 h-7 rounded-full bg-white hover:bg-neutral-200 text-black flex items-center justify-center transition-all cursor-pointer shrink-0 disabled:opacity-40 shadow-xs"
+            className="w-[24px] h-[24px] md:w-7 md:h-7 rounded-full bg-white hover:bg-neutral-200 text-black flex items-center justify-center transition-all cursor-pointer shrink-0 disabled:opacity-40 shadow-xs"
           >
-            <ArrowUp size={15} strokeWidth={2.5} />
+            <ArrowUp size={13} className="md:w-[15px] md:h-[15px]" strokeWidth={2.5} />
           </button>
         )}
       </form>
 
       {/* iOS-Inspired Bottom Dock Mobile Navigation Bar below input field (excluding search and settings) */}
-      <div className="md:hidden pt-2.5 pb-1 flex justify-center">
+      <div className="md:hidden pt-2 pb-1 flex justify-center">
         <BottomDock
           items={mobileDockItems}
           activeId={activeNav}
