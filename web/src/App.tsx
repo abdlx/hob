@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { ChatProvider } from './context/ChatContext';
 import { ChatScreen } from './pages/ChatScreen';
 
@@ -7,9 +7,9 @@ function App() {
     <BrowserRouter>
       <ChatProvider>
         <Routes>
+          <Route path="/" element={<ChatScreen />} />
           <Route path="/chat" element={<ChatScreen />} />
-          <Route path="/" element={<Navigate to="/chat" replace />} />
-          <Route path="*" element={<Navigate to="/chat" replace />} />
+          <Route path="*" element={<ChatScreen />} />
         </Routes>
       </ChatProvider>
     </BrowserRouter>
