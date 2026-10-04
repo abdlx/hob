@@ -27,6 +27,10 @@ export const ChatInput: React.FC = () => {
 
   useEffect(() => {
     if (textareaRef.current) {
+      if (!text) {
+        textareaRef.current.style.height = '';
+        return;
+      }
       textareaRef.current.style.height = 'auto';
       textareaRef.current.style.height = `${Math.min(
         textareaRef.current.scrollHeight,
@@ -41,7 +45,7 @@ export const ChatInput: React.FC = () => {
     const current = text.trim();
     setText('');
     if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = '';
     }
     await sendMessage(current);
   };
@@ -76,7 +80,7 @@ export const ChatInput: React.FC = () => {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Message"
-          className="flex-1 bg-transparent text-[#e5e5e5] placeholder-[#73716c] text-[12.5px] md:text-[13.5px] focus:outline-none resize-none leading-tight md:leading-normal py-0"
+          className="flex-1 bg-transparent text-[#e5e5e5] placeholder-[#73716c] text-[12.5px] md:text-[13.5px] focus:outline-none resize-none p-0 m-0 h-[20px] md:h-[22px] leading-[20px] md:leading-[22px] text-left"
         />
 
         {/* Send Button */}
