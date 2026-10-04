@@ -1,2 +1,4 @@
 hermes-agent/
 openclaw/
+.pnpm-store/
+p0a-evidence/

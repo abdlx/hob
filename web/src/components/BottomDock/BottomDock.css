@@ -1,0 +1,208 @@
+/* =====================================================================
+   BOTTOM DOCK COMPONENT STYLING (AMOLED Minimalist Reference Look)
+   ===================================================================== */
+
+.bottomDockRoot {
+  --dock-ink: rgba(255, 255, 255, 0.7);
+
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  margin: 0 auto;
+  z-index: 30;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.bottomDockRoot * {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+.bottomDockRoot > * {
+  pointer-events: auto;
+}
+
+.bottomDockNavRow {
+  align-items: center;
+  display: flex;
+  height: 48px;
+  position: relative;
+  width: 100%;
+}
+
+.bottomDockPillWrapper {
+  position: relative;
+  flex: 1 1 auto;
+  height: 100%;
+  width: 100%;
+  border-radius: 9999px;
+  overflow: hidden;
+  isolation: isolate;
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
+  mask-image: radial-gradient(white, black);
+}
+
+.bottomDockPillWrapper.fullWidth {
+  width: 100%;
+}
+
+.bottomDockBasePill {
+  background: #141414;
+  border: 1px solid #232323;
+  box-shadow:
+    0 0 1px 1px rgba(255, 255, 255, 0.03) inset,
+    0 4px 18px rgba(0, 0, 0, 0.65);
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Nav Track Container layered directly on top of the dock body */
+.bottomDockNavTrack {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: stretch;
+  width: 100%;
+  height: 100%;
+  padding: 3px;
+  gap: 3px;
+  box-sizing: border-box;
+  touch-action: none;
+  cursor: grab;
+  border-radius: 9999px;
+}
+
+.bottomDockNavTrack:active {
+  cursor: grabbing;
+}
+
+/* Draggable Active Pill Indicator Container */
+.bottomDockIndicator {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  height: auto !important;
+  max-height: calc(100% - 6px);
+  pointer-events: none;
+  z-index: 1;
+  will-change: transform;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+/* Container that scales, stretches and squashes via real-time spring physics */
+.bottomDockJellySkin {
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  position: relative;
+  overflow: hidden;
+  transform-origin: center center;
+  will-change: transform;
+}
+
+/* Settled flat state: smooth solid grey capsule matching reference */
+.bottomDockFlatSkin {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: #282828;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 180ms ease;
+  z-index: 1;
+}
+
+/* Active Moving state when dragging / springing */
+.bottomDockMovingSkin {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: #333333;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 180ms ease;
+  z-index: 2;
+}
+
+.bottomDockIndicator.isGlass .bottomDockFlatSkin,
+.bottomDockIndicator.isDragging .bottomDockFlatSkin {
+  opacity: 0;
+}
+
+.bottomDockIndicator.isGlass .bottomDockMovingSkin,
+.bottomDockIndicator.isDragging .bottomDockMovingSkin {
+  opacity: 1;
+}
+
+/* Individual tab buttons - Icon Only, perfectly centered */
+.bottomDockItem {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  display: flex;
+  flex: 1 1 0%;
+  height: 100%;
+  justify-content: center;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+  position: relative;
+  transition: color 180ms ease, opacity 180ms ease;
+  z-index: 2;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  outline: none;
+  opacity: 0.82;
+}
+
+.bottomDockItem.active {
+  color: #ffffff;
+  opacity: 1;
+}
+
+.bottomDockItemIcon {
+  display: grid;
+  height: 22px;
+  place-items: center;
+  width: 22px;
+  pointer-events: none;
+  will-change: transform;
+  transform-origin: center center;
+  transition: transform 120ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.bottomDockItem:focus,
+.bottomDockItem:active {
+  outline: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bottomDockIndicator {
+    transition: none !important;
+  }
+  .bottomDockJellySkin {
+    animation: none !important;
+    transform: none !important;
+  }
+}
