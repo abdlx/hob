@@ -92,7 +92,7 @@ export const ChatInput: React.FC = () => {
       </form>
 
       {/* iOS-Inspired Bottom Dock Mobile Navigation Bar below input field (excluding search and settings) */}
-      <div className="md:hidden pt-2.5 pb-1">
+      <div className="md:hidden pt-2.5 pb-1 flex justify-center">
         <BottomDock
           items={mobileDockItems}
           activeId={activeNav}
