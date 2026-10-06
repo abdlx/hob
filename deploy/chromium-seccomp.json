@@ -833,10 +833,11 @@
       "names": [
         "clone",
         "setns",
-        "unshare"
+        "unshare",
+        "chroot"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "comment": "Chromium creates its own sandbox using unprivileged user namespaces. No host/container capabilities are granted."
+      "comment": "Chromium creates its sandbox using unprivileged user namespaces and chroots within that namespace. The kernel still requires namespace-local CAP_SYS_CHROOT; no host/container capabilities are granted."
     }
   ]
 }

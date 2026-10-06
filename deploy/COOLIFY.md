@@ -53,6 +53,12 @@ workspace preparation finishes.
 
 The build needs a supported Linux amd64 or arm64 host and sufficient memory;
 allocate at least 8 GB for this fork's build or use a larger Coolify build server.
+The Docker build sets the compiler's explicit old-space heap cap to 6144 MiB
+through `OPENCLAW_TSDOWN_MAX_OLD_SPACE_MB`, as well as `NODE_OPTIONS` for other
+build steps. This fork replaces an inherited Node heap flag when choosing its
+compiler budget, so `NODE_OPTIONS` alone does not bound the compiler. Native
+bundler allocations, Docker, and other Coolify workloads need memory outside that
+heap; use a dedicated larger build host if the VPS cannot provide enough headroom.
 The runtime image includes Chromium. The host must support unprivileged user
 namespaces and allow Chromium's sandbox under its kernel/AppArmor policy.
 
@@ -89,7 +95,7 @@ does not publish an image or configure a provider.
 To run the same check on a Linux Docker host from the repository root:
 
 ```sh
-docker build --build-arg OPENCLAW_BUILD_MEMORY_MB=4096 --tag openmuse:smoke .
+docker build --build-arg OPENCLAW_BUILD_MEMORY_MB=6144 --tag openmuse:smoke .
 node deploy/smoke-container.mjs
 ```
 

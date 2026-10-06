@@ -46,7 +46,7 @@ jobs:
         with:
           node-version: '24.21.0'
       - name: Build the single image from this checkout
-        run: docker build --build-arg OPENCLAW_BUILD_MEMORY_MB=4096 --tag openmuse:ci .
+        run: docker build --build-arg OPENCLAW_BUILD_MEMORY_MB=6144 --tag openmuse:ci .
       - name: Verify first boot, sandboxed browser, and persistence
         env:
           MUSE_SMOKE_IMAGE: openmuse:ci

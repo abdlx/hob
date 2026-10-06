@@ -53,6 +53,24 @@ async function ready() {
   const status = await fetch(origin + '/healthz', { signal: AbortSignal.timeout(10000) });
   assert.equal(status.status, 200, 'The real Gateway must finish writable startup preparation.');
 }
+
+function reportBrowserDiagnostic(container) {
+  // A new blank profile has no credentials, cookies, or user browsing history.
+  // Keep the container's capabilities, seccomp policy, and Chromium sandbox.
+  const script = `
+    const fs = require('node:fs');
+    const { spawnSync } = require('node:child_process');
+    const executable = require('/app/openclaw/node_modules/playwright-core').chromium.executablePath();
+    const profile = fs.mkdtempSync('/tmp/openmuse-browser-diagnostic-');
+    const result = spawnSync(executable, ['--headless', '--no-first-run', '--no-default-browser-check',
+      '--user-data-dir=' + profile, '--dump-dom', 'about:blank'],
+      { encoding: 'utf8', timeout: 15000, maxBuffer: 65536 });
+    console.log(JSON.stringify({ status: result.status, signal: result.signal, error: result.error?.code,
+      stderr: (result.stderr || '').split('\\n').slice(0, 12).join('\\n') }));
+  `;
+  try { console.error(`Blank-profile browser diagnostic: ${docker(['exec', container, 'node', '-e', script], 20000)}`); }
+  catch (error) { console.error(`Browser diagnostic unavailable: ${error.message}`); }
+}
 function reportContainerState() {
   try {
     const container = compose('ps', '--all', '--quiet', 'muse');
@@ -132,7 +150,8 @@ try {
   assert.equal((await api('/api/goals')).jobs.find(item => item.id === job.id)?.enabled, false);
   assert.ok(Array.isArray((await api('/api/library?kind=artifacts')).files));
 
-  await api('/api/browser/actions', 'POST', { action: 'start', profile: 'openclaw' });
+  try { await api('/api/browser/actions', 'POST', { action: 'start', profile: 'openclaw' }); }
+  catch (error) { reportBrowserDiagnostic(container); throw error; }
   const tab = await api('/api/browser/actions', 'POST', { action: 'open', profile: 'openclaw', url: 'about:blank' });
   assert.ok(tab.targetId);
   assert.ok((await api('/api/browser/tabs?profile=openclaw')).tabs.some(item => item.targetId === tab.targetId));

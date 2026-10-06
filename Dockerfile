@@ -26,9 +26,10 @@ RUN --mount=type=cache,id=muse-pnpm,target=/root/.local/share/pnpm/store,sharing
       --config.supportedArchitectures.os=linux \
       --config.supportedArchitectures.cpu="$(node -p 'process.arch')" \
       --config.supportedArchitectures.libc=glibc
-ARG OPENCLAW_BUILD_MEMORY_MB=8192
+ARG OPENCLAW_BUILD_MEMORY_MB=6144
 # The backend's package-owned Docker graph builds runtime/plugin assets, not a UI.
-RUN OPENCLAW_RUN_NODE_SKIP_DTS_BUILD=1 NODE_OPTIONS="--max-old-space-size=${OPENCLAW_BUILD_MEMORY_MB}" pnpm build:docker
+RUN OPENCLAW_RUN_NODE_SKIP_DTS_BUILD=1 OPENCLAW_TSDOWN_MAX_OLD_SPACE_MB="${OPENCLAW_BUILD_MEMORY_MB}" \
+    NODE_OPTIONS="--max-old-space-size=${OPENCLAW_BUILD_MEMORY_MB}" pnpm build:docker
 # Do not overlay development dependencies onto the production install.
 RUN rm -rf node_modules && find packages extensions examples -name node_modules -prune -exec rm -rf '{}' +
 

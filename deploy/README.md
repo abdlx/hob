@@ -13,10 +13,16 @@ the private `.env` using the root `.env.example`.
 `chromium-seccomp.json` starts from Moby/Docker 28.0.4's default profile, as
 preserved in the local modified OpenClaw checkout at
 `scripts/lib/codex-live-docker-security/seccomp.json`. The six Bubblewrap-specific
-rules appended there were removed. One rule allows `clone`, `setns`, and `unshare`
-for Chromium's own user-namespace sandbox. The syscall allowlist, capability
-checks, and default deny remain. This does not disable Chromium's sandbox or grant
-SYS_ADMIN. Its base profile's Apache-2.0 license and notice are included here.
+rules appended there were removed. One rule allows `clone`, `setns`, `unshare`,
+and `chroot` for Chromium's own user-namespace sandbox. Chromium
+[chroots to an empty directory](https://github.com/chromium/chromium/blob/main/sandbox/linux/services/credentials.cc)
+inside that namespace. With all container capabilities dropped, the default
+profile's capability-filtered `chroot` rule would be omitted even though Chromium
+later gains namespace-local authority. The added syscall permission lets the
+kernel enforce that authority; it grants no capability in the parent namespace.
+The remaining syscall allowlist, capability checks, and default deny remain.
+This does not disable Chromium's sandbox or grant SYS_ADMIN. Its base profile's
+Apache-2.0 license and notice are included here.
 Compose reads this profile file on the client before container creation. Keep
 the repository available for later starts; in Coolify, enable Preserve Repository
 During Deployment. The profile is not read from the built image at this boundary.
