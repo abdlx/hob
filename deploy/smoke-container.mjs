@@ -43,14 +43,16 @@ function docker(args, timeout = 400000) {
 const compose = (...args) => docker([...composeArgs, ...args]);
 async function api(path, method = 'GET', value) {
   const response = await fetch(origin + path, {
-    method, headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' },
+    // Recreation deliberately destroys the server's TCP connections. Every probe
+    // uses a fresh socket so a stale pre-recreation pool entry cannot fail it.
+    method, headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json', Connection: 'close' },
     ...(value !== undefined ? { body: JSON.stringify(value) } : {}), signal: AbortSignal.timeout(60000),
   });
   assert.ok(response.ok, `${method} ${path} returned ${response.status}: ${await response.clone().text()}`);
   return response.json();
 }
 async function ready() {
-  const status = await fetch(origin + '/healthz', { signal: AbortSignal.timeout(10000) });
+  const status = await fetch(origin + '/healthz', { headers: { Connection: 'close' }, signal: AbortSignal.timeout(10000) });
   assert.equal(status.status, 200, 'The real Gateway must finish writable startup preparation.');
 }
 
@@ -113,10 +115,10 @@ try {
   assert.equal(JSON.parse(seccomp.slice('seccomp='.length)).defaultAction, 'SCMP_ACT_ERRNO');
   assert.ok(!hardening.Binds?.some(item => item.includes('docker.sock')));
 
-  const unauthorized = await fetch(origin + '/api/sessions');
+  const unauthorized = await fetch(origin + '/api/sessions', { headers: { Connection: 'close' }, signal: AbortSignal.timeout(10000) });
   assert.equal(unauthorized.status, 401);
   const login = await fetch(origin + '/api/auth/login', {
-    method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },
+    method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', Connection: 'close' },
     body: JSON.stringify({ password }), signal: AbortSignal.timeout(10000),
   });
   assert.equal(login.status, 200);
