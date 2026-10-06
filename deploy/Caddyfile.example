@@ -1,0 +1,4 @@
+# Run Caddy on the VPS host with DNS for this name pointing to that VPS.
+muse.example.com {
+    reverse_proxy 127.0.0.1:3000
+}

@@ -24,6 +24,7 @@ export interface AgentProfile {
   avatarUrl: string;
   roleDescription?: string;
   model?: string;
+  agentRuntime?: string;
   systemPrompt?: string;
 }
 
@@ -46,11 +47,11 @@ export interface ChatSession {
   agentId: string;
 }
 
-export type RightPanelTab = 'tasks' | 'security' | 'stats' | 'skills';
+export type RightPanelTab = 'tasks' | 'security' | 'browser' | 'goals' | 'identity';
 
 export interface SecurityApproval {
   id: string;
-  type: 'command' | 'filesystem' | 'network' | 'credential';
+  type: 'command' | 'tool' | 'configuration' | 'filesystem' | 'network' | 'credential';
   description: string;
   commandSnippet?: string;
   riskLevel: 'low' | 'medium' | 'high';

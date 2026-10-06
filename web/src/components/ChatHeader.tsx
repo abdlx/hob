@@ -4,7 +4,7 @@ import { Menu, Gift } from 'lucide-react';
 import { DogeshAvatar } from './DogeshAvatar';
 
 export const ChatHeader: React.FC = () => {
-  const { toggleLeftDrawer, toggleRightPanel, isRightPanelOpen } = useChat();
+  const { toggleLeftDrawer, toggleRightPanel, isRightPanelOpen, agent } = useChat();
 
   return (
     <header className="absolute top-0 left-0 right-0 z-20 pointer-events-none h-[78px] select-none">
@@ -41,14 +41,14 @@ export const ChatHeader: React.FC = () => {
         <div className="pointer-events-auto absolute left-1/2 -translate-x-1/2 top-3 flex flex-col items-center">
           <button
             onClick={toggleRightPanel}
-            title={isRightPanelOpen ? 'Close Dogesh panel' : 'Open Dogesh panel'}
+            title={isRightPanelOpen ? 'Close agent panel' : 'Open agent panel'}
             className="flex flex-col items-center cursor-pointer group focus:outline-none transition-transform active:scale-95"
           >
             <div className="relative z-10">
-              <DogeshAvatar size={46} showEditBadge={false} />
+              <DogeshAvatar size={46} showEditBadge={false} avatarUrl={agent?.avatarUrl} />
             </div>
             <span className="relative z-0 -mt-3 h-[27px] px-2.5 inline-flex items-center justify-center rounded-full bg-[#181818] group-hover:bg-[#222222] text-white text-[12px] font-medium tracking-tight shadow-xs border border-[#282828] transition-colors leading-none text-center">
-              Dogesh
+              {agent?.name || 'OpenClaw'}
             </span>
           </button>
         </div>

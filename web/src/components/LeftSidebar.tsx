@@ -6,7 +6,7 @@ import {
   Lightbulb,
   SquareCheck,
   Shapes,
-  Equal,
+  Settings,
 } from 'lucide-react';
 import { useChat } from '../context/ChatContext';
 
@@ -23,7 +23,7 @@ const sidebarNavItems: NavItemConfig[] = [
   { key: 'idea', icon: Lightbulb, label: 'Idea' },
   { key: 'goals', icon: SquareCheck, label: 'Goals' },
   { key: 'library', icon: Shapes, label: 'Library' },
-  { key: 'settings', icon: Equal, label: 'Settings' },
+  { key: 'settings', icon: Settings, label: 'Settings' },
 ];
 
 interface LeftSidebarProps {
@@ -35,11 +35,12 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onSelectNav,
   activeNav: propsActiveNav,
 }) => {
-  const { activeNav: contextNav, setActiveNav } = useChat();
+  const { activeNav: contextNav, setActiveNav, toggleLeftDrawer, isLeftDrawerOpen } = useChat();
   const current = propsActiveNav !== undefined ? propsActiveNav : contextNav;
 
   const handleNavClick = (key: string) => {
     setActiveNav(key);
+    if (key === 'search' && !isLeftDrawerOpen) toggleLeftDrawer();
     if (onSelectNav) onSelectNav(key);
   };
 
@@ -61,6 +62,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               key={item.key}
               onClick={() => handleNavClick(item.key)}
               title={item.label}
+              aria-label={item.label}
               className={`p-2 rounded-full transition-colors duration-150 cursor-pointer flex items-center justify-center text-white ${
                 isActive
                   ? 'bg-[#1e1e1e]'
@@ -78,13 +80,14 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
         <button
           onClick={() => handleNavClick(settingsItem.key)}
           title={settingsItem.label}
+          aria-label={settingsItem.label}
           className={`p-2 rounded-full transition-colors duration-150 cursor-pointer flex items-center justify-center text-white ${
             current === settingsItem.key
               ? 'bg-[#1e1e1e]'
               : 'hover:bg-[#141414]'
           }`}
         >
-          <Equal size={19} strokeWidth={1.8} />
+          <Settings size={19} strokeWidth={1.8} />
         </button>
       </div>
     </aside>

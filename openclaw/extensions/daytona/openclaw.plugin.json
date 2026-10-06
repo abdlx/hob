@@ -1,0 +1,30 @@
+{
+  "id": "daytona",
+  "categories": ["security"],
+  "enabledByDefault": false,
+  "activation": { "onStartup": true },
+  "name": "Daytona Sandbox",
+  "description": "Optional cloud execution with pinned SSH transport and core-owned runtime generations.",
+  "configContracts": {
+    "secretInputs": {
+      "bundledDefaultEnabled": false,
+      "paths": [{ "path": "apiKey", "expected": "string", "ownerKind": "capability" }]
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["apiKey", "snapshot", "knownHostsFile"],
+    "properties": {
+      "apiKey": { "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "object", "required": ["source", "provider", "id"], "additionalProperties": false, "properties": { "source": { "enum": ["env", "file", "exec", "store"] }, "provider": { "type": "string", "minLength": 1 }, "id": { "type": "string", "minLength": 1 } } }] },
+      "snapshot": { "type": "string", "minLength": 1 },
+      "knownHostsFile": { "type": "string", "minLength": 1 },
+      "workspaceRoot": { "type": "string", "pattern": "^/.+" },
+      "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 900 }
+    }
+  },
+  "uiHints": {
+    "apiKey": { "label": "Daytona API key", "sensitive": true },
+    "knownHostsFile": { "label": "Pinned SSH known-hosts file", "help": "Verify ssh.app.daytona.io host keys through a trusted channel before enabling." }
+  }
+}

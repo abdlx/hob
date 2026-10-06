@@ -1,0 +1,10 @@
+# Optional local/standalone overlay; do not select this file in Coolify.
+# docker compose -f compose.yaml -f compose.standalone.yaml up -d --build
+services:
+  muse:
+    environment:
+      MUSE_PASSWORD: ${MUSE_PASSWORD:?Set MUSE_PASSWORD in .env before starting OpenMuse}
+      MUSE_SESSION_SECRET: ${MUSE_SESSION_SECRET:?Set MUSE_SESSION_SECRET in .env}
+      MUSE_PUBLIC_URL: ${MUSE_PUBLIC_URL:-}
+    ports:
+      - "${MUSE_BIND_ADDRESS:-127.0.0.1}:${MUSE_PORT:-3000}:3000"

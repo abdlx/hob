@@ -3,7 +3,7 @@ import { useChat } from '../context/ChatContext';
 import { ChatMessageItem } from './ChatMessageItem';
 
 export const ChatMessageList: React.FC = () => {
-  const { messages, isLoading } = useChat();
+  const { messages, isLoading, agent } = useChat();
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isInitial = useRef(true);
@@ -27,7 +27,7 @@ export const ChatMessageList: React.FC = () => {
           <div className="flex justify-start mb-2.5 mt-0.5 w-full">
             <div className="max-w-[88%] bg-[#121212] border border-[#202020] rounded-[16px] px-3.5 py-2.5 text-[#888888] shadow-xs flex items-center space-x-2">
               <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 animate-ping" />
-              <span className="text-[11px] font-medium text-neutral-400">Dogesh is thinking...</span>
+              <span className="text-[11px] font-medium text-neutral-400">{agent?.name || 'OpenClaw'} is thinking…</span>
             </div>
           </div>
         )}

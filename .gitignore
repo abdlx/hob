@@ -1,4 +1,22 @@
 hermes-agent/
-openclaw/
+# The modified OpenClaw source is part of this app's deployable Git checkout.
+# Keep local agent tooling, credentials, and runtime state out of that checkout.
+/openclaw/.openclaw/
+/openclaw/.agents/
+/openclaw/.codex/
+/openclaw/.claude/
+/openclaw/.aws/
+/openclaw/.vscode/
+/openclaw/.git/
 .pnpm-store/
 p0a-evidence/
+.env
+.env.*
+!.env.example
+.tmp-ui/
+.tmp-runtime/
+.muse-data/
+.openmuse-dev/
+web/.env
+web/.env.*
+!web/.env.example

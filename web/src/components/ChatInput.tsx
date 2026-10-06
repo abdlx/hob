@@ -3,25 +3,11 @@ import { useChat } from '../context/ChatContext';
 import {
   Plus,
   ArrowUp,
-  MessageCircle,
-  Newspaper,
-  Lightbulb,
-  SquareCheck,
-  Shapes,
 } from 'lucide-react';
-import { BottomDock } from './BottomDock/BottomDock';
-import type { DockItemConfig } from './BottomDock/types';
-
-const mobileDockItems: DockItemConfig[] = [
-  { id: 'chat', label: 'Chat', icon: <MessageCircle size={20} strokeWidth={2} /> },
-  { id: 'feed', label: 'Feed', icon: <Newspaper size={20} strokeWidth={2} /> },
-  { id: 'idea', label: 'Idea', icon: <Lightbulb size={20} strokeWidth={2} /> },
-  { id: 'goals', label: 'Goals', icon: <SquareCheck size={20} strokeWidth={2} /> },
-  { id: 'library', label: 'Library', icon: <Shapes size={20} strokeWidth={2} /> },
-];
+import { MobileDock } from './MobileDock';
 
 export const ChatInput: React.FC = () => {
-  const { sendMessage, isLoading, activeNav, setActiveNav } = useChat();
+  const { sendMessage, isLoading, isPreparing, setActiveNav } = useChat();
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -41,7 +27,7 @@ export const ChatInput: React.FC = () => {
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!text.trim() || isLoading) return;
+    if (!text.trim() || isLoading || isPreparing) return;
     const current = text.trim();
     setText('');
     if (textareaRef.current) {
@@ -67,6 +53,8 @@ export const ChatInput: React.FC = () => {
         <button
           type="button"
           title="Add context"
+          aria-label="Open library"
+          onClick={() => setActiveNav('library')}
           className="text-white hover:text-white transition-colors shrink-0 cursor-pointer flex items-center justify-center p-0.5"
         >
           <Plus size={13} className="md:w-[15px] md:h-[15px]" strokeWidth={2} />
@@ -74,6 +62,7 @@ export const ChatInput: React.FC = () => {
 
         {/* Input */}
         <textarea
+          aria-label="Message"
           ref={textareaRef}
           rows={1}
           value={text}
@@ -87,7 +76,8 @@ export const ChatInput: React.FC = () => {
         {text.trim().length > 0 && (
           <button
             type="submit"
-            disabled={isLoading}
+            aria-label="Send message"
+            disabled={isLoading || isPreparing}
             className="w-[24px] h-[24px] md:w-7 md:h-7 rounded-full bg-white hover:bg-neutral-200 text-black flex items-center justify-center transition-all cursor-pointer shrink-0 disabled:opacity-40 shadow-xs"
           >
             <ArrowUp size={13} className="md:w-[15px] md:h-[15px]" strokeWidth={2.5} />
@@ -96,14 +86,7 @@ export const ChatInput: React.FC = () => {
       </form>
 
       {/* iOS-Inspired Bottom Dock Mobile Navigation Bar below input field (excluding search and settings) */}
-      <div className="md:hidden pt-2 pb-1 flex justify-center">
-        <BottomDock
-          items={mobileDockItems}
-          activeId={activeNav}
-          onChange={setActiveNav}
-          showSearch={false}
-        />
-      </div>
+      <MobileDock />
     </div>
   );
 };

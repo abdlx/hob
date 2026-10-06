@@ -1,5 +1,6 @@
 import React from 'react';
 import type { ChatMessage } from '../types/chat';
+import { displayGatewayNotice } from '../services/errors';
 
 interface ChatMessageItemProps {
   message: ChatMessage;
@@ -103,7 +104,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
   return (
     <div className="flex justify-start mb-2.5 mt-0.5 w-full">
       <div className="max-w-[88%] bg-[#121212] border border-[#202020] rounded-[16px] px-3.5 py-2.5 shadow-xs select-text">
-        {renderContent(message.content)}
+        {renderContent(displayGatewayNotice(message.content))}
         {message.status === 'streaming' && (
           <span className="inline-block w-2 h-3 ml-1 bg-neutral-400 animate-pulse align-middle" />
         )}

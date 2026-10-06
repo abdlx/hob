@@ -24,7 +24,7 @@ export const DogeshAvatar: React.FC<DogeshAvatarProps> = ({
       >
         <img
           src={avatarUrl || '/dogesh.png'}
-          alt="Dogesh"
+          alt="Agent avatar"
           className="w-full h-full object-cover scale-[1.28] translate-y-0.5"
         />
       </div>

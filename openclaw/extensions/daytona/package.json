@@ -1,0 +1,11 @@
+{
+  "name": "@openclaw/daytona-sandbox",
+  "version": "2026.9.8",
+  "type": "module",
+  "description": "Optional Daytona sandbox adapter for OpenClaw remote-shell execution.",
+  "openclaw": {
+    "extensions": ["./index.ts"],
+    "compat": { "pluginApi": ">=2026.9.8" },
+    "build": { "openclawVersion": "2026.9.8", "bundledDist": false }
+  }
+}
