@@ -44,6 +44,11 @@ cookies; `MUSE_SECURE_COOKIES=true` may also be set explicitly for an HTTPS-only
 deployment. A generated HTTP test domain works for initial testing, but use HTTPS
 before entering provider credentials.
 
+Set `MUSE_PUBLIC_URL` to the external URL, for example `https://muse.example.com`,
+when TLS terminates at another proxy or an older Coolify includes the internal
+port in its generated URL. The external scheme, hostname, and port must match
+what the browser uses so sign-in and other protected requests pass origin checks.
+
 Deploy and inspect the build and application logs. The first boot creates the
 OpenClaw configuration on the named `muse-data` volume. Open the URL, sign in,
 then configure your provider/model and any channels or connectors in Settings.

@@ -14,7 +14,8 @@ services:
       MUSE_PASSWORD: ${SERVICE_PASSWORD_64_MUSE}
       MUSE_SESSION_SECRET: ${SERVICE_REALBASE64_64_MUSE}
       MUSE_SECURE_COOKIES: ${MUSE_SECURE_COOKIES:-false}
-      MUSE_PUBLIC_URL: ${SERVICE_URL_MUSE_3000}
+      # Override when an external TLS proxy or older Coolify changes the origin.
+      MUSE_PUBLIC_URL: ${MUSE_PUBLIC_URL:-${SERVICE_URL_MUSE_3000}}
     # Coolify's proxy routes to this port. No fixed host port is published.
     expose:
       - "3000"
