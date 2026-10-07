@@ -209,12 +209,17 @@ SOUL.md/MEMORY.md edits, settings/schema/model-catalog reads, disabled schedule
 creation/update/deletion, a completed local system-event scheduled run, and
 Library/secret-store listing. A native command approval also passed admission,
 canonical session replay, rejection through the app, and terminal queue removal.
-Full declaration builds,
-provider-backed chat, and the Linux Docker image have not yet been verified.
+Full declaration builds and provider-backed chat have not yet been verified.
 The real frontend also loaded the Gateway's Library and settings schema, and its
 managed Chrome browser opened a page, returned a snapshot, and displayed a
-screenshot on Windows outside the shell sandbox. Linux container browser sandbox
-and persistence-after-recreation checks still require a Docker host.
+screenshot on Windows outside the shell sandbox.
+The [Linux amd64 image workflow](https://github.com/abdlx/hob/actions/runs/37498373786)
+passed for commit `67f92f886e55a58a0d368b8fc189b8593beb388f`. It built the complete
+image and verified first boot, protected login, Gateway APIs, a sandboxed browser
+snapshot/screenshot, and preserved configuration, identity, conversation,
+schedule, SOUL.md, and login after container recreation. No provider credentials
+were used. The actual Coolify domain/proxy and VPS policy still need deployment
+verification; Linux arm64 has not been exercised by this workflow.
 Public registry metadata confirms the pinned Node build and runtime images contain
 Node 24.21.0 on Linux amd64 and arm64, meeting this fork's Node version floor.
 That metadata check does not replace building and running the complete image.
