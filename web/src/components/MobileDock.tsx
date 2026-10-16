@@ -1,4 +1,4 @@
-import { MessageCircle, Newspaper, Lightbulb, SquareCheck, Shapes, Settings } from 'lucide-react';
+import { MessageCircle, Newspaper, BookOpen, SquareCheck, Shapes, Settings } from 'lucide-react';
 import { useChat } from '../context/ChatContext';
 import { BottomDock } from './BottomDock/BottomDock';
 import type { DockItemConfig } from './BottomDock/types';
@@ -6,7 +6,7 @@ import type { DockItemConfig } from './BottomDock/types';
 const items: DockItemConfig[] = [
   { id: 'chat', label: 'Chat', icon: <MessageCircle size={20} strokeWidth={2} /> },
   { id: 'feed', label: 'Feed', icon: <Newspaper size={20} strokeWidth={2} /> },
-  { id: 'idea', label: 'Ideas', icon: <Lightbulb size={20} strokeWidth={2} /> },
+  { id: 'idea', label: 'Workshop', icon: <BookOpen size={20} strokeWidth={2} /> },
   { id: 'goals', label: 'Goals', icon: <SquareCheck size={20} strokeWidth={2} /> },
   { id: 'library', label: 'Library', icon: <Shapes size={20} strokeWidth={2} /> },
 ];

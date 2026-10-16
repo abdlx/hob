@@ -3,12 +3,13 @@ import {
   MessageCircle,
   Search,
   Newspaper,
-  Lightbulb,
+  BookOpen,
   SquareCheck,
   Shapes,
   Settings,
 } from 'lucide-react';
 import { useChat } from '../context/ChatContext';
+import { Brand } from './Brand';
 
 export interface NavItemConfig {
   key: string;
@@ -20,7 +21,7 @@ const sidebarNavItems: NavItemConfig[] = [
   { key: 'chat', icon: MessageCircle, label: 'Chat' },
   { key: 'search', icon: Search, label: 'Search' },
   { key: 'feed', icon: Newspaper, label: 'Feed' },
-  { key: 'idea', icon: Lightbulb, label: 'Idea' },
+  { key: 'idea', icon: BookOpen, label: 'Workshop' },
   { key: 'goals', icon: SquareCheck, label: 'Goals' },
   { key: 'library', icon: Shapes, label: 'Library' },
   { key: 'settings', icon: Settings, label: 'Settings' },
@@ -48,9 +49,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   const settingsItem = sidebarNavItems[6];
 
   return (
-    <aside className="hidden md:flex w-[60px] bg-black flex-col items-center justify-between py-5 select-none shrink-0 z-20 border-r border-[#161616]">
-      {/* Top spacing */}
-      <div className="h-6" />
+    <aside className="hob-sidebar hidden md:flex w-[76px] flex-col items-center justify-between py-5 select-none shrink-0 z-20 border-r border-[#25211e]" aria-label="Main navigation">
+      <button aria-label="hob home" title="hob home" onClick={() => handleNavClick('chat')}><Brand compact /></button>
 
       {/* Middle icon cluster centered vertically */}
       <div className="flex-1 flex flex-col items-center justify-center space-y-3">
@@ -63,10 +63,11 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               onClick={() => handleNavClick(item.key)}
               title={item.label}
               aria-label={item.label}
-              className={`p-2 rounded-full transition-colors duration-150 cursor-pointer flex items-center justify-center text-white ${
+              aria-current={isActive ? 'page' : undefined}
+              className={`hob-nav-button p-2 rounded-xl transition-colors duration-150 cursor-pointer flex items-center justify-center ${
                 isActive
-                  ? 'bg-[#1e1e1e]'
-                  : 'hover:bg-[#141414]'
+                  ? 'bg-[#2e241e] text-[#ffad79]'
+                  : 'text-[#a19a92] hover:bg-[#211d19] hover:text-[#eee5dc]'
               }`}
             >
               <Icon size={18} strokeWidth={1.55} />

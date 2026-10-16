@@ -1,7 +1,7 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createApp, SETTINGS_RPC_METHODS } from '../app.mjs';
@@ -56,7 +56,7 @@ test('session creation persists through the canonical RPC and history is transla
   const messages = await (await request('/api/sessions/agent%3Amain%3Acustom/messages')).json();
   assert.equal(messages[0].content, 'Real result');
 });
-test('agent model selection forwards the exact published runtime and profile exposes its ID', async () => {
+test('legacy model selection forwards scalar runtime fields and rejects object-shaped overrides', async () => {
   calls.length = 0;
   handler = (method, params) => {
     if (method === 'agents.list') return { defaultId: 'main', agents: [{ id: 'main', model: { primary: 'openai/synthetic-model' }, agentRuntime: { id: 'synthetic-runtime', source: 'defaults' } }] };
@@ -72,8 +72,6 @@ test('agent model selection forwards the exact published runtime and profile exp
   const profile = await response.json();
   assert.equal(profile.agentRuntime, 'synthetic-runtime');
   assert.equal(profile.name, 'Committed identity');
-  const sourceSchema = await readFile(new URL('../../openclaw/packages/gateway-protocol/src/schema/agents-models-skills.ts', import.meta.url), 'utf8');
-  assert.match(sourceSchema, /agentRuntime: Type\.Optional\(NonEmptyString\)/);
   calls.length = 0;
   const invalid = await request('/api/agent', 'PATCH', { id: 'main', model: 'openai/synthetic-model', agentRuntime: { id: 'synthetic-runtime' } });
   assert.equal(invalid.status, 400);
@@ -212,12 +210,12 @@ test('health and authenticated readiness distinguish connection from writable st
   assert.equal((await request('/healthz')).status, 200);
   delete gateway.getStartupStatus;
 });
-test('settings RPC allowlist matches the modified OpenClaw catalog and forbids raw secret retrieval', async () => {
-  const catalog = await readFile(new URL('../../openclaw/src/gateway/methods/core-descriptors.ts', import.meta.url), 'utf8');
-  for (const method of SETTINGS_RPC_METHODS) assert.ok(catalog.includes(`"${method}"`), `${method} must exist in the canonical Gateway`);
-  assert.equal(SETTINGS_RPC_METHODS.has('secrets.resolve'), false);
+test('legacy settings RPC rejects raw secret retrieval and arbitrary execution before gateway calls', async () => {
   calls.length = 0;
-  assert.equal((await request('/api/rpc', 'POST', { method: 'secrets.resolve' })).status, 403);
+  for (const method of ['secrets.resolve', 'secrets.store.get', 'process.exec', 'config.get']) {
+    assert.equal(SETTINGS_RPC_METHODS.has(method), false);
+    assert.equal((await request('/api/rpc', 'POST', { method })).status, 403);
+  }
   assert.equal(calls.length, 0);
 });
 test('settings cannot remove local mode or commit a remote mode that prevents container startup', async () => {
@@ -243,4 +241,21 @@ test('scheduled tasks include disabled jobs and consume canonical pagination', a
   const result = await (await request('/api/goals')).json();
   assert.equal(result.jobs.length, 201);
   assert.equal(result.jobs.at(-1).enabled, false);
+});
+
+
+test('Workshop decisions forward the reviewed revision and surface stale rejection without retry', async () => {
+  const expectedRevisionHash = 'a'.repeat(64);
+  for (const action of ['evaluate', 'apply', 'reject']) {
+    calls.length = 0;
+    handler = (method, params) => {
+      assert.equal(method, `skills.proposals.${action}`);
+      assert.equal(params.expectedRevisionHash, expectedRevisionHash);
+      throw new GatewayError('Proposal revision changed; inspect again.', 'INVALID_REQUEST');
+    };
+    const response = await request('/api/rpc', 'POST', { method: `skills.proposals.${action}`, params: { agentId: 'main', proposalId: 'reviewed-proposal', expectedRevisionHash } });
+    assert.notEqual(response.status, 200);
+    assert.match((await response.json()).error, /Proposal revision changed/);
+    assert.equal(calls.length, 1);
+  }
 });

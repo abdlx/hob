@@ -13,7 +13,7 @@ import { MobileDock } from '../components/MobileDock';
 export const ChatScreen: React.FC = () => {
   const { activeNav, error, clearError, refresh, isPreparing } = useChat();
   return (
-    <div className="flex h-full w-full overflow-hidden bg-black text-[#e5e5e5]">
+    <div className="hob-app flex h-full w-full overflow-hidden text-[#e5e5e5]">
       {/* Skinny Left Navigation Bar */}
       <LeftSidebar />
 
@@ -21,8 +21,8 @@ export const ChatScreen: React.FC = () => {
       <ChatsDrawer />
 
       {/* Main Center Chat Container */}
-      <main className="flex-1 flex flex-col h-full min-w-0 bg-black relative overflow-hidden">
-        {isPreparing && <div className="px-4 pt-2"><Notice>OpenClaw is starting and preparing your workspace. Settings remain available.</Notice></div>}
+      <main id="main-content" className="hob-main flex-1 flex flex-col h-full min-w-0 relative overflow-hidden">
+        {isPreparing && <div className="px-4 pt-2"><Notice>Your agent runtime is starting. Settings remain available.</Notice></div>}
         {error && <div className="px-4 pt-2"><Notice error>{error}<span className="flex gap-3 mt-2"><button onClick={refresh} className="underline">Retry</button><button onClick={clearError} className="underline">Dismiss</button></span></Notice></div>}
         {activeNav === 'chat' || activeNav === 'search' ? <>
           <ChatHeader />

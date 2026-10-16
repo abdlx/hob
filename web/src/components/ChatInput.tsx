@@ -37,17 +37,17 @@ export const ChatInput: React.FC = () => {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSubmit();
     }
   };
 
   return (
-    <div className="w-full max-w-[640px] mx-auto px-3 md:px-4 pb-2 md:pb-3 pt-1">
+    <div className="hob-composer w-full max-w-[800px] mx-auto px-3 md:px-6 pb-2 md:pb-4 pt-1">
       <form
         onSubmit={handleSubmit}
-        className="w-full h-[34px] md:h-[44px] bg-[#121212] border border-[#222222] focus-within:border-[#383838] rounded-full px-2.5 md:px-4 flex items-center gap-1.5 md:gap-2.5 shadow-xs transition-colors"
+        className="hob-composer-form w-full min-h-[60px] rounded-2xl px-4 flex items-center gap-3 transition-colors"
       >
         {/* Plus button */}
         <button
@@ -69,6 +69,7 @@ export const ChatInput: React.FC = () => {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Message"
+          disabled={isPreparing}
           className="flex-1 bg-transparent text-[#e5e5e5] placeholder-[#73716c] text-[12.5px] md:text-[13.5px] focus:outline-none resize-none p-0 m-0 h-[20px] md:h-[22px] leading-[20px] md:leading-[22px] text-left"
         />
 
@@ -84,6 +85,7 @@ export const ChatInput: React.FC = () => {
           </button>
         )}
       </form>
+      <p className="hob-composer-hint">Your space. Your agent. <button onClick={() => setActiveNav('idea')}>Learning stays in your hands.</button></p>
 
       {/* iOS-Inspired Bottom Dock Mobile Navigation Bar below input field (excluding search and settings) */}
       <MobileDock />

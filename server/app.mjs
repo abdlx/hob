@@ -4,6 +4,8 @@ import { constants, createReadStream } from 'node:fs';
 import { open, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHermesRoutes } from './hermes-routes.mjs';
+import { createHermesChatRoutes } from './hermes-chat.mjs';
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -18,6 +20,7 @@ export const SETTINGS_RPC_METHODS = new Set([
   'channels.status', 'channels.start', 'channels.stop', 'channels.logout', 'channels.pairing.list', 'channels.pairing.approve', 'channels.pairing.dismiss',
   'web.login.start', 'web.login.wait', 'plugins.list', 'plugins.search', 'plugins.inspect', 'plugins.install', 'plugins.setEnabled', 'plugins.uninstall', 'plugins.refresh', 'plugins.reload', 'plugins.credentials.inspect',
   'skills.status', 'skills.update', 'wizard.start', 'wizard.next', 'wizard.cancel', 'wizard.status',
+  'skills.proposals.list', 'skills.proposals.inspect', 'skills.proposals.evaluate', 'skills.proposals.apply', 'skills.proposals.reject', 'skills.workshop.read',
   'secrets.reload', 'secrets.store.list', 'secrets.store.set', 'secrets.store.delete', 'config.schema.lookup', 'exec.approvals.get', 'exec.approvals.set', 'cron.status', 'cron.runs', 'approval.history', 'health',
 ]);
 export function messageText(message) {
@@ -98,7 +101,9 @@ async function browserImage(stateDir, filename) {
   } finally { await handle?.close(); await rootHandle.close(); }
 }
 
-export function createApp({ gateway, password = process.env.MUSE_PASSWORD, accessToken = process.env.MUSE_ACCESS_TOKEN, sessionSecret = process.env.MUSE_SESSION_SECRET, publicUrl = process.env.MUSE_PUBLIC_URL, secureCookies = process.env.MUSE_SECURE_COOKIES === 'true', stateDir = process.env.OPENCLAW_STATE_DIR, staticDir = fileURLToPath(new URL('../web/dist', import.meta.url)) }) {
+export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gateway : undefined, bots, password = process.env.MUSE_PASSWORD, accessToken = process.env.MUSE_ACCESS_TOKEN, sessionSecret = process.env.MUSE_SESSION_SECRET, publicUrl = process.env.MUSE_PUBLIC_URL, secureCookies = process.env.MUSE_SECURE_COOKIES === 'true', stateDir = process.env.OPENCLAW_STATE_DIR, staticDir = fileURLToPath(new URL('../web/dist', import.meta.url)) }) {
+  const hermesRoutes = hermes ? createHermesRoutes(hermes, bots) : null;
+  const hermesChat = gateway?.kind === 'hermes' ? createHermesChatRoutes(gateway, bots) : null;
   const configured = Boolean(password || accessToken);
   const secret = sessionSecret || createHash('sha256').update(`muse-session:${password || accessToken || randomBytes(32).toString('hex')}`).digest();
   const fingerprint = createHash('sha256').update(`${password || ''}:${accessToken || ''}`).digest('base64url');
@@ -119,7 +124,7 @@ export function createApp({ gateway, password = process.env.MUSE_PASSWORD, acces
     const origin = req.headers.origin;
     if (!origin) return;
     const allowed = publicUrl ? new URL(publicUrl).origin : `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`;
-    if (origin !== allowed) throw new HttpError(403, 'Request origin does not match Muse.');
+    if (origin !== allowed) throw new HttpError(403, 'Request origin does not match hob.');
   };
   const rpc = (method, params = {}) => gateway.request(method, params);
   const startup = async () => gateway.connected
@@ -157,11 +162,13 @@ export function createApp({ gateway, password = process.env.MUSE_PASSWORD, acces
     res.setHeader('X-Frame-Options', 'DENY');
     try {
       const url = new URL(req.url, 'http://muse.local');
-      const segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+      let segments;
+      try { segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent); }
+      catch { throw new HttpError(400, 'Invalid URL encoding.'); }
       const route = url.pathname;
       const method = req.method;
       if (route === '/healthz') {
-        const state = await startup();
+        const state = typeof gateway.getServiceHealth === 'function' ? await gateway.getServiceHealth() : await startup();
         return json(res, state.ready ? 200 : 503, { ok: state.ready, gatewayConnected: gateway.connected });
       }
       if (route === '/api/auth/status' && method === 'GET') return json(res, 200, { authenticated: Boolean(authenticated(req)), configured, gatewayConnected: gateway.connected });
@@ -184,7 +191,12 @@ export function createApp({ gateway, password = process.env.MUSE_PASSWORD, acces
         return json(res, 200, { authenticated: true });
       }
       if (route.startsWith('/api/')) {
-        if (!authenticated(req)) throw new HttpError(401, 'Sign in to Muse.');
+        if (!authenticated(req)) throw new HttpError(401, 'Sign in to hob.');
+        if (route === '/api/runtime' && method === 'GET') return json(res, 200, { runtime: hermes ? 'hermes' : 'openclaw' });
+        if (route.startsWith('/api/hermes/')) {
+          if (!hermesRoutes) throw new HttpError(503, 'Hermes has not been connected to this server.');
+          return await hermesRoutes(req, res, url, { json, body, startEvents, sendEvent });
+        }
         if (route === '/api/readiness' && method === 'GET') return json(res, 200, await startup());
         if (route === '/api/auth/logout' && method === 'POST') { setCookie(res, '', 0); return json(res, 200, { authenticated: false }); }
         if (route === '/api/events' && method === 'GET') {
@@ -194,6 +206,7 @@ export function createApp({ gateway, password = process.env.MUSE_PASSWORD, acces
           req.on('close', () => { clearInterval(heartbeat); streams.delete(res); });
           return;
         }
+        if (hermesChat && await hermesChat(req, res, url, { json, body, startEvents, sendEvent, required })) return;
         if (route === '/api/sessions' && method === 'GET') return json(res, 200, (await sessions()).map(presentSession));
         if (route === '/api/sessions' && method === 'POST') {
           const input = await body(req);
@@ -311,9 +324,9 @@ export function createApp({ gateway, password = process.env.MUSE_PASSWORD, acces
           const transport = input.patch.gateway;
           const replacesMode = Array.isArray(input.replacePaths) && input.replacePaths.some(path => path === 'gateway' || path === 'gateway.mode');
           if (transport === null || (transport && Object.hasOwn(transport, 'mode') && transport.mode !== 'local') || (replacesMode && transport?.mode !== 'local')) {
-            throw new HttpError(400, 'This installation runs its own Gateway. Keep gateway.mode set to local so OpenMuse can restart.');
+            throw new HttpError(400, 'This installation runs its own Gateway. Keep gateway.mode set to local so hob can restart.');
           }
-          return json(res, 200, await rpc('config.patch', { raw: JSON.stringify(input.patch), baseHash: input.baseHash, ...(input.replacePaths ? { replacePaths: input.replacePaths } : {}), note: 'Updated in Muse settings' }));
+          return json(res, 200, await rpc('config.patch', { raw: JSON.stringify(input.patch), baseHash: input.baseHash, ...(input.replacePaths ? { replacePaths: input.replacePaths } : {}), note: 'Updated in hob settings' }));
         }
         if (route === '/api/browser/tabs' && method === 'GET') return json(res, 200, await rpc('browser.request', { method: 'GET', path: '/tabs', ...(url.searchParams.get('profile') ? { query: { profile: url.searchParams.get('profile') } } : {}) }));
         if (route === '/api/browser/actions' && method === 'POST') {
@@ -382,13 +395,13 @@ export function createApp({ gateway, password = process.env.MUSE_PASSWORD, acces
           const input = await body(req);
           // Settings workflows need plugin/channel/provider-specific screens.
           // Authority and schema remain at the Gateway, with no raw file/exec proxy.
-          if (!SETTINGS_RPC_METHODS.has(input.method)) throw new HttpError(403, 'This Gateway method is not exposed by Muse.');
+          if (!SETTINGS_RPC_METHODS.has(input.method)) throw new HttpError(403, 'This Gateway method is not exposed by hob.');
           return json(res, 200, await rpc(input.method, input.params || {}));
         }
         throw new HttpError(404, 'API endpoint not found.');
       }
       if (method !== 'GET' && method !== 'HEAD') throw new HttpError(405, 'Method not allowed.');
-      const root = await realpath(staticDir).catch(() => { throw new HttpError(503, 'Build the web frontend before starting Muse.'); });
+      const root = await realpath(staticDir).catch(() => { throw new HttpError(503, 'Build the web frontend before starting hob.'); });
       const decoded = decodeURIComponent(url.pathname);
       if (decoded.includes('\0') || decoded.includes('\\')) throw new HttpError(400, 'Invalid asset path.');
       let filename = path.resolve(root, `.${decoded}`);
@@ -401,7 +414,7 @@ export function createApp({ gateway, password = process.env.MUSE_PASSWORD, acces
       if (method === 'HEAD') res.end(); else createReadStream(resolved).pipe(res);
     } catch (error) {
       const status = error.status || (error.code === 'UNAVAILABLE' || error.code === 'TIMEOUT' ? 503 : error.code === 'INVALID_REQUEST' ? 400 : 502);
-      const message = error.status || error.code ? error.message : 'Muse could not complete this request.';
+      const message = error.status || error.code ? error.message : 'hob could not complete this request.';
       if (!res.headersSent) json(res, status, { error: message, ...(error.code ? { code: error.code } : {}) });
       else { sendEvent(res, 'error', { message }); res.end(); }
     }

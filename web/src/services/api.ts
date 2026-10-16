@@ -2,6 +2,7 @@ import type { AgentProfile, ChatMessage, ChatSession, SecurityApproval, SystemSt
 import { readTurnStream } from './stream';
 
 const baseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+let activeProfile = 'default';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -10,6 +11,7 @@ export class ApiError extends Error {
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
+  headers.set('X-Hob-Profile', activeProfile);
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   const response = await fetch(`${baseUrl}${path}`, { ...init, headers, credentials: 'same-origin' });
   if (!response.ok) {
@@ -23,6 +25,12 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 }
 
 class ChatApiClient {
+  getProfile = () => activeProfile;
+  setProfile = (profile: string) => {
+    if (!/^[a-z][a-z0-9_-]{0,63}$/.test(profile)) throw new Error('Select a valid bot.');
+    activeProfile = profile;
+  };
+  getAgents = () => apiFetch<{ agents: { id: string; name: string }[] }>('/api/agents');
   getReadiness = () => apiFetch<{ ready: boolean; status: string }>('/api/readiness');
   getSessions = () => apiFetch<ChatSession[]>('/api/sessions');
   createSession = (title = 'New Conversation') => apiFetch<ChatSession>('/api/sessions', { method: 'POST', body: JSON.stringify({ title }) });
@@ -35,7 +43,7 @@ class ChatApiClient {
   resolveSecurityApproval = (id: string, decision: 'approved' | 'rejected') => apiFetch<void>(`/api/security/approvals/${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify({ decision }) });
   async sendMessage(id: string, content: string, onChunk?: (text: string, replace?: boolean) => void): Promise<ChatMessage> {
     const response = await fetch(`${baseUrl}/api/sessions/${encodeURIComponent(id)}/turns`, {
-      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: JSON.stringify({ content }),
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', 'X-Hob-Profile': activeProfile }, body: JSON.stringify({ content }),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => null);

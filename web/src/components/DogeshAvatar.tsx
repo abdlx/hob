@@ -11,7 +11,7 @@ interface DogeshAvatarProps {
 export const DogeshAvatar: React.FC<DogeshAvatarProps> = ({
   size = 72,
   showEditBadge = true,
-  avatarUrl = '/dogesh.png',
+  avatarUrl = '/brand/hob-mark.png',
   onEditClick,
 }) => {
   return (
@@ -20,12 +20,12 @@ export const DogeshAvatar: React.FC<DogeshAvatarProps> = ({
       style={{ width: size, height: size }}
     >
       <div
-        className="w-full h-full rounded-full overflow-hidden border border-[#2b2a27] shadow-xs bg-white flex items-center justify-center"
+        className="w-full h-full rounded-full overflow-hidden border border-[#2b2a27] shadow-xs bg-[#211a14] flex items-center justify-center"
       >
         <img
-          src={avatarUrl || '/dogesh.png'}
+          src={avatarUrl || '/brand/hob-mark.png'}
           alt="Agent avatar"
-          className="w-full h-full object-cover scale-[1.28] translate-y-0.5"
+          className="w-full h-full object-contain p-1.5"
         />
       </div>
 

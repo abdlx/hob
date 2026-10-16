@@ -16,7 +16,7 @@ export class GatewayBridge extends EventEmitter {
     super();
     const endpoint = new URL(url);
     if (!(endpoint.protocol === 'ws:' && ['127.0.0.1', 'localhost', '[::1]'].includes(endpoint.hostname))) {
-      throw new Error('The Muse bridge requires a loopback ws:// Gateway URL.');
+      throw new Error('The hob bridge requires a loopback ws:// Gateway URL.');
     }
     if (!token) throw new Error('OPENCLAW_GATEWAY_TOKEN is required.');
     this.url = url;
@@ -52,7 +52,7 @@ export class GatewayBridge extends EventEmitter {
       if (frame.type === 'event' && frame.event === 'connect.challenge') {
         this.request('connect', {
           minProtocol: 4, maxProtocol: 4,
-          client: { id: 'cli', displayName: 'Muse', version: '1.0.0', platform: process.platform, mode: 'cli' },
+          client: { id: 'cli', displayName: 'hob', version: '1.0.0', platform: process.platform, mode: 'cli' },
           role: 'operator', scopes: ['operator.read', 'operator.write', 'operator.admin', 'operator.approvals', 'operator.questions', 'operator.pairing'],
           caps: ['tool-events', 'exec-approvals', 'plugin-approvals', 'session-scoped-events'],
           auth: { token: this.token },

@@ -3,9 +3,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        INSTALL_BROWSER: "1"
-        OPENCLAW_BUILD_MEMORY_MB: "6144"
     restart: unless-stopped
     stop_grace_period: 40s
     environment:
@@ -20,10 +17,19 @@ services:
     expose:
       - "3000"
     volumes:
-      - muse-data:/data
+      - hermes-data:/opt/data
     shm_size: "1gb"
     cap_drop:
       - ALL
+    # The official image initializes volume ownership and drops to UID 10000.
+    # Agent/web processes run unprivileged after this stock initialization.
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+      - KILL
     security_opt:
       - no-new-privileges:true
       # Compose reads this file on its client, not inside the app container.
@@ -36,4 +42,4 @@ services:
         max-file: "3"
 
 volumes:
-  muse-data:
+  hermes-data:

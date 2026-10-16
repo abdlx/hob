@@ -9,6 +9,9 @@ import { errorText } from '../components/workspaceUtils';
 import { SettingsActions } from '../components/SettingsActions';
 import { CredentialsSettings } from '../components/CredentialsSettings';
 import { SetupWizard } from '../components/SetupWizard';
+import { LearningSettings } from '../components/LearningSettings';
+import { WorkshopView } from './WorkshopView';
+import { HermesSettings } from './HermesSettings';
 
 export interface GoalJob {
   id: string; name: string; enabled: boolean; configRevision?: string;
@@ -133,6 +136,7 @@ const sections = [
   { id: 'connectors', title: 'Connectors & plugins', keys: ['plugins', 'skills', 'bindings', 'hooks', 'mcp'] },
   { id: 'channels', title: 'Messaging channels', keys: ['channels', 'messages', 'broadcast', 'session'] },
   { id: 'permissions', title: 'Storage & permissions', keys: ['tools', 'browser', 'memory', 'media', 'approvals', 'commands', 'sandbox', 'filesystem'] },
+  { id: 'learning', title: 'Learning', keys: ['skills'] },
   { id: 'notifications', title: 'Notifications', keys: ['cron', 'talk', 'audio'] },
   { id: 'appearance', title: 'Appearance', keys: ['ui'] },
   { id: 'gateway', title: 'Gateway & runtime', keys: ['gateway', 'logging', 'diagnostics', 'update', 'discovery', 'web', 'canvasHost', 'nodeHost', 'wizard'] },
@@ -140,7 +144,7 @@ const sections = [
   { id: 'advanced', title: 'Advanced JSON', keys: [] },
 ];
 
-function SettingsView() {
+function OpenClawSettingsView() {
   const { refresh } = useChat();
   const [snapshot, setSnapshot] = useState<{ config: Config; hash: string; valid?: boolean; issues?: unknown[] } | null>(null);
   const [schema, setSchema] = useState<SchemaResult | null>(null);
@@ -159,12 +163,29 @@ function SettingsView() {
   const keys = section === 'all' ? [...new Set([...Object.keys(schema?.schema.properties || {}), ...Object.keys(draft)])] : current.keys.filter((key) => schema?.schema.properties?.[key] || key in draft);
   return <div className="space-y-4"><div className="flex items-center justify-between gap-3"><p className="text-[12px] text-[#847b6d]">Configure your self-hosted OpenClaw gateway.</p><div className="flex gap-2"><button title="Reload settings" disabled={busy} className={buttonClass} onClick={load}><RefreshCw size={13} /></button><button disabled={busy || !changed || loading} className={buttonClass} onClick={save}><Save size={13} />{busy ? 'Saving…' : 'Save changes'}</button></div></div>{error && <Notice error>{error}</Notice>}{status && <Notice>{status}</Notice>}{snapshot?.valid === false && <Notice error>OpenClaw reported configuration issues: {JSON.stringify(snapshot.issues)}</Notice>}
     <div className="flex gap-1.5 flex-wrap">{sections.map((item) => <button key={item.id} className={`${buttonClass} ${section === item.id ? '!border-[#846748] !bg-[#322619]' : '!bg-[#101010] !text-[#9d9283]'}`} onClick={() => setSection(item.id)}>{item.title}</button>)}</div>
-    <SettingsActions key={section} section={section} />{section === 'models' && <><SetupWizard /><CredentialsSettings /></>}{section === 'channels' && <SetupWizard flow="channels" />}{loading ? <Notice>Loading configuration and its schema…</Notice> : schema && snapshot && <div className={`${cardClass} space-y-5`}><h3 className="text-[13px] font-medium text-[#dfd1bd]">{current.title}</h3>{section === 'advanced' ? <JsonField key={snapshot.hash} label="Full configuration" value={draft} onChange={(value) => { if (object(value)) { setDraft(value); setError(''); } else setError('Configuration must be a JSON object.'); }} /> : keys.map((key) => <SchemaFields key={`${snapshot.hash}:${key}`} schema={schema.schema.properties?.[key] || { type: 'object' }} value={draft[key]} onChange={(value) => setDraft((previous) => withValue(previous, key, value))} path={key} hints={schema.uiHints} />)}{section !== 'advanced' && keys.length === 0 && <Notice>This gateway schema has no dedicated settings in this section. All settings remain available in All OpenClaw settings.</Notice>}{section === 'appearance' && <Field label="Interface contrast" hint="Saved in this browser."><select className={inputClass} value={contrast} onChange={(event) => { setContrast(event.target.value); localStorage.setItem('mused-contrast', event.target.value); document.documentElement.style.filter = event.target.value === 'high' ? 'contrast(1.15)' : ''; }}><option value="default">Original black & bronze</option><option value="high">Higher contrast</option></select></Field>}{section === 'notifications' && <div className="space-y-2"><p className="text-[11px] text-[#928577]">Browser notifications require permission on this device.</p><button className={buttonClass} onClick={async () => { if (!('Notification' in window)) { setError('This browser does not support notifications.'); return; } try { const permission = await Notification.requestPermission(); localStorage.setItem('mused-notifications', permission === 'granted' ? 'enabled' : 'disabled'); setStatus('Browser notifications: ' + permission); } catch (error) { setError(errorText(error)); } }}>Enable browser notifications</button></div>}<p className="text-[10px] text-[#6e665b]">Stored secrets are masked. Unchanged credentials are preserved. Changes are checked against the current configuration revision.</p></div>}
+    {section === 'learning' && snapshot && <LearningSettings skills={draft.skills} onChange={(skills) => setDraft(previous => ({ ...previous, skills }))} />}<SettingsActions key={section} section={section} />{section === 'models' && <><SetupWizard /><CredentialsSettings /></>}{section === 'channels' && <SetupWizard flow="channels" />}{loading ? <Notice>Loading configuration and its schema…</Notice> : schema && snapshot && <div className={`${cardClass} space-y-5`}><h3 className="text-[13px] font-medium text-[#dfd1bd]">{current.title}</h3>{section === 'advanced' ? <JsonField key={snapshot.hash} label="Full configuration" value={draft} onChange={(value) => { if (object(value)) { setDraft(value); setError(''); } else setError('Configuration must be a JSON object.'); }} /> : keys.map((key) => <SchemaFields key={`${snapshot.hash}:${key}`} schema={schema.schema.properties?.[key] || { type: 'object' }} value={draft[key]} onChange={(value) => setDraft((previous) => withValue(previous, key, value))} path={key} hints={schema.uiHints} />)}{section !== 'advanced' && keys.length === 0 && <Notice>This gateway schema has no dedicated settings in this section. All settings remain available in All OpenClaw settings.</Notice>}{section === 'appearance' && <Field label="Interface contrast" hint="Saved in this browser."><select className={inputClass} value={contrast} onChange={(event) => { setContrast(event.target.value); localStorage.setItem('mused-contrast', event.target.value); document.documentElement.style.filter = event.target.value === 'high' ? 'contrast(1.15)' : ''; }}><option value="default">Original black & bronze</option><option value="high">Higher contrast</option></select></Field>}{section === 'notifications' && <div className="space-y-2"><p className="text-[11px] text-[#928577]">Browser notifications require permission on this device.</p><button className={buttonClass} onClick={async () => { if (!('Notification' in window)) { setError('This browser does not support notifications.'); return; } try { const permission = await Notification.requestPermission(); localStorage.setItem('mused-notifications', permission === 'granted' ? 'enabled' : 'disabled'); setStatus('Browser notifications: ' + permission); } catch (error) { setError(errorText(error)); } }}>Enable browser notifications</button></div>}<p className="text-[10px] text-[#6e665b]">Stored secrets are masked. Unchanged credentials are preserved. Changes are checked against the current configuration revision.</p></div>}
   </div>;
+}
+
+function SettingsView() {
+  const [runtime, setRuntime] = useState('');
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    void apiFetch<{ runtime: string }>('/api/runtime').then(result => {
+      if (active) setRuntime(result.runtime);
+    }).catch(error => { if (active) setError(errorText(error)); });
+    return () => { active = false; };
+  }, []);
+  if (error) return <Notice error>{error}</Notice>;
+  if (!runtime) return <Notice>Loading runtime settings…</Notice>;
+  if (runtime === 'hermes') return <HermesSettings />;
+  if (runtime === 'openclaw') return <OpenClawSettingsView />;
+  return <Notice error>The server reported an unsupported runtime.</Notice>;
 }
 
 export function WorkspaceViews({ activeNav }: { activeNav: string }) {
   const { setActiveNav } = useChat();
-  const title = activeNav === 'idea' ? 'Ideas' : activeNav.charAt(0).toUpperCase() + activeNav.slice(1);
-  return <><header className="h-[58px] border-b border-[#181818] px-5 flex items-center gap-3 shrink-0"><button className="text-[#9d8b73] md:hidden" title="Back to chat" onClick={() => setActiveNav('chat')}><ArrowLeft size={16} /></button><h1 className="text-[14px] font-medium text-[#e0d7c9]">{title}</h1></header><div className="flex-1 overflow-y-auto p-5 md:p-7"><div className="mx-auto max-w-[900px]">{activeNav === 'library' ? <LibraryView /> : activeNav === 'goals' ? <GoalsView /> : activeNav === 'settings' ? <SettingsView /> : activeNav === 'feed' || activeNav === 'idea' ? null : <Notice>Select a conversation from Search to continue chatting.</Notice>}</div></div></>;
+  const title = activeNav === 'idea' ? 'Workshop' : activeNav.charAt(0).toUpperCase() + activeNav.slice(1);
+  return <><header className="h-[58px] border-b border-[#181818] px-5 flex items-center gap-3 shrink-0"><button className="text-[#9d8b73] md:hidden" title="Back to chat" onClick={() => setActiveNav('chat')}><ArrowLeft size={16} /></button><h1 className="text-[14px] font-medium text-[#e0d7c9]">{title}</h1></header><div className="flex-1 overflow-y-auto p-5 md:p-7"><div className="mx-auto max-w-[900px]">{activeNav === 'library' ? <LibraryView /> : activeNav === 'goals' ? <GoalsView /> : activeNav === 'settings' ? <SettingsView /> : activeNav === 'idea' ? <WorkshopView /> : activeNav === 'feed' ? <Notice>Your agent activity appears in the Activity panel. Scheduled results are available in Goals.</Notice> : <Notice>Select a conversation from Search to continue chatting.</Notice>}</div></div></>;
 }

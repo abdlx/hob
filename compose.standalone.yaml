@@ -3,7 +3,7 @@
 services:
   muse:
     environment:
-      MUSE_PASSWORD: ${MUSE_PASSWORD:?Set MUSE_PASSWORD in .env before starting OpenMuse}
+      MUSE_PASSWORD: ${MUSE_PASSWORD:?Set MUSE_PASSWORD in .env before starting hob}
       MUSE_SESSION_SECRET: ${MUSE_SESSION_SECRET:?Set MUSE_SESSION_SECRET in .env}
       MUSE_PUBLIC_URL: ${MUSE_PUBLIC_URL:-}
     ports:

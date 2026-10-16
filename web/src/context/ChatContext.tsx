@@ -9,6 +9,7 @@ import { displayGatewayNotice } from '../services/errors';
 interface ChatContextValue {
   messages: ChatMessage[]; sessions: ChatSession[]; activeSessionId: string;
   agent: AgentProfile | null; tasks: TaskItem[]; approvals: SecurityApproval[]; stats: SystemStats | null;
+  agents: { id: string; name: string }[]; selectAgent: (id: string) => Promise<void>;
   activeTab: RightPanelTab; isRightPanelOpen: boolean; isLeftDrawerOpen: boolean; isLoading: boolean;
   activeNav: string; error: string | null; connected: boolean; isPreparing: boolean;
   setActiveNav: (nav: string) => void; sendMessage: (content: string) => Promise<void>;
@@ -31,6 +32,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const operationErrorRef = useRef(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [agent, setAgent] = useState<AgentProfile | null>(null);
+  const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [approvals, setApprovals] = useState<SecurityApproval[]>([]);
   const [stats, setStats] = useState<SystemStats | null>(null);
@@ -55,13 +57,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    const results = await Promise.allSettled([chatApi.getSessions(), chatApi.getAgentProfile(), chatApi.getTasks(), chatApi.getSecurityApprovals(), chatApi.getSystemStats()]);
-    const [sess, profile, activity, pending, system] = results;
+    const selectedProfile = chatApi.getProfile();
+    const results = await Promise.allSettled([chatApi.getSessions(), chatApi.getAgentProfile(), chatApi.getTasks(), chatApi.getSecurityApprovals(), chatApi.getSystemStats(), chatApi.getAgents()]);
+    if (selectedProfile !== chatApi.getProfile()) return;
+    const [sess, profile, activity, pending, system, roster] = results;
     if (sess.status === 'fulfilled') setSessions(sess.value);
     if (profile.status === 'fulfilled') { setAgent(profile.value); setConnected(profile.value.status !== 'disconnected'); }
     if (activity.status === 'fulfilled') setTasks(activity.value);
     if (pending.status === 'fulfilled') setApprovals(pending.value);
     if (system.status === 'fulfilled') setStats(system.value);
+    if (roster.status === 'fulfilled') setAgents(roster.value.agents);
     const failed = results.find(result => result.status === 'rejected');
     if (failed?.status === 'rejected') { if (!operationErrorRef.current) setError(errorText(failed.reason)); }
     else if (!operationErrorRef.current) setError(null);
@@ -71,6 +76,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
     async function initialize() {
+      const selectedProfile = chatApi.getProfile();
       try {
         while (alive) {
           if ((await chatApi.getReadiness()).ready) break;
@@ -82,7 +88,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         const available = await chatApi.getSessions();
         if (!alive) return;
         const initial = available[0] || await chatApi.createSession();
-        if (!alive || sessionRef.current) return;
+        if (!alive || sessionRef.current || selectedProfile !== chatApi.getProfile()) return;
         sessionRef.current = initial.id;
         setActiveSessionId(initial.id);
         setSessions(available.length ? available : [initial]);
@@ -130,6 +136,27 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     } catch (err) { setError(errorText(err)); }
   }, [setActiveNav, isPreparing]);
 
+  const selectAgent = useCallback(async (id: string) => {
+    if (sendingRef.current || isPreparing || id === chatApi.getProfile()) return;
+    sendingRef.current = true;
+    setIsLoading(true);
+    setIsPreparing(true);
+    sessionRef.current = '';
+    setActiveSessionId(''); setMessages([]); setSessions([]); setApprovals([]); setTasks([]); setStats(null); setAgent(null);
+    try {
+      chatApi.setProfile(id);
+      await refresh();
+      const available = await chatApi.getSessions();
+      const initial = available[0] || await chatApi.createSession();
+      sessionRef.current = initial.id;
+      setActiveSessionId(initial.id);
+      setSessions(available.length ? available : [initial]);
+      setMessages(await chatApi.getMessages(initial.id));
+      setActiveNav('chat');
+    } catch (error) { setError(errorText(error)); }
+    finally { sendingRef.current = false; setIsLoading(false); setIsPreparing(false); }
+  }, [isPreparing, refresh, setActiveNav]);
+
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim() || sendingRef.current || isPreparing) return;
     sendingRef.current = true; operationErrorRef.current = false; setIsLoading(true); setError(null);
@@ -173,7 +200,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     catch (err) { setError(errorText(err)); throw err; }
   }, []);
 
-  return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, tasks, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isLoading, activeNav, error, connected, isPreparing, setActiveNav, sendMessage, selectSession, createNewSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, clearError: () => { operationErrorRef.current = false; setError(null); } }}>{children}</ChatContext.Provider>;
+  return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, agents, selectAgent, tasks, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isLoading, activeNav, error, connected, isPreparing, setActiveNav, sendMessage, selectSession, createNewSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, clearError: () => { operationErrorRef.current = false; setError(null); } }}>{children}</ChatContext.Provider>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

@@ -20,3 +20,5 @@ p0a-evidence/
 web/.env
 web/.env.*
 !web/.env.example
+hermes/
+openclaw-halfway-modified/

@@ -1,110 +1,227 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { link, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, relative } from 'node:path';
+import { setImmediate } from 'node:timers/promises';
 import test from 'node:test';
 import { bootstrap, supervise } from './start.mjs';
 
 async function fixture(run) {
-  const root = await mkdtemp(join(tmpdir(), 'openmuse-deploy-'));
+  const root = await mkdtemp(join(tmpdir(), 'hob-hermes-deploy-'));
   try {
     await run({
       MUSE_PASSWORD: 'synthetic-test-password',
-      OPENCLAW_DIR: join(root, 'backend'),
-      OPENCLAW_STATE_DIR: join(root, 'state'),
-      OPENCLAW_CONFIG_PATH: join(root, 'state', 'openclaw.json'),
-      OPENCLAW_WORKSPACE: join(root, 'workspace'),
+      MUSE_SESSION_SECRET: 'synthetic-session-secret',
+      HERMES_DIR: join(root, 'backend'),
+      HERMES_HOME: join(root, 'hermes'),
+      HOB_STATE_DIR: join(root, 'private-state'),
+      HOB_MAIN_WORKSPACE: join(root, 'workspace'),
     });
   } finally {
-    // Delete only the fixture's verified direct child of the system temp directory.
     assert.equal(relative(tmpdir(), root), basename(root));
-    assert.ok(basename(root).startsWith('openmuse-deploy-'));
+    assert.ok(basename(root).startsWith('hob-hermes-deploy-'));
     await rm(root, { recursive: true, force: true });
   }
 }
 
-test('first launch initializes a private local Gateway and shared adapter token', async () => {
-  await fixture(async (env) => {
+test('fresh startup provisions three services and private local listener credentials, with no provider requirement', async () => {
+  await fixture(async env => {
     const commands = await bootstrap(env);
-    const config = JSON.parse(await readFile(env.OPENCLAW_CONFIG_PATH, 'utf8'));
-    assert.equal(config.gateway.bind, 'loopback');
-    assert.equal(config.agents.defaults.workspace, env.OPENCLAW_WORKSPACE);
-    assert.deepEqual(config.agents.entries, { main: { name: 'OpenClaw', workspace: env.OPENCLAW_WORKSPACE } });
-    assert.equal(config.browser.noSandbox, false);
-    assert.deepEqual(config.gateway.auth.token, { source: 'env', provider: 'default', id: 'OPENCLAW_GATEWAY_TOKEN' });
-    assert.equal(commands.env.OPENCLAW_GATEWAY_URL, 'ws://127.0.0.1:18789');
-    assert.equal(commands.gateway.at(-1), commands.env.OPENCLAW_GATEWAY_TOKEN);
-    assert.match(commands.env.OPENCLAW_GATEWAY_TOKEN, /^[0-9a-f]{64}$/);
+    const config = JSON.parse(await readFile(join(env.HERMES_HOME, 'config.yaml'), 'utf8'));
+    assert.deepEqual(config, { gateway: { multiplex_profiles: true }, terminal: { cwd: env.HOB_MAIN_WORKSPACE },
+      auth: { adopt_external_logins: false } });
+    const [dashboard, runtime, app] = commands.processes;
+    assert.deepEqual(dashboard.args, ['-p', 'default', 'serve', '--host', '127.0.0.1', '--port', '8080', '--isolated']);
+    assert.deepEqual(runtime.args, ['-p', 'default', 'gateway', 'run', '--no-supervise', '--external-supervisor']);
+    assert.equal(runtime.restart, true);
+    assert.equal(runtime.cwd, env.HOB_MAIN_WORKSPACE);
+    assert.equal(runtime.env.API_SERVER_HOST, '127.0.0.1');
+    assert.equal(runtime.env.API_SERVER_PORT, '8642');
+    assert.equal(runtime.env.GATEWAY_MULTIPLEX_PROFILES, 'true');
+    assert.equal(runtime.env.HERMES_GATEWAY_EXTERNAL_SUPERVISOR, '1');
+    assert.match(runtime.env.API_SERVER_KEY, /^[a-f0-9]{64}$/);
+    assert.equal(app.env.API_SERVER_KEY, runtime.env.API_SERVER_KEY);
+    assert.match(dashboard.env.HERMES_DASHBOARD_SESSION_TOKEN, /^[a-f0-9]{64}$/);
+    assert.equal(app.env.HERMES_DASHBOARD_SESSION_TOKEN, dashboard.env.HERMES_DASHBOARD_SESSION_TOKEN);
+    assert.notEqual(runtime.env.API_SERVER_KEY, dashboard.env.HERMES_DASHBOARD_SESSION_TOKEN);
+    assert.equal(app.env.HERMES_API_URL, 'http://127.0.0.1:8642');
+    assert.equal(app.env.HERMES_DASHBOARD_URL, 'http://127.0.0.1:8080');
+    for (const command of commands.processes) {
+      assert.equal(command.args.join(' ').includes(runtime.env.API_SERVER_KEY), false);
+      assert.equal(command.args.join(' ').includes(dashboard.env.HERMES_DASHBOARD_SESSION_TOKEN), false);
+    }
   });
 });
 
-test('restarting preserves existing configuration bytes and operator settings', async () => {
-  await fixture(async (env) => {
-    await bootstrap(env);
-    const userConfig = '{\n  // Operator config with comments\n  models: { provider: "custom" }\n}\n';
-    await writeFile(env.OPENCLAW_CONFIG_PATH, userConfig);
-    await bootstrap(env);
-    assert.equal(await readFile(env.OPENCLAW_CONFIG_PATH, 'utf8'), userConfig);
+test('runtime environment excludes dashboard authority and application login/session credentials', async () => {
+  await fixture(async env => {
+    const { processes: [dashboard, runtime, app] } = await bootstrap({
+      ...env, HERMES_DASHBOARD_SESSION_TOKEN: 'do-not-inherit', HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: 'do-not-inherit',
+    });
+    for (const key of ['MUSE_PASSWORD', 'MUSE_SESSION_SECRET', 'HERMES_DASHBOARD_SESSION_TOKEN', 'HERMES_DASHBOARD_BASIC_AUTH_PASSWORD', 'HOB_STATE_DIR']) {
+      assert.equal(runtime.env[key], undefined, key);
+    }
+    assert.equal(dashboard.env.MUSE_PASSWORD, undefined);
+    assert.equal(app.env.MUSE_PASSWORD, env.MUSE_PASSWORD);
   });
 });
 
-test('startup requires an app credential', async () => {
+test('restart preserves exact user configuration bytes and listener credentials', async () => {
+  await fixture(async env => {
+    const first = await bootstrap(env);
+    const operatorConfig = '# Operator-owned YAML\nmodel:\n  default: custom-model\nterminal:\n  backend: ssh\n';
+    await writeFile(join(env.HERMES_HOME, 'config.yaml'), operatorConfig);
+    const second = await bootstrap(env);
+    assert.equal(await readFile(join(env.HERMES_HOME, 'config.yaml'), 'utf8'), operatorConfig);
+    assert.equal(first.processes[2].env.API_SERVER_KEY, second.processes[2].env.API_SERVER_KEY);
+    assert.equal(first.processes[2].env.HERMES_DASHBOARD_SESSION_TOKEN, second.processes[2].env.HERMES_DASHBOARD_SESSION_TOKEN);
+  });
+});
+
+test('corrupt listener state fails closed without rotating or overwriting existing bytes', async () => {
+  await fixture(async env => {
+    await bootstrap(env);
+    const filename = join(env.HOB_STATE_DIR, 'listener-auth.json');
+    await writeFile(filename, '{corrupt');
+    await assert.rejects(bootstrap(env), /not regenerated/);
+    assert.equal(await readFile(filename, 'utf8'), '{corrupt');
+  });
+});
+
+test('startup requires an app credential before creating any runtime state', async () => {
   await assert.rejects(bootstrap({}), /Set MUSE_PASSWORD/);
 });
 
+test('oversized listener state is rejected without replacing it', async () => {
+  await fixture(async env => {
+    await bootstrap(env);
+    const filename = join(env.HOB_STATE_DIR, 'listener-auth.json');
+    const original = 'x'.repeat(4097);
+    await writeFile(filename, original);
+    await assert.rejects(bootstrap(env), /Invalid Hermes listener credential file/);
+    assert.equal(await readFile(filename, 'utf8'), original);
+  });
+});
+
+test('hard-linked listener state is refused rather than borrowing another file as authority', async () => {
+  await fixture(async env => {
+    await bootstrap(env);
+    const filename = join(env.HOB_STATE_DIR, 'listener-auth.json');
+    const original = await readFile(filename, 'utf8');
+    await link(filename, join(env.HOB_STATE_DIR, 'other-auth.json'));
+    await assert.rejects(bootstrap(env), /Invalid Hermes listener credential file/);
+    assert.equal(await readFile(filename, 'utf8'), original);
+  });
+});
+
 function child() {
-  const process = new EventEmitter();
-  process.exitCode = null;
-  process.receivedSignals = [];
-  process.kill = (signal) => {
-    process.receivedSignals.push(signal);
-    queueMicrotask(() => {
-      process.exitCode = 0;
-      process.emit('exit', 0, signal);
-    });
+  const proc = new EventEmitter();
+  proc.exitCode = null;
+  proc.receivedSignals = [];
+  proc.kill = signal => {
+    proc.receivedSignals.push(signal);
+    queueMicrotask(() => { proc.exitCode = 0; proc.emit('exit', 0, signal); });
     return true;
   };
-  return process;
+  return proc;
 }
+const specs = () => ({ processes: [
+  { name: 'Settings', executable: 'hermes', args: ['serve'], env: {} },
+  { name: 'Web', executable: process.execPath, args: ['server.mjs'], env: {} },
+] });
 
-test('unexpected child exit shuts down its sibling and fails container startup', async () => {
+test('a critical settings or web service failure stops siblings and fails the container', async () => {
   const signals = new EventEmitter();
   const children = [child(), child()];
   let index = 0;
-  const completion = supervise({ gateway: [], server: [], env: {} }, {
-    signals, spawnChild: () => children[index++],
-  });
-  children[0].exitCode = 1;
-  children[0].emit('exit', 1);
+  const completion = supervise(specs(), { signals, spawnChild: () => children[index++] });
+  children[0].exitCode = 1; children[0].emit('exit', 1);
   assert.equal(await completion, 1);
   assert.deepEqual(children[1].receivedSignals, ['SIGTERM']);
   assert.equal(signals.listenerCount('SIGTERM'), 0);
 });
 
-test('container termination signals both children and exits normally', async () => {
+test('shutdown signals every running service and removes its handlers', async () => {
   const signals = new EventEmitter();
   const children = [child(), child()];
   let index = 0;
-  const completion = supervise({ gateway: [], server: [], env: {} }, {
-    signals, spawnChild: () => children[index++],
-  });
+  const completion = supervise(specs(), { signals, spawnChild: () => children[index++] });
   signals.emit('SIGTERM');
   assert.equal(await completion, 0);
-  assert.deepEqual(children.map((item) => item.receivedSignals), [['SIGTERM'], ['SIGTERM']]);
+  assert.deepEqual(children.map(item => item.receivedSignals), [['SIGTERM'], ['SIGTERM']]);
+  assert.equal(signals.listenerCount('SIGINT'), 0);
 });
 
-test('a synchronous server launch error cleans up the already-started Gateway', async () => {
+test('synchronous launch failure joins cleanup of already running services', async () => {
   const signals = new EventEmitter();
-  const gateway = child();
+  const first = child();
   let index = 0;
-  await assert.rejects(supervise({ gateway: [], server: [], env: {} }, {
-    signals,
-    spawnChild: () => {
-      if (index++ === 0) return gateway;
-      throw new Error('synthetic spawn failure');
-    },
+  await assert.rejects(supervise(specs(), {
+    signals, spawnChild: () => { if (index++ === 0) return first; throw new Error('synthetic spawn failure'); },
   }), /synthetic spawn failure/);
-  assert.deepEqual(gateway.receivedSignals, ['SIGTERM']);
-  assert.equal(signals.listenerCount('SIGTERM'), 0);
+  assert.deepEqual(first.receivedSignals, ['SIGTERM']);
+});
+
+test('an agent runtime crash restarts only that service while Settings and web stay alive', async () => {
+  const signals = new EventEmitter();
+  const settings = child(), web = child(), firstRuntime = child(), nextRuntime = child();
+  let index = 0, restarted;
+  const restartObserved = new Promise(resolve => { restarted = resolve; });
+  const commands = specs();
+  commands.processes.push({ name: 'Runtime', executable: 'hermes', args: ['gateway', 'run'], env: {}, restart: true });
+  const completion = supervise(commands, { signals, restartDelayMs: 1, spawnChild: (_file, _args, options) => {
+    assert.equal(options.windowsHide, true);
+    const proc = [settings, web, firstRuntime, nextRuntime][index++];
+    if (index === 4) queueMicrotask(restarted);
+    return proc;
+  } });
+  firstRuntime.exitCode = 1; firstRuntime.emit('exit', 1);
+  await restartObserved;
+  assert.deepEqual(settings.receivedSignals, []);
+  assert.deepEqual(web.receivedSignals, []);
+  signals.emit('SIGTERM');
+  assert.equal(await completion, 0);
+  assert.deepEqual(nextRuntime.receivedSignals, ['SIGTERM']);
+});
+
+test('shutdown cancels a pending runtime retry without waiting for the backoff', async () => {
+  const signals = new EventEmitter();
+  const runtime = child();
+  let count = 0;
+  const completion = supervise({ processes: [{ name: 'Runtime', executable: 'hermes', args: [], env: {}, restart: true }] },
+    { signals, restartDelayMs: 60000, spawnChild: () => { count++; return runtime; } });
+  runtime.exitCode = 1; runtime.emit('exit', 1);
+  await setImmediate();
+  signals.emit('SIGTERM');
+  assert.equal(await completion, 0);
+  assert.equal(count, 1);
+});
+
+test('runtime preparation completes before launch while web and settings remain available', async () => {
+  const signals = new EventEmitter();
+  const launches = [];
+  let finishPreparation;
+  const prepared = new Promise(resolve => { finishPreparation = resolve; });
+  const commands = specs();
+  commands.processes.push({ name: 'Runtime', executable: 'runtime', args: [], env: {}, prepare: () => prepared });
+  const completion = supervise(commands, { signals, spawnChild: file => { launches.push(file); return child(); } });
+  assert.deepEqual(launches, ['hermes', process.execPath]);
+  finishPreparation();
+  await setImmediate();
+  assert.equal(launches.at(-1), 'runtime');
+  signals.emit('SIGTERM');
+  assert.equal(await completion, 0);
+});
+
+test('shutdown aborts runtime preparation without launching a stale runtime', async () => {
+  const signals = new EventEmitter();
+  let launches = 0;
+  const commands = specs();
+  commands.processes.push({ name: 'Runtime', executable: 'runtime', args: [], env: {}, prepare: ({ signal }) =>
+    new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) });
+  const completion = supervise(commands, { signals, spawnChild: () => { launches++; return child(); } });
+  signals.emit('SIGTERM');
+  assert.equal(await completion, 0);
+  assert.equal(launches, 2);
 });
