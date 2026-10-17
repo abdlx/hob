@@ -48,11 +48,23 @@ def unix_socket_path(home):
 
 def _peer_uid(peer):
     """Listening process uid when the platform reports it, else None."""
-    if not hasattr(socket, "SO_PEERCRED"):
+    if hasattr(socket, "SO_PEERCRED"):
+        # struct ucred is (pid, uid, gid): the uid is the second field, never the first.
+        with contextlib.suppress(OSError):
+            credentials = peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
+            return struct.unpack("3i", credentials)[1]
+        return None
+    if sys.platform != "darwin":
         return None
     with contextlib.suppress(OSError):
-        credentials = peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
-        return struct.unpack("3i", credentials)[0]
+        import ctypes
+        uid, gid = ctypes.c_uint(), ctypes.c_uint()
+        getpeereid = ctypes.CDLL(None, use_errno=True).getpeereid
+        getpeereid.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_uint), ctypes.POINTER(ctypes.c_uint)]
+        getpeereid.restype = ctypes.c_int
+        if getpeereid(peer.fileno(), ctypes.byref(uid), ctypes.byref(gid)) != 0:
+            return None
+        return uid.value
     return None
 
 

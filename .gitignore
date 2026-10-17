@@ -22,3 +22,4 @@ web/.env.*
 !web/.env.example
 hermes/
 openclaw-halfway-modified/
+__pycache__/
