@@ -25,6 +25,8 @@ const port = portReservation.address().port;
 await new Promise(ok => portReservation.close(ok));
 const origin = 'http://127.0.0.1:' + port;
 const modelUrl = 'http://smoke-model:18793/v1';
+// Health check for the fixture service, using only the image's own Node.
+const modelProbe = "fetch('http://127.0.0.1:18793/healthz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))";
 const scratch = await mkdtemp(join(tmpdir(), 'openmuse-container-smoke-'));
 const override = join(scratch, 'smoke-compose.json');
 const environment = {
@@ -95,11 +97,14 @@ try {
   const services = { muse: { image, pull_policy: 'never',
     ports: [{ target: 3000, published: String(port), host_ip: '127.0.0.1', protocol: 'tcp' }] } };
   if (providerTier) {
-    // The fixture reuses the application image, so the image healthcheck would
-    // probe port 3000 and report this service unhealthy. It is a fixture, not a
-    // gateway, and disabling the check only prevents that false negative.
+    // The fixture reuses the application image, so the inherited healthcheck
+    // would probe port 3000 and report this service unhealthy. Compose also
+    // refuses to "up --wait" on a service with no check at all, so probe the
+    // fixture's own port instead.
     services['smoke-model'] = { image, pull_policy: 'never', entrypoint: ['/usr/local/bin/node'],
-      command: ['/app/deploy/smoke-model.mjs'], healthcheck: { disable: true },
+      command: ['/app/deploy/smoke-model.mjs'],
+      healthcheck: { test: ['CMD', '/usr/local/bin/node', '-e', modelProbe],
+        interval: '2s', timeout: '5s', start_period: '3s', retries: 30 },
       environment: { HOB_SMOKE_MODEL_PORT: '18793', HOB_SMOKE_HOST: '0.0.0.0',
         HOB_SMOKE_FILE: '/opt/data/workspaces/main/' + SMOKE_FILE } };
   }
