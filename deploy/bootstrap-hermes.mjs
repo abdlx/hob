@@ -59,7 +59,16 @@ export async function bootstrapHermes(env = process.env) {
   const dashboardEnv = { ...without(shared, /^(?:MUSE_|HOB_|HERMES_DASHBOARD_)/),
     HERMES_DASHBOARD_SESSION_TOKEN: credentials.dashboardToken };
   const publicOrigin = mcpOAuthOrigin(env.MUSE_PUBLIC_URL);
-  if (publicOrigin) dashboardEnv.HERMES_DASHBOARD_PUBLIC_URL = publicOrigin;
+  if (publicOrigin) {
+    dashboardEnv.HERMES_DASHBOARD_PUBLIC_URL = publicOrigin;
+    // Declaring dashboard.public_url makes Hermes refuse the loopback bind unless a dashboard
+    // auth provider is registered, and a registered provider replaces the operator-minted
+    // session token this server sends to the private listener. Hermes' operator-owned loopback
+    // backend (its spawn flag plus that token) keeps the loopback token authoritative on a
+    // 127.0.0.1 bind while dashboard.public_url still supplies the public MCP OAuth redirect
+    // origin. Only the settings listener receives it; the runtime never does.
+    dashboardEnv.HERMES_DESKTOP = '1';
+  }
   const appEnv = { ...shared, HOB_STATE_DIR: stateDir, HERMES_DASHBOARD_SESSION_TOKEN: credentials.dashboardToken,
     HERMES_API_URL: 'http://127.0.0.1:8642', HERMES_DASHBOARD_URL: 'http://127.0.0.1:8080' };
   const hermes = env.HERMES_EXECUTABLE || 'hermes';

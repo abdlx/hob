@@ -84,10 +84,17 @@ test('MCP callback origin is provisioned only to settings from the explicit appl
     const { processes: [settings, runtime, app] } = await bootstrap({ ...env,
       MUSE_PUBLIC_URL: 'https://dashboard.example/', HERMES_DASHBOARD_PUBLIC_URL: 'https://other.invalid' });
     assert.equal(settings.env.HERMES_DASHBOARD_PUBLIC_URL, 'https://dashboard.example');
+    // A declared public URL engages Hermes' dashboard auth gate, which would replace the
+    // operator-minted session token on the private loopback listener. Only settings is marked
+    // as that operator-owned loopback backend; the runtime and web server never are.
+    assert.equal(settings.env.HERMES_DESKTOP, '1');
     assert.equal(runtime.env.HERMES_DASHBOARD_PUBLIC_URL, undefined);
+    assert.equal(runtime.env.HERMES_DESKTOP, undefined);
     assert.equal(app.env.MUSE_PUBLIC_URL, 'https://dashboard.example/');
+    assert.equal(app.env.HERMES_DESKTOP, undefined);
     const malformed = await bootstrap({ ...env, MUSE_PUBLIC_URL: 'https://dashboard.example/other' });
     assert.equal(malformed.processes[0].env.HERMES_DASHBOARD_PUBLIC_URL, undefined);
+    assert.equal(malformed.processes[0].env.HERMES_DESKTOP, undefined);
   });
 });
 
