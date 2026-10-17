@@ -107,8 +107,16 @@ The advanced native config editor submits only edits and masks known credential
 fields. **MCP servers** provides confirmed HTTP/bearer and local-executable setup,
 enable/disable/remove and native connection/tool probes for each bot. Local
 executables run on the Hermes host; profile separation is not an execution sandbox.
-MCP OAuth, external account CLI flows, QR onboarding, external-memory setup forms
-and other advanced surfaces still need additional integration and verification.
+For a remote MCP server supporting OAuth registration, choose **OAuth sign-in**,
+save the server, then select **Sign in to MCP server** on its card. Confirm the
+attempt, review the authorization provider's page, and return to Settings for
+status and connection testing. `MUSE_PUBLIC_URL` must name this dashboard's origin.
+Closing an attempt does not disconnect credentials already saved by Hermes.
+Pre-registered clients with a vendor-fixed loopback callback are not automated
+through this hosted flow. External account CLI flows, QR onboarding, external-memory
+setup forms and actual vendor interoperability still need work. MCP OAuth has
+real-runtime verification against an isolated simulated provider; its rendered
+UI interaction and real vendor sign-in remain unverified.
 
 ## Persistence and upgrades
 

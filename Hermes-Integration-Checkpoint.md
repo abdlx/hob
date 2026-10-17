@@ -428,8 +428,39 @@ delete setup. Probe failure messages do not echo upstream secrets.
 `HermesMcpSettings` supplies HTTP/SSE with optional bearer authentication and local
 stdio with argument/environment fields, masked credentials and separate review
 confirmation. The native probe lists tools. Existing sessions may need restarting
-for changes. MCP OAuth onboarding remains incomplete. Local executables use the
-Hermes host and are not isolated by this form.
+for changes. Local executables use the Hermes host and are not isolated by this form.
+
+`server/hermes-mcp-oauth.mjs` now bridges native remote-MCP OAuth to the custom
+dashboard. Hermes still owns discovery, registration, PKCE, token exchange and
+credential persistence. The UI offers an explicit OAuth selection, separate
+sign-in confirmation, a provider link, status polling and attempt cancellation.
+The settings process receives the explicit `MUSE_PUBLIC_URL` as its callback
+origin; it is never inferred from an untrusted request host. Only the exact public
+callback route bypasses the login cookie, since provider redirects do not carry
+the app's SameSite=Strict cookie. It requires an owned, unexpired, single-use state,
+the original bot credential binding and the same server configuration snapshot.
+The server comparison is a preflight, not an atomic upstream configuration lock.
+Callback HTML and native credentials are never proxied to the browser.
+
+Attempt references are bounded and live in adapter memory for 15 minutes, as in
+the native dashboard. Refreshing the UI recovers an attempt for that bot; restarting
+the adapter invalidates pending callback references. It does not delete saved
+native credentials. A lost start response remains fenced and is never replayed;
+confirmed native precondition refusals permit a later explicit retry. Closing an
+attempt cancels pending native sign-in but does not promise to revoke credentials
+already saved or token exchange already admitted. Vendor-fixed loopback callbacks
+are not automated by this hosted flow. Provider-specific client-registration
+fields remain in the native advanced configuration editor; no dedicated forms
+were added for them.
+
+The Linux [container run at `469e8575`](https://github.com/abdlx/hob/actions/runs/39037792969)
+passed 40 checks, including the real native SDK talking to an isolated OAuth/MCP
+peer: discovery, dynamic registration, S256 PKCE with a single-use authorization
+code, public callback without a login cookie, callback replay refusal, native tool
+listing, cross-bot flow refusal and a working saved credential after container
+recreation. No vendor account was connected. The browser-control tool failed to
+initialize on two attempts (including after reset); rendered OAuth UI interaction
+remains unverified. The React production build and lint pass.
 
 The real MCP SDK fixture saved 71 passing checks before its UI wait, including
 native HTTP initialization/tool listing with a scoped synthetic bearer, isolated
@@ -450,11 +481,12 @@ unsupported Node 25.3.0.
 
 | Check | Current result | Scope |
 | --- | --- | --- |
-| `node --test deploy/*.test.mjs server/test/*.test.mjs web/tests/*.test.mjs` | 203 passed, 0 failed/skipped (re-run 2026-10-17) | Includes control-socket peer UID regression; bootstrap, native chat/recovery, profile concurrency, groups, MCP/workspace/setup operations, runtime selection, security boundaries and legacy regression contracts |
-| `npm run build` in `web` | Passed | TypeScript and production Vite build; nonfatal plugin timing notice |
+| `node --test deploy/*.test.mjs server/test/*.test.mjs web/tests/*.test.mjs` | 222 passed, 0 failed/skipped (MCP OAuth verification, 2026-10-17) | Includes bot-bound MCP OAuth/callback tests and PKCE fixture; control-socket peer UID, bootstrap, native chat/recovery, profile concurrency, groups, MCP/workspace/setup operations, runtime selection, security boundaries and legacy regression contracts |
+| `npm run build` in `web` | Passed | TypeScript and production Vite build; nonfatal chunk-size and plugin-timing notices |
 | `npm run lint` in `web` | Passed, no warnings | Frontend source |
 | Standalone Compose config with public template/synthetic values | Passed | Parsing only; no daemon/build/start |
 | `Coolify image first run`, commit `1dd39956`, run `39036456635` | Passed | Linux amd64 image build; first boot and 33 checks across container recreation; authentication, settings, native session/tool turn with isolated simulated provider, persisted bot roster/personality/schedule/history, Compose hardening. All four services run as UID 10000 before and after recreation. DevTools probe asserts isolated Chromium namespace and seccomp sandbox status. The separate native-runtime diagnostic probe is not a gate. |
+| `Coolify image first run`, commit `469e8575`, run `39037792969` | Passed | 40 checks across recreation, adding native MCP OAuth discovery/registration/PKCE, cookie-free callback and replay refusal, bot binding, real SDK tool listing and saved credential persistence; isolated simulated OAuth provider only |
 | Native Hermes + custom server + simulated model verifier, recovery expansion | 28 checks passed | Real control plane, active-worker/adapter restart, run/tool/history; simulated model |
 | Further expanded native clarification check | FAILED: prompt was not projected for a raw API session | Source-confirmed missing clarification callback; canonical session bridge required |
 | Separate native canonical session verifier | 25 checks passed | Real profile-scoped native owner, question/answer, viewer disconnect/reconnect, durable receipt/history; simulated model |
@@ -504,11 +536,12 @@ setup UX, complete group control coverage, backup/restore or candidate upgrades.
    staged-create/explicit-approve path. Keep legacy OpenClaw RPC components out of
    the Hermes render branch.
 5. Finish setup beyond the native catalog/tool/channel/device-flow forms now added:
-   QR onboarding, MCP OAuth/external-memory configuration, richer model/backend controls,
+   QR onboarding, external-memory configuration, richer model/backend controls,
    learning history and actual vendor device-login verification. External CLI-only
    OAuth flows remain an upstream interface limitation; do not simulate support.
-   Complete rendered MCP create/probe checks against a live owned endpoint; the
-   backend SDK proof does not substitute for that UI verification.
+   Complete rendered MCP create/probe/OAuth checks against a live owned endpoint
+   and real vendor interoperability; the real SDK/container proof does not
+   substitute for rendered UI or vendor verification.
 6. Verify actual API-turn learning behavior and persistence. Memory/skill evolution
    is not model training or a guaranteed improvement in quality.
 7. Add browser-rendered end-to-end checks and an actual provider conversation/tool

@@ -44,6 +44,12 @@ modified by this deployment.
 6. Open **Settings → Main**, save a provider credential, select its provider/model,
    then start a new conversation and verify a reply and a tool task. Main is the
    only enrolled bot initially. Create additional bots explicitly in Settings.
+7. For a remote OAuth MCP connection, choose **OAuth sign-in** when adding its
+   endpoint, save it, then select **Sign in to MCP server**. Confirm and open its
+   authorization provider. The callback uses the same public dashboard origin;
+   no additional port needs exposing. Return to Settings to observe completion
+   and use **Test connection**. Servers requiring a vendor-fixed loopback callback
+   need a different onboarding flow; this hosted callback does not replace it.
 
 No custom build/start command is needed. Do not publish ports 8080 or 8642, add a
 host port mapping, or mount the host Docker socket. The application Dockerfile
@@ -110,6 +116,11 @@ the same sandbox or that Hermes' browser tool uses it: upstream's pinned
 Browser-tool isolation needs separate verification; the probe does not override
 upstream tool behaviour.
 No actual provider account has been exercised.
+The [MCP OAuth container verification](https://github.com/abdlx/hob/actions/runs/39037792969)
+at `469e8575` passed 40 checks across recreation, including the native SDK's
+discovery, client registration, PKCE exchange, callback replay refusal, bot binding
+and persisted credential/tool probe. This uses an isolated simulated OAuth/MCP
+server, not a real vendor account. Rendered UI interaction remains unverified.
 Native groups, durable admission tracking, guided setup and native workspace
 controls are implemented and have local verification. Active-work recovery across
 a full runtime restart, graceful shutdown, backup/restore, candidate upgrades,
