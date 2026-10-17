@@ -129,11 +129,17 @@ profile isolation, groups and recovery against copied state, then deploy. Keep a
 matching state backup for rollback; an older runtime may not read upgraded state.
 
 The local reference snapshot has not been proven identical to the runtime image.
-The [Coolify image first run workflow](https://github.com/abdlx/hob/actions/runs/39033980310)
-passed at `8512599a`, including an image build and 33 authenticated/native checks
+The [Coolify image first run workflow](https://github.com/abdlx/hob/actions/runs/39036456635)
+passed at `1dd39956`, including an image build and 33 authenticated/native checks
 across container recreation using a deterministic model fixture. It verifies
 hardening configuration, native session/tool execution and persisted state.
-The browser sandbox probe only logs its outcome; it does not gate success.
+Service UID checks verify the supervisor, web server, gateway and settings service
+are unprivileged before and after recreation. The isolated Chromium probe uses
+DevTools to assert namespace and seccomp sandbox status and gates CI success.
+This is a binary capability check, not proof of Hermes browser-tool isolation:
+the pinned upstream `agent-browser` automatically adds `--no-sandbox` in Docker
+(see its [container detection](https://github.com/vercel-labs/agent-browser/blob/v0.26.0/cli/src/native/cdp/chrome.rs)).
+No upstream browser executable or runtime source has been patched to change that.
 Graceful shutdown, active-work recovery across full runtime restart, backup/restore,
 candidate upgrades, actual provider accounts and production-host behaviour remain
 unverified. No local Docker daemon is available.

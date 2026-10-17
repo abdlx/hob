@@ -98,12 +98,17 @@ is recorded for provenance; it is incompatible with the current adapter and must
 not be restored as a working runtime. The GHCR image is public, so Coolify and CI
 pull it without registry credentials.
 
-The [Coolify image first run workflow](https://github.com/abdlx/hob/actions/runs/39033980310)
-passed at `8512599a`: Linux image build, authenticated first-run setup, native
+The [Coolify image first run workflow](https://github.com/abdlx/hob/actions/runs/39036456635)
+passed at `1dd39956`: Linux image build, authenticated first-run setup, native
 session/tool execution against an isolated simulated provider, and 33 checks
 across container recreation. It asserts Compose hardening and data persistence.
-The Chromium sandbox probe is diagnostic only; a green run alone does not prove
-that probe succeeded or that another host's kernel supports the sandbox.
+It also asserts that all four application services use UID 10000 before and after
+recreation, and that an isolated Chromium renderer reports namespace and seccomp
+sandboxing through DevTools. This does not prove another host's kernel supports
+the same sandbox or that Hermes' browser tool uses it: upstream's pinned
+`agent-browser` automatically adds `--no-sandbox` when it detects Docker.
+Browser-tool isolation needs separate verification; the probe does not override
+upstream tool behaviour.
 No actual provider account has been exercised.
 Native groups, durable admission tracking, guided setup and native workspace
 controls are implemented and have local verification. Active-work recovery across

@@ -7,8 +7,9 @@ interface, login and adapter. Hermes source is not patched.
 This migration is still in progress. Real local Hermes has passed setup, separate
 bot/session storage, streaming chat and a tool write against a deterministic local
 model simulation. Linux image build, first boot and container recreation now pass
-the [container smoke workflow](https://github.com/abdlx/hob/actions/runs/39033980310)
-at `8512599a`. A real provider account has not been exercised.
+the [container smoke workflow](https://github.com/abdlx/hob/actions/runs/39036456635)
+at `1dd39956`, including service UID checks and an isolated Chromium sandbox probe.
+A real provider account has not been exercised.
 Dashboard chat now uses Hermes' authenticated native session interface. Questions,
 generation-bound controls and active work survive adapter reconnection. Older API
 conversations remain available as read-only history. HTTP task references retain
