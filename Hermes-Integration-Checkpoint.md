@@ -481,7 +481,7 @@ unsupported Node 25.3.0.
 
 | Check | Current result | Scope |
 | --- | --- | --- |
-| `node --test deploy/*.test.mjs server/test/*.test.mjs web/tests/*.test.mjs` | 222 passed, 0 failed/skipped (MCP OAuth verification, 2026-10-17) | Includes bot-bound MCP OAuth/callback tests and PKCE fixture; control-socket peer UID, bootstrap, native chat/recovery, profile concurrency, groups, MCP/workspace/setup operations, runtime selection, security boundaries and legacy regression contracts |
+| `node --test deploy/*.test.mjs server/test/*.test.mjs web/tests/*.test.mjs` | 239 passed, 0 failed/skipped on repeat (memory setup verification, 2026-10-17); first-run journal failure recorded below | Includes memory-provider setup/credential boundaries, bot-bound MCP OAuth/callback tests and PKCE fixture; control-socket peer UID, bootstrap, native chat/recovery, profile concurrency, groups, MCP/workspace/setup operations, runtime selection, security boundaries and legacy regression contracts |
 | `npm run build` in `web` | Passed | TypeScript and production Vite build; nonfatal chunk-size and plugin-timing notices |
 | `npm run lint` in `web` | Passed, no warnings | Frontend source |
 | Standalone Compose config with public template/synthetic values | Passed | Parsing only; no daemon/build/start |
@@ -570,8 +570,36 @@ in the unchanged native-chat restart test. Its isolated run (13 tests) and the
 full repeat passed. This is retained as an indeterminate restart-race observation,
 not silently counted as a passing first run. The build has the existing nonfatal
 500 kB chunk warning. Rendered memory-provider interaction remains unverified:
-the browser tool cannot initialize on this host. Linux native-provider setup,
-selection and recreation checks are added to the container smoke workflow;
-their result must be inspected for the exact candidate commit before a deployment
-claim. Neither these checks nor the UI claim a real external-provider recall or
-vendor-account verification.
+the browser tool cannot initialize on this host.
+
+The [Linux container workflow](https://github.com/abdlx/hob/actions/runs/39040025685)
+passed at `d844f1e17033a11b09069174febd9bc34663753d`: 48 checks across
+recreation, including the bundled RetainDB provider's actual schema, confirmed
+save/selection, masked credentials, unchanged Main provider, switch back to
+built-in without deleting credentials and retained settings after recreation.
+The synthetic key and local-network base URL never start a provider memory
+session. These checks do not prove external recall, live account access or actual
+dependency installation. All four application services still run as UID 10000;
+the isolated Chromium sandbox probe passes with the previously documented tool
+limitation unchanged.
+
+## Learning setup — verified next integration boundary
+
+The reference's `hermes_cli/config_defaults.py` defines independent native
+`memory.memory_enabled`, `memory.user_profile_enabled`, `memory.write_approval`,
+`skills.write_approval` and `auxiliary.background_review.enabled` settings. Do not
+map these to the retired OpenClaw off/propose/auto enum: they have different
+semantics. `tools/write_approval.py` and `gateway/slash_commands.py` own staged
+writes/review. Memory approval prompts foreground writes and stages background
+writes; skill approval stages both. An external memory provider may have separate
+write behaviour, so a built-in approval gate must not claim to cover that provider.
+
+The next guided controls can use the existing bot-bound native config owner
+(`server/hermes-setup.mjs`, `web/src/pages/HermesSettings.tsx`). Review commands
+must use the native session owner already used by `server/hermes-workspace.mjs`.
+The reference's `gateway/session_commands.py` explicitly allows `memory` reads
+only with empty arguments or `pending`; its control allowlist includes skill
+decisions but not memory approve/reject. A memory decision UI therefore needs a
+verified supported upstream API, not simulated success or a second pending store.
+This finding is a source-level interface limitation, not proof of a failed live
+command. Verify the pinned runtime's contract before exposing such controls.

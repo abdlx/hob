@@ -133,3 +133,10 @@ controls are implemented and have local verification. Active-work recovery acros
 a full runtime restart, graceful shutdown, backup/restore, candidate upgrades,
 remaining setup surfaces and production-host behaviour still need verification;
 see `Hermes-Integration-Checkpoint.md` in the repository root.
+
+The [external-memory setup verification](https://github.com/abdlx/hob/actions/runs/39040025685)
+passed at `d844f1e1`, with 48 checks across container recreation. It uses the
+bundled RetainDB schema/config/selection owners with a synthetic key and isolated
+endpoint, including per-bot settings and credential persistence. It does not
+start external memory sessions or verify a vendor account, recall quality,
+dependency installation or the rendered memory settings UI.
