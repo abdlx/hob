@@ -70,8 +70,8 @@ export const ChatInput: React.FC = () => {
           value={text}
           onChange={(e) => { setText(e.target.value); setComposerDraft(activeSessionId, e.target.value); }}
           onKeyDown={handleKeyDown}
-          placeholder={readOnly ? 'Start a new conversation to continue' : 'Message hob...'}
-          disabled={isPreparing || isCreatingConversation || readOnly}
+          placeholder={readOnly ? 'Start a new conversation to continue' : isLoading ? 'Respond to the prompt above…' : 'Message hob...'}
+          disabled={isLoading || isPreparing || isCreatingConversation || readOnly}
           className="flex-1 bg-transparent text-[#eee7df] placeholder-[#807669] text-[14px] md:text-[15px] focus:outline-none resize-none p-0 m-0 min-h-[24px] max-h-[140px] leading-[24px] text-left"
         />
 

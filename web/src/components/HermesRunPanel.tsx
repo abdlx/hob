@@ -9,22 +9,25 @@ interface Run { runId: string | null; status: string; submittedAt: string; revis
 function Clarification({ question, busy, answer }: { question: Question; busy: boolean; answer: (value: string) => Promise<void> }) {
   const [text, setText] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
-  return <div className="space-y-2 rounded-xl border border-[#3a3126] p-3">
-    <p className="text-[#dfd1bd]">{question.question}</p>
+  const submit = () => answer(question.multiSelect
+    ? JSON.stringify([...selected, ...(text.trim() ? [text] : [])]) : text);
+  return <div className="space-y-3 rounded-2xl bg-[#1a2027] p-4">
+    <p className="text-sm font-medium text-[#eef1f4]">{question.question}</p>
     {question.choices.length > 0 && <div className="flex flex-wrap gap-2">{question.choices.map((choice, index) =>
       <button key={index} className={buttonClass} aria-pressed={question.multiSelect ? selected.includes(choice) : text === choice} disabled={busy} onClick={() => {
         if (question.multiSelect) setSelected(previous => previous.includes(choice) ? previous.filter(item => item !== choice) : [...previous, choice]);
         else setText(choice);
       }}>{choice}</button>)}</div>}
-    <textarea className={inputClass} aria-label="Answer Hermes question" value={text} maxLength={16384} rows={2} disabled={busy} onChange={event => setText(event.target.value)} />
-    <button className={buttonClass} disabled={busy || (!text.trim() && !selected.length)} onClick={() => answer(question.multiSelect
-      ? JSON.stringify([...selected, ...(text.trim() ? [text] : [])]) : text)}>Send answer</button>
+    <textarea autoFocus className={inputClass} aria-label="Answer Hermes question" value={text} maxLength={16384} rows={2} disabled={busy} onChange={event => setText(event.target.value)} onKeyDown={event => {
+      if (event.key === 'Enter' && !event.shiftKey && (text.trim() || selected.length)) { event.preventDefault(); submit(); }
+    }} />
+    <button className={buttonClass} disabled={busy || (!text.trim() && !selected.length)} onClick={submit}>Send answer</button>
   </div>;
 }
 
 // Mounted with the conversation ID as React's key so late requests cannot
 // populate the controls of a different conversation or bot.
-export function HermesRunPanel({ sessionId }: { sessionId: string }) {
+export function HermesRunPanel({ sessionId, inline = false }: { sessionId: string; inline?: boolean }) {
   const [run, setRun] = useState<Run | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -52,18 +55,21 @@ export function HermesRunPanel({ sessionId }: { sessionId: string }) {
     } catch (error) { if (alive.current) setError(errorText(error)); }
     finally { if (alive.current) setBusy(false); }
   }
+  const hasInlinePrompt = Boolean(run?.questions?.length || run?.status === 'waiting_for_approval' || (run && ['unknown', 'admitting', 'unavailable'].includes(run.status)));
   if (!run && !error) return null;
+  if (inline && !error && !hasInlinePrompt) return null;
   const active = run && ['queued', 'running', 'waiting_for_approval', 'stopping'].includes(run.status);
   const unknown = run && ['unknown', 'admitting', 'unavailable'].includes(run.status);
-  return <div className="px-5 py-2.5 space-y-2.5 text-xs md:text-sm">
+  return <div className={inline ? 'hob-chat-prompt my-3 max-w-[88%] rounded-2xl bg-[#171d24] p-1 text-xs md:text-sm' : 'px-5 py-2.5 space-y-2.5 text-xs md:text-sm'}>
     {error && <Notice error>{error}</Notice>}
-    {run && <div className="flex items-center justify-between gap-3 text-[#c0b3a1]">
+    {run && !inline && <div className="flex items-center justify-between gap-3 text-[#c0b3a1]">
       <span className="font-medium capitalize">Run: {run.status.replaceAll('_', ' ')}</span>
       <div className="flex gap-2"><button className={buttonClass} disabled={busy} onClick={() => load()}>Refresh status</button>
         {active && <button className={buttonClass} disabled={busy || run.status === 'stopping'} onClick={() => control('abort', { expectedRunId: run.runId })}>Stop run</button>}</div>
     </div>}
     {run?.questions?.map(question => <Clarification key={`${question.id}:${question.generation}`} question={question} busy={busy}
       answer={answer => control('clarify', { promptId: question.id, expectedRevision: run.revision, answer })} />)}
+    {inline && run?.status === 'waiting_for_approval' && !run.questions.length && <Notice>Permission is required before Hermes can continue. Review the approval prompt below or refresh if it does not appear yet.</Notice>}
     {unknown && <Notice>
       {run.runId ? 'Hermes has not confirmed this run’s outcome. Review its history and any possible side effects before resolving it.'
         : 'Acceptance of this submission is unknown. Recovery uses the original request key and may start the original work if Hermes never accepted it. Nothing is resubmitted automatically.'}

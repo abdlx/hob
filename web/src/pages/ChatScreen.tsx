@@ -7,15 +7,12 @@ import { ChatInput } from '../components/ChatInput';
 import { RightPanel } from '../components/RightPanel';
 import { ChatsDrawer } from '../components/ChatsDrawer';
 import { useChat } from '../context/ChatContext';
-import { useRuntime } from '../context/RuntimeContext';
 import { WorkspaceViews } from './WorkspaceViews';
 import { Notice } from '../components/WorkspaceUI';
 import { MobileDock } from '../components/MobileDock';
-import { HermesRunPanel } from '../components/HermesRunPanel';
 
 export const ChatScreen: React.FC = () => {
   const { activeNav, error, clearError, refresh, isPreparing, isCreatingConversation, activeSessionId, sessions, createNewSession } = useChat();
-  const runtime = useRuntime();
   const readOnly = sessions.find(session => session.id === activeSessionId)?.readOnly === true;
   return (
     <div className="hob-app flex h-full w-full overflow-hidden text-[#e5e5e5]">
@@ -36,7 +33,6 @@ export const ChatScreen: React.FC = () => {
         {activeNav === 'chat' || activeNav === 'search' ? <>
           <ChatHeader />
           {readOnly && <div className="px-4 py-2"><Notice>This older API conversation is preserved as history. <button className="underline" onClick={createNewSession}>Start a new interactive conversation</button></Notice></div>}
-          {runtime === 'hermes' && activeSessionId && <HermesRunPanel key={`controls:${activeSessionId}`} sessionId={activeSessionId} />}
           <ChatMessageList />
           <ChatInput key={`composer:${activeSessionId}`} />
         </> : <><WorkspaceViews activeNav={activeNav} /><div className="shrink-0 p-2 md:hidden"><MobileDock /></div></>}
