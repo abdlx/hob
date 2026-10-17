@@ -124,25 +124,13 @@ function reportContainerState() {
   }
 }
 function probeChromiumSandbox(container) {
-  // A fresh blank profile with no credentials, cookies, or user browsing history.
-  // The container's capabilities and seccomp policy stay in force, so this proves
-  // the shipped browser can use its namespace sandbox or reports why it cannot.
-  const script = [
-    'chromium=""',
-    'for candidate in "${PLAYWRIGHT_BROWSERS_PATH:-/ms-playwright}"/*/chrome-linux/chrome "${PLAYWRIGHT_BROWSERS_PATH:-/ms-playwright}"/*/chrome-linux/headless_shell /ms-playwright/*/chrome-linux/chrome /root/.cache/ms-playwright/*/chrome-linux/chrome /opt/hermes/tools/*/chrome-linux/chrome /usr/bin/chromium /usr/bin/chromium-browser /usr/bin/google-chrome; do',
-    '  if [ -x "$candidate" ]; then chromium="$candidate"; break; fi',
-    'done',
-    'if [ -z "$chromium" ]; then chromium=$(find "${PLAYWRIGHT_BROWSERS_PATH:-/opt/hermes/tools}" -maxdepth 4 -type f -name chrome -perm -u+x 2>/dev/null | head -n 1); fi',
-    'if [ -z "$chromium" ]; then echo NOT_FOUND >&2; exit 3; fi',
-    'test "$(id -u)" != 0 || exit 3',
-    'profile=$(mktemp -d) || exit 3',
-    'if timeout --signal=TERM --kill-after=3 25 "$chromium" --headless --no-first-run --no-default-browser-check --user-data-dir="$profile" --dump-dom about:blank >/dev/null 2>"$profile/probe.err"; then echo SANDBOX_OK; else code=$?; echo "SANDBOX_FAILED exit=$code" >&2; head -n 20 "$profile/probe.err" >&2; exit 1; fi',
-  ].join('\n');
   // docker exec starts with the image's root HOME. Match the upstream main
   // wrapper's runtime HOME as well as its user; a UID-only switch leaves
-  // Crashpad trying to write under /root and never reaches the sandbox check.
-  const result = docker(['exec', '--user', 'hermes', '--env', 'HOME=/opt/data', container, 'sh', '-c', script], 60000);
-  assert.equal(result.trim(), 'SANDBOX_OK', 'The shipped Chromium must launch with its sandbox enabled.');
+  // Crashpad trying to write under /root. The probe uses a new private profile
+  // and requires namespace/seccomp status from the actual renderer over CDP.
+  const result = docker(['exec', '--user', 'hermes', '--env', 'HOME=/opt/data', container,
+    '/usr/local/bin/node', '/app/deploy/probe-browser.mjs'], 60000);
+  assert.equal(result.trim(), 'SANDBOX_OK', 'The shipped Chromium must report both sandbox layers enabled.');
   console.log('Blank-profile browser sandbox probe: ' + result);
 }
 
