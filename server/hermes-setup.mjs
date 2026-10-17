@@ -2,6 +2,7 @@ import { HermesError, hermesProfile, hermesResource } from './hermes-client.mjs'
 import { MANAGED_ENV } from './hermes-routes.mjs';
 import { containsStoredSecret } from './hermes-settings.mjs';
 import { hermesMemorySetup } from './hermes-memory-setup.mjs';
+import { hermesLearningSetup } from './hermes-learning-setup.mjs';
 
 const invalid = message => new HermesError(400, message, 'INVALID_REQUEST');
 const valueText = (value, max = 64000) => typeof value === 'string' && value.length <= max;
@@ -37,6 +38,7 @@ export function createHermesSetupRoutes(client, { mcpOAuth } = {}) {
       return result;
     };
     if (route === 'memory' || route.startsWith('memory/')) return hermesMemorySetup(route, method, { dashboard, input, json, res });
+    if (route === 'learning') return hermesLearningSetup(method, { dashboard, input, json, res, profile });
     if (route === 'mcp/oauth/flows' && method === 'GET' && mcpOAuth) return json(res, 200, await mcpOAuth.list(profile));
     const oauthFlow = /^mcp\/oauth\/flows\/([a-zA-Z0-9_-]{1,128})$/.exec(route);
     if (oauthFlow && mcpOAuth) {

@@ -594,8 +594,8 @@ writes/review. Memory approval prompts foreground writes and stages background
 writes; skill approval stages both. An external memory provider may have separate
 write behaviour, so a built-in approval gate must not claim to cover that provider.
 
-The next guided controls can use the existing bot-bound native config owner
-(`server/hermes-setup.mjs`, `web/src/pages/HermesSettings.tsx`). Review commands
+Guided controls now use the existing bot-bound native config owner
+(`server/hermes-learning-setup.mjs`, `web/src/components/HermesLearningSettings.tsx`). Review commands
 must use the native session owner already used by `server/hermes-workspace.mjs`.
 The reference's `gateway/session_commands.py` explicitly allows `memory` reads
 only with empty arguments or `pending`; its control allowlist includes skill
@@ -603,3 +603,24 @@ decisions but not memory approve/reject. A memory decision UI therefore needs a
 verified supported upstream API, not simulated success or a second pending store.
 This finding is a source-level interface limitation, not proof of a failed live
 command. Verify the pinned runtime's contract before exposing such controls.
+
+The new learning form reads effective and saved native configuration separately,
+projects five known independent booleans and marks malformed or missing effective
+values unknown. It does not supply replacement defaults, migrate existing policy,
+or present an OpenClaw-style combined mode. Writes require explicit confirmation
+and send only edited paths through native ConfigUpdate with both profile selectors
+bound. Reads, form loads and bot switches never write configuration. A failed
+write is not retried; the UI asks the operator to inspect actual state. Native
+default stripping may leave a selected value represented as an inherited default;
+the displayed source is native storage, not a separate consent ledger. Safe
+application-wide first-run/migration policy still needs a separate decision and
+verification rather than silently reinterpreting historical missing values.
+
+Local verification for this candidate: 254 tests passed, no failures/skips;
+frontend typecheck, lint and production build passed (existing nonfatal chunk-size
+warning). Browser interaction remains unverified because its tool cannot initialize.
+Container checks now also exercise native independent settings/explicit direct-
+write choice, bot isolation and persistence, plus a model-driven skill proposal,
+pending/non-active state, diff, explicit approval and retained skill. Inspect the
+exact candidate's CI result before claiming those new checks passed. This is a
+deterministic fixture, not evidence of review quality or continuous self-improvement.

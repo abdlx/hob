@@ -9,6 +9,10 @@ export const SMOKE_PROMPT = 'HOB_CONTAINER_SMOKE_WRITE';
 export const SMOKE_REPLY = 'HOB_CONTAINER_SMOKE_OK';
 export const SMOKE_FILE = 'container-smoke-proof.txt';
 export const SMOKE_CONTENT = 'Hermes executed the isolated container smoke tool.\n';
+export const SMOKE_SKILL_PROMPT = 'HOB_CONTAINER_SMOKE_SKILL';
+export const SMOKE_SKILL_REPLY = 'HOB_CONTAINER_SKILL_STAGED';
+export const SMOKE_SKILL_NAME = 'hob-smoke-lesson';
+export const SMOKE_SKILL_CONTENT = '---\nname: hob-smoke-lesson\ndescription: Use when validating an isolated staged learning workflow.\n---\n\n# Isolated verification lesson\n\nRequire explicit review before activating this synthetic skill.\n';
 
 // The artifact path is injectable so a container run can name the bot workspace
 // explicitly instead of depending on the runtime working directory.
@@ -35,10 +39,21 @@ export function createSmokeModel({ file = defaultFile() } = {}) {
       const asked = input.messages.some(item => item.role === 'user' && String(item.content).includes(SMOKE_PROMPT));
       const wrote = input.messages.some(item => item.role === 'tool' && item.tool_call_id === 'hob-smoke-write');
       const canWrite = input.tools?.some(tool => tool.function?.name === 'write_file');
-      const tool = asked && !wrote && canWrite ? [{ id: 'hob-smoke-write', type: 'function', function: {
+      let tool = asked && !wrote && canWrite ? [{ id: 'hob-smoke-write', type: 'function', function: {
         name: 'write_file', arguments: JSON.stringify({ path: file, content: SMOKE_CONTENT }),
       } }] : null;
-      const message = { role: 'assistant', content: tool ? null : asked && wrote ? SMOKE_REPLY : 'Synthetic smoke metadata.', ...(tool ? { tool_calls: tool } : {}) };
+      let content = asked && wrote ? SMOKE_REPLY : 'Synthetic smoke metadata.';
+      const latestUser = input.messages.findLast(item => item.role === 'user');
+      if (String(latestUser?.content).includes(SMOKE_SKILL_PROMPT)) {
+        const result = input.messages.findLast(item => item.role === 'tool' && item.tool_call_id === 'hob-smoke-skill');
+        tool = !result && input.tools?.some(item => item.function?.name === 'skill_manage') ? [{ id: 'hob-smoke-skill', type: 'function', function: {
+          name: 'skill_manage', arguments: JSON.stringify({ operations: [{ action: 'create', name: SMOKE_SKILL_NAME, content: SMOKE_SKILL_CONTENT }] }),
+        } }] : null;
+        let staged;
+        try { staged = JSON.parse(typeof result?.content === 'string' ? result.content : (result?.content || []).map(item => item.text || '').join('')); } catch { /* A malformed tool result cannot prove staging. */ }
+        content = staged?.staged === true && /^[a-f0-9]{8}$/.test(staged.pending_id) ? SMOKE_SKILL_REPLY + ':' + staged.pending_id : 'HOB_CONTAINER_SKILL_NOT_STAGED';
+      }
+      const message = { role: 'assistant', content: tool ? null : content, ...(tool ? { tool_calls: tool } : {}) };
       const finish = tool ? 'tool_calls' : 'stop';
       if (input.stream === true) {
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });

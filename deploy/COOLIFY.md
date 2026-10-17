@@ -57,6 +57,13 @@ modified by this deployment.
    confirmed action; it does not submit unsaved fields or select the provider.
    Selecting built-in memory again preserves stored external settings and data.
    Existing sessions may need restarting to use a changed provider.
+9. Review **Settings → Learning & write approvals** for each bot. Require native
+   skill approval to stage agent skill changes, then use Workshop for pending
+   proposals, diffs and explicit decisions. Built-in memory approval separately
+   prompts foreground writes and stages background writes. Its pending decisions
+   are not available in this UI yet. Turning off background review does not block
+   foreground skill/memory tools; built-in gates do not cover external-provider
+   writes. Changes preserve existing data and do not cancel in-flight work.
 
 No custom build/start command is needed. Do not publish ports 8080 or 8642, add a
 host port mapping, or mount the host Docker socket. The application Dockerfile

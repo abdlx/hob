@@ -85,6 +85,13 @@ test('memory setup keeps authentication and origin checks ahead of all native ac
   assert.equal(calls.length, count);
 });
 
+test('learning controls retain application auth and reject cross-origin policy changes', async () => {
+  const count = calls.length;
+  assert.equal((await fetch(`${origin}/api/hermes/setup/learning?profile=coder`)).status, 401);
+  assert.equal((await request('setup/learning?profile=coder', 'PUT', { changes: { skillApproval: false }, confirm: true }, { Origin: 'https://attacker.invalid' })).status, 403);
+  assert.equal(calls.length, count);
+});
+
 test('group controls share app authentication and origin enforcement before native coordination', async () => {
   const count = calls.length;
   assert.equal((await fetch(`${origin}/api/hermes/groups`)).status, 401);

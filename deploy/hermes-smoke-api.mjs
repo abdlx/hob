@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { SMOKE_MODEL, SMOKE_PROMPT, SMOKE_REPLY, SMOKE_FILE, SMOKE_CONTENT } from './smoke-model.mjs';
+import { SMOKE_MODEL, SMOKE_PROMPT, SMOKE_REPLY, SMOKE_FILE, SMOKE_CONTENT, SMOKE_SKILL_PROMPT, SMOKE_SKILL_REPLY, SMOKE_SKILL_NAME, SMOKE_SKILL_CONTENT } from './smoke-model.mjs';
 
 // Reusable against the published image or an owned source-launched fixture.
 // Every write here is synthetic, and the caller must supply a fresh isolated
@@ -111,6 +111,40 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
     const bot = await api('/api/hermes/profiles', 'POST', { name: 'smoke-bot', soul: 'Independent synthetic smoke bot.' });
     check('an additional bot needs explicit creation', bot.ok === true && bot.state === 'active');
     check('the new bot does not inherit Main personality', !String((await workspace('soul', 'GET', undefined, 'smoke-bot')).content).includes(soul.trim()));
+    const learningRoute = '/api/hermes/setup/learning';
+    const mainLearning = await api(learningRoute);
+    const botLearning = await api(learningRoute + '?profile=smoke-bot', 'GET', undefined, 'smoke-bot');
+    const expectedLearning = { memoryEnabled: false, userProfileEnabled: false, memoryApproval: true, skillApproval: true, backgroundReview: false };
+    const learningValues = result => Object.fromEntries(Object.entries(result.controls).map(([id, control]) => [id, control.value]));
+    check('native learning settings are readable without activating policy changes', Object.keys(expectedLearning).every(id => typeof botLearning.controls[id]?.value === 'boolean'));
+    check('learning changes require explicit confirmation', (await request(learningRoute + '?profile=smoke-bot', 'PUT', { changes: { skillApproval: false } }, 'smoke-bot')).status === 400);
+    const changedLearning = await api(learningRoute + '?profile=smoke-bot', 'PUT', { changes: expectedLearning, confirm: true }, 'smoke-bot');
+    check('native learning flags save independently for one bot', JSON.stringify(learningValues(changedLearning)) === JSON.stringify(expectedLearning));
+    const directWrites = await api(learningRoute + '?profile=smoke-bot', 'PUT', { changes: { skillApproval: false }, confirm: true }, 'smoke-bot');
+    check('an explicit direct-write choice is preserved without changing other learning flags', directWrites.controls.skillApproval.value === false && directWrites.controls.memoryApproval.value === true && directWrites.controls.backgroundReview.value === false);
+    await api(learningRoute + '?profile=smoke-bot', 'PUT', { changes: { skillApproval: true }, confirm: true }, 'smoke-bot');
+    check('another bot retains its original learning policy', JSON.stringify((await api(learningRoute)).controls) === JSON.stringify(mainLearning.controls));
+    let stagedSkill = false;
+    if (providerTier) {
+      // Exercise the configured native gate through a real model/tool turn.
+      // Nothing is written directly into Hermes' pending store by the harness.
+      await api(learningRoute, 'PUT', { changes: { skillApproval: true, backgroundReview: false }, confirm: true });
+      const conversation = await api('/api/sessions', 'POST', { title: 'Isolated staged skill learning', agentId: 'default' });
+      const turn = await request(session(conversation.id, '/turns'), 'POST', { content: SMOKE_SKILL_PROMPT, idempotencyKey: randomUUID() });
+      check('the real staged-learning turn is admitted', turn.ok);
+      const stream = await turn.text();
+      const proposal = new RegExp(SMOKE_SKILL_REPLY + ':([a-f0-9]{8})').exec(stream)?.[1];
+      check('the native skill tool returns an actual staged proposal', Boolean(proposal) && stream.includes('event: done') && !stream.includes('event: error'), stream.slice(-400));
+      const review = (action, confirm) => workspace('skill-review', 'POST', { sessionKey: conversation.id, action, ...(action === 'pending' ? {} : { id: proposal }), ...(confirm ? { confirm: true } : {}) });
+      check('agent skill creation stays pending and is not active', (await review('pending')).output.includes(proposal)
+        && !(await workspace('skills')).some(item => item.name === SMOKE_SKILL_NAME));
+      check('the native proposal diff contains the generated lesson', (await review('diff')).output.includes('Require explicit review'));
+      await review('approve', true);
+      check('explicit approval activates the validated native skill', (await workspace('skill', 'GET', undefined, 'default', { name: SMOKE_SKILL_NAME })).content === SMOKE_SKILL_CONTENT);
+      check('the approved proposal leaves the native pending queue', !(await review('pending')).output.includes(proposal));
+      await api(learningRoute, 'PUT', { changes: { skillApproval: mainLearning.controls.skillApproval.value, backgroundReview: mainLearning.controls.backgroundReview.value }, confirm: true });
+      stagedSkill = true;
+    }
     // Use a bundled native provider with synthetic credentials and a loopback-
     // network endpoint. No memory session or external vendor account is started.
     // This verifies the real schema/config/selection owners, not vendor recall.
@@ -156,7 +190,7 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       check('MCP OAuth attempts cannot be observed through another bot', (await request('/api/hermes/setup/mcp/oauth/flows/' + flow.id + '?profile=smoke-bot')).status === 404);
       mcpOAuth = true;
     }
-    return { providerTier, sessionId, requestKey, jobId: created.id, soul, mcpOAuth, memorySetup };
+    return { providerTier, sessionId, requestKey, jobId: created.id, soul, mcpOAuth, memorySetup, expectedLearning, stagedSkill };
   };
 
   const afterRestart = async saved => {
@@ -166,6 +200,11 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
     const row = rows(await workspace('jobs')).find(item => item.id === saved.jobId);
     check('the paused schedule survives recreation without executing', paused(row), 'observed ' + JSON.stringify(row || null));
     check('credentials survive recreation without exposure', (await api('/api/hermes/credentials')).EXAMPLE_PROVIDER_API_KEY?.is_set === true);
+    if (saved.expectedLearning) {
+      const result = await api('/api/hermes/setup/learning?profile=smoke-bot', 'GET', undefined, 'smoke-bot');
+      check('independent native learning settings survive recreation', Object.entries(saved.expectedLearning).every(([id, value]) => result.controls[id]?.value === value));
+    }
+    if (saved.stagedSkill) check('an explicitly approved skill survives recreation', (await workspace('skill', 'GET', undefined, 'default', { name: SMOKE_SKILL_NAME })).content === SMOKE_SKILL_CONTENT);
     if (saved.memorySetup) {
       const memory = await api('/api/hermes/setup/memory?profile=smoke-bot', 'GET', undefined, 'smoke-bot');
       const form = await api('/api/hermes/setup/memory/providers/retaindb?profile=smoke-bot', 'GET', undefined, 'smoke-bot');

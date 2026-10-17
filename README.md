@@ -122,6 +122,14 @@ External projects/namespaces can share data across bots if configured identicall
 choose separate partitions when independent external memory is required. Existing
 sessions may need restarting after a provider change. Dependency setup submits no
 unsaved form fields and may install packages on the Hermes host.
+**Learning & write approvals** exposes native task-memory, user-profile,
+memory/skill approval and background-review switches. Review and confirm saves
+only edited booleans for the selected bot. A malformed value is shown as unknown,
+never guessed into an enabled setting. These independent switches do not promise
+that all learning is disabled by one toggle. External-provider writes are outside
+the built-in memory gate, and existing work is not cancelled. Review skill
+proposals in Workshop; pending memory decisions need a supported native review
+surface and are not available here yet. This UI does not migrate upstream defaults.
 External account CLI flows, QR onboarding and actual vendor interoperability
 still need work. MCP OAuth has
 real-runtime verification against an isolated simulated provider; its rendered
