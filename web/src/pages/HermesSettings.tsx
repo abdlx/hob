@@ -9,6 +9,8 @@ import { HermesAccountsSettings, HermesChannelsSettings, HermesToolsSettings } f
 import { HermesMcpSettings } from '../components/HermesMcpSettings';
 import { HermesMemorySettings } from '../components/HermesMemorySettings';
 import { HermesLearningSettings } from '../components/HermesLearningSettings';
+import { HermesConfigEditor } from '../components/HermesConfigEditor';
+import type { HermesConfigSchema } from '../components/HermesConfigEditor';
 
 interface Profile { name: string; display_name?: string; description?: string; model?: string; provider?: string; state?: string }
 interface Credential { is_set: boolean; description?: string; category?: string }
@@ -17,6 +19,8 @@ export function HermesSettings() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profile, setProfile] = useState(() => chatApi.getProfile());
   const [snapshot, setSnapshot] = useState<HermesConfig | null>(null);
+  const [schema, setSchema] = useState<HermesConfigSchema | null>(null);
+  const [configRevision, setConfigRevision] = useState(0);
   const [configText, setConfigText] = useState('');
   const [credentials, setCredentials] = useState<Record<string, Credential>>({});
   const [key, setKey] = useState('OPENAI_API_KEY');
@@ -43,12 +47,15 @@ export function HermesSettings() {
       const roster = await apiFetch<{ profiles: Profile[] }>('/api/hermes/profiles');
       if (sequence !== loadSequence.current) return;
       setProfiles(roster.profiles);
-      const [config, keys] = await Promise.all([
+      const [config, keys, configSchema] = await Promise.all([
         apiFetch<HermesConfig>(scoped('config')),
         apiFetch<Record<string, Credential>>(scoped('credentials')),
+        apiFetch<HermesConfigSchema>(scoped('config/schema')),
       ]);
       if (sequence !== loadSequence.current) return;
       setSnapshot(config);
+      setSchema(configSchema);
+      setConfigRevision(value => value + 1);
       setConfigText(JSON.stringify(config, null, 2));
       setCredentials(keys);
       setError('');
@@ -123,15 +130,23 @@ export function HermesSettings() {
         <button className={buttonClass} disabled={busy} onClick={() => action(() => apiFetch(`/api/hermes/profiles/${encodeURIComponent(item.name)}/finish-setup`, { method: 'POST', body: JSON.stringify({ confirmExisting: true }) }), `Setup finished for ${item.name}.`)}>Confirm profile and finish setup: {item.name}</button>
       </div>)}
     </section>
-    <section className={`${cardClass} space-y-3`}><h2 className="text-sm text-[#dfd1bd]">Hermes configuration</h2>
-      <Notice>These are the selected bot’s native Hermes settings. Only edits are submitted. Stored credential placeholders are preserved; use the credential form to replace a key. A removed JSON field is not a reset.</Notice>
-      {loading ? <Notice>Loading Hermes settings…</Notice> : <textarea aria-label="Hermes configuration JSON" className={`${inputClass} font-mono`} rows={20} value={configText} disabled={busy || !snapshot} onChange={event => setConfigText(event.target.value)} />}
-      <button className={buttonClass} disabled={busy || loading || !snapshot} onClick={() => action(async () => {
-        const config: unknown = JSON.parse(configText);
-        if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('Configuration must be a JSON object.');
-        const changes = hermesConfigChanges(snapshot!, config as HermesConfig);
-        if (Object.keys(changes).length) await submit('config', { config: changes });
-      }, 'Settings saved. Some Hermes settings take effect on a new session or after a runtime restart.')}>Save settings</button>
-    </section>
+    {loading ? <Notice>Loading Hermes settings…</Notice> : snapshot && schema ? <HermesConfigEditor key={`${profile}:${configRevision}`} snapshot={snapshot} schema={schema} busy={busy} onSave={async next => {
+      const changes = hermesConfigChanges(snapshot, next);
+      if (!Object.keys(changes).length) return;
+      await action(() => submit('config', { config: changes }), 'Settings saved. Some Hermes settings take effect on a new session or after a runtime restart.');
+    }} /> : null}
+    <details className={`${cardClass} group`}>
+      <summary className="cursor-pointer list-none text-sm font-medium text-[#dfd1bd]">Advanced: raw Hermes JSON</summary>
+      <div className="mt-3 space-y-3">
+        <Notice>Use this only for fields that need manual editing. Stored credential placeholders are preserved; use the credential form to replace a key. A removed JSON field is not a reset.</Notice>
+        <textarea aria-label="Hermes configuration JSON" className={`${inputClass} font-mono`} rows={16} value={configText} disabled={busy || loading || !snapshot} onChange={event => setConfigText(event.target.value)} />
+        <button className={buttonClass} disabled={busy || loading || !snapshot} onClick={() => action(async () => {
+          const config: unknown = JSON.parse(configText);
+          if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('Configuration must be a JSON object.');
+          const changes = hermesConfigChanges(snapshot!, config as HermesConfig);
+          if (Object.keys(changes).length) await submit('config', { config: changes });
+        }, 'Settings saved. Some Hermes settings take effect on a new session or after a runtime restart.')}>Save raw settings</button>
+      </div>
+    </details>
   </div>;
 }

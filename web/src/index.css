@@ -51,20 +51,31 @@ body, #root {
   background: #2a2a2a;
 }
 
-:root { --hob-amber: #ff965c; --hob-surface: #141210; --hob-border: #302923; }
+:root {
+  --hob-amber: #f0a36b;
+  --hob-accent: #8eb8ff;
+  --hob-success: #8ed6af;
+  --hob-warning: #f2c27b;
+  --hob-danger: #f08b8b;
+  --hob-surface: #0d131d;
+  --hob-panel: #131c28;
+  --hob-border: #28384a;
+  --hob-text: #e7edf5;
+  --hob-muted: #9aa9ba;
+}
 html, body, #root { background: var(--hob-surface); font-size: 15px; }
 button, input, textarea, select, a { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 :focus-visible { outline: 2px solid var(--hob-amber); outline-offset: 4px; }
 .hob-app { background: var(--hob-surface); }
-.hob-main { background: radial-gradient(ellipse at 48% 30%, #2b211630, transparent 65%), #171411; }
-.hob-sidebar { background: #110f0d; }
+.hob-main { background: radial-gradient(ellipse at 48% 30%, #1c304633, transparent 65%), var(--hob-surface); }
+.hob-sidebar { background: #0b1119; }
 .hob-brand { display: inline-flex; align-items: center; gap: 10px; color: #f6eee6; font-weight: 700; font-size: 28px; letter-spacing: -1.2px; }
 .hob-brand img { object-fit: contain; }
 .hob-brand-dot { color: var(--hob-amber); }
 .hob-nav-button { width: 46px; height: 46px; }
-.hob-chat-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 28px; min-height: 72px; border-bottom: 1px solid #29231e80; }
+.hob-chat-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 28px; min-height: 72px; border-bottom: 1px solid #28384a80; }
 .hob-chat-header > .hob-brand { display: none; }
 .hob-header-button { display: inline-flex; align-items: center; gap: 9px; color: #c4b6a8; font-size: 13.5px; font-weight: 500; border-radius: 12px; padding: 8px 12px; transition: all 150ms ease; }
 .hob-header-button:hover { color: #f8eee4; background: #29231d; }
@@ -96,6 +107,12 @@ button:disabled { cursor: not-allowed; }
 .hob-auth-card { background: #1b1713; border-color: #47372a; box-shadow: 0 28px 100px #0006; }
 .hob-auth-card .hob-brand { margin-bottom: 15px; }
 .hob-auth-card button[type="submit"], .hob-auth-card form > button { background: #c87742; }
+.settings-editor { box-shadow: 0 18px 48px #00000024; }
+.settings-nav { background: #101923; }
+.settings-nav::-webkit-scrollbar { width: 3px; height: 3px; }
+.settings-field:focus-within { border-color: color-mix(in srgb, var(--hob-accent) 60%, var(--hob-border)); box-shadow: 0 0 0 1px #8eb8ff26; }
+.settings-group > summary::-webkit-details-marker { display: none; }
+.settings-group[open] > summary svg { transform: rotate(180deg); }
 @keyframes hob-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes hob-pulse { 50% { opacity: .35; } }
 @media (max-width: 1100px) { .hob-shortcuts { grid-template-columns: 1fr; } .hob-shortcut { min-height: auto; display: grid; grid-template-columns: 24px 1fr; column-gap: 14px; padding: 16px 18px; } .hob-shortcut > span:first-child { grid-row: 1 / 3; margin: 0; } .hob-shortcut > span:first-child > svg:last-child { display: none; } .hob-shortcut strong { margin-bottom: 4px; } }

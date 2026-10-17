@@ -85,25 +85,79 @@ export const BotsSidebar: React.FC = () => {
     }
   };
 
-  // If sidebar is collapsed on desktop, render a slim docked expand tab
+  // Keep a compact avatar rail visible when collapsed so bot switching remains
+  // available without taking the names and details out of the expanded layout.
   if (!isBotsSidebarOpen) {
     return (
       <aside
-        className="hidden md:flex flex-col items-center justify-start py-4 w-4 bg-[#120f0d] border-r border-[#27211a] hover:bg-[#1a140f] transition-colors group cursor-pointer select-none"
-        onClick={toggleBotsSidebar}
-        title="Expand Bots (Contacts)"
-        aria-label="Expand Bots sidebar"
+        className="hidden md:flex flex-col items-center w-[72px] xl:w-[78px] h-full bg-[#120f0d] border-r border-[#27211a] shrink-0 select-none z-30 transition-all duration-200"
+        aria-label="Collapsed bots sidebar"
       >
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleBotsSidebar();
-          }}
-          className="p-1 rounded-md text-[#8c8072] group-hover:text-[#ff965c] transition-colors"
+          onClick={toggleBotsSidebar}
+          className="mt-3 mb-2 p-1.5 rounded-lg text-[#8c8072] hover:text-[#ff965c] hover:bg-[#251e17] transition-colors"
           aria-label="Expand Bots sidebar"
+          title="Expand bots sidebar"
         >
           <ChevronRight size={14} />
+        </button>
+
+        <div className="w-full flex-1 overflow-y-auto flex flex-col items-center gap-2 px-2 py-2" role="list" aria-label="Bots">
+          {agents.map((bot) => {
+            const isSelected = bot.id === (agent?.id || '');
+            const avatar = bot.avatarUrl || (isSelected && agent?.avatarUrl ? agent.avatarUrl : '/brand/hob-mark.png');
+            const botStatus = isSelected
+              ? connected
+                ? 'connected'
+                : isPreparing
+                ? 'busy'
+                : 'disconnected'
+              : 'connected';
+
+            return (
+              <button
+                key={bot.id}
+                type="button"
+                role="listitem"
+                onClick={() => void selectAgent(bot.id)}
+                className={`relative rounded-2xl p-1 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff965c] ${
+                  isSelected
+                    ? 'bg-[#3a2416] ring-1 ring-[#ff965c]/70 shadow-[0_0_16px_rgba(255,150,92,0.18)]'
+                    : 'hover:bg-[#251b14]'
+                }`}
+                aria-label={`Select ${bot.name}${isSelected ? ' (active)' : ''}`}
+                aria-current={isSelected ? 'true' : undefined}
+                title={bot.name}
+              >
+                <DogeshAvatar
+                  size={44}
+                  showEditBadge={false}
+                  avatarUrl={avatar}
+                  status={botStatus}
+                />
+                {isSelected && (
+                  <span className="absolute -right-0.5 -top-0.5 w-2.5 h-2.5 rounded-full bg-[#ff965c] ring-2 ring-[#120f0d]" aria-hidden="true" />
+                )}
+              </button>
+            );
+          })}
+          {agents.length === 0 && (
+            <span className="px-1 text-center text-[10px] leading-tight text-[#8a7e6f]">No bots</span>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setIsCreateOpen(true);
+            toggleBotsSidebar();
+          }}
+          className="mb-3 p-2 rounded-xl text-[#b8ab9a] hover:text-[#ff965c] hover:bg-[#251e17] border border-transparent hover:border-[#3d2f23] transition-colors"
+          aria-label="Create new bot"
+          title="Create new bot"
+        >
+          <Plus size={16} />
         </button>
       </aside>
     );
