@@ -9,11 +9,13 @@ import {
   X,
   Sparkles,
   Check,
+  Trash2,
 } from 'lucide-react';
 import { useChat } from '../context/ChatContext';
 import { useRuntime } from '../context/RuntimeContext';
 import { DogeshAvatar } from './DogeshAvatar';
 import { apiFetch } from '../services/api';
+import { buttonClass } from './WorkspaceUI';
 
 export const BotsSidebar: React.FC = () => {
   const {
@@ -35,6 +37,9 @@ export const BotsSidebar: React.FC = () => {
   const [newBotSoul, setNewBotSoul] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Filter bots by search query
   const filteredAgents = useMemo(() => {
@@ -82,6 +87,23 @@ export const BotsSidebar: React.FC = () => {
       setCreateError(err instanceof Error ? err.message : 'Failed to create bot.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteBot = async () => {
+    if (!deleteTarget || deleteTarget === 'default' || runtime !== 'hermes') return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      const deletingCurrent = agent?.id === deleteTarget;
+      await apiFetch(`/api/hermes/profiles/${encodeURIComponent(deleteTarget)}`, { method: 'DELETE' });
+      setDeleteTarget(null);
+      if (deletingCurrent) await selectAgent('default');
+      else await refresh();
+    } catch (err: unknown) {
+      setDeleteError(err instanceof Error ? err.message : 'Failed to delete bot.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -299,12 +321,25 @@ export const BotsSidebar: React.FC = () => {
                       >
                         {bot.name}
                       </span>
-                      {isSelected && (
-                        <span className="shrink-0 flex items-center space-x-1 text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md bg-[#3e2515] text-[#ff9e63] border border-[#5d371d]">
-                          <Check size={10} strokeWidth={2.5} />
-                          <span>Active</span>
-                        </span>
-                      )}
+                      <div className="shrink-0 flex items-center gap-1">
+                        {isSelected && (
+                          <span className="flex items-center space-x-1 text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md bg-[#343b43] text-[#e1e5e9] border border-[#4b5560]">
+                            <Check size={10} strokeWidth={2.5} />
+                            <span>Active</span>
+                          </span>
+                        )}
+                        {runtime === 'hermes' && bot.id !== 'default' && (
+                          <button
+                            type="button"
+                            onClick={event => { event.stopPropagation(); setDeleteError(null); setDeleteTarget(bot.id); }}
+                            className="rounded-md p-1 text-[#89939e] opacity-0 transition-opacity hover:bg-[#2b333c] hover:text-[#eef1f4] group-hover:opacity-100 focus-visible:opacity-100"
+                            aria-label={`Delete ${bot.name}`}
+                            title={`Delete ${bot.name}`}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <p className="text-xs text-[#8c8071] truncate mt-0.5 group-hover:text-[#a89c8c]">
                       {subtitle}
@@ -425,6 +460,27 @@ export const BotsSidebar: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="w-full max-w-md bg-[#161b21] border border-[#3b444f] rounded-2xl p-5 space-y-4" role="dialog" aria-modal="true" aria-labelledby="delete-bot-title">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-[#252c34] p-2 text-[#d2d8df]"><Trash2 size={18} /></div>
+              <div>
+                <h3 id="delete-bot-title" className="text-base font-semibold text-[#eef1f4]">Delete {agents.find(bot => bot.id === deleteTarget)?.name || deleteTarget}?</h3>
+                <p className="mt-1 text-xs leading-relaxed text-[#a8b1bb]">This removes the bot profile from Hermes. Its private workspace, conversations, credentials, and memory will no longer be available through Hob.</p>
+              </div>
+            </div>
+            {deleteError && <div className="rounded-xl border border-[#5b4141] bg-[#2a2020] p-3 text-xs text-[#f0caca]" role="alert">{deleteError}</div>}
+            <div className="flex items-center justify-end gap-2 border-t border-[#303944] pt-3">
+              <button type="button" className={buttonClass} disabled={isDeleting} onClick={() => { setDeleteTarget(null); setDeleteError(null); }}>Cancel</button>
+              <button type="button" className="inline-flex items-center gap-1.5 rounded-xl bg-[#d4d8dd] px-3.5 py-2 text-xs font-semibold text-[#151a20] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50" disabled={isDeleting} onClick={() => void handleDeleteBot()}>
+                <Trash2 size={13} />{isDeleting ? 'Deleting…' : 'Delete bot'}
+              </button>
+            </div>
           </div>
         </div>
       )}
