@@ -1,4 +1,4 @@
-# The runtime comes from the pinned official image, never a vendored source tree.
+# The runtime comes from a pinned upstream-source image, never the local reference tree.
 *
 !Dockerfile
 !.dockerignore
@@ -22,6 +22,9 @@
 **/dist-runtime
 **/.artifacts
 **/.cache
+**/__pycache__
+**/__pycache__/**
+**/*.pyc
 **/.local
 **/.openclaw
 **/.crabbox

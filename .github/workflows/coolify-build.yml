@@ -10,7 +10,6 @@ on:
       - 'deploy/**'
       - 'server/**'
       - 'web/**'
-      - 'openclaw/**'
       - '.github/workflows/coolify-build.yml'
   pull_request:
     paths:
@@ -20,7 +19,6 @@ on:
       - 'deploy/**'
       - 'server/**'
       - 'web/**'
-      - 'openclaw/**'
       - '.github/workflows/coolify-build.yml'
 
 permissions:
@@ -37,7 +35,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
-      - name: Check out the complete app and modified backend
+      - name: Check out the application
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -46,8 +44,26 @@ jobs:
         with:
           node-version: '24.21.0'
       - name: Build the single image from this checkout
-        run: docker build --build-arg OPENCLAW_BUILD_MEMORY_MB=6144 --tag openmuse:ci .
+        run: docker build --tag openmuse:ci .
       - name: Verify first boot, sandboxed browser, and persistence
         env:
           MUSE_SMOKE_IMAGE: openmuse:ci
-        run: node deploy/smoke-container.mjs
+        shell: bash
+        run: |
+          set +e
+          node deploy/smoke-container.mjs 2>&1 | tee "$RUNNER_TEMP/container-smoke.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          {
+            printf '### Container smoke (exit %s)\n\n```text\n' "$status"
+            tail -c 2000 "$RUNNER_TEMP/container-smoke.log"
+            printf '\n```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            detail=$(tail -c 2000 "$RUNNER_TEMP/container-smoke.log")
+            detail=${detail//'%'/'%25'}
+            detail=${detail//$'\r'/'%0D'}
+            detail=${detail//$'\n'/'%0A'}
+            printf '::error title=container smoke::%s\n' "$detail"
+          fi
+          exit "$status"
