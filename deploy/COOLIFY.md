@@ -1,7 +1,8 @@
 # Coolify deployment
 
-The current runtime is a pinned official Hermes image with the custom hob
-application added. The imported Hermes reference source is not compiled or
+The current runtime is a public, digest-pinned image built from unchanged upstream
+Hermes source, with the custom hob application added. It currently supports
+**Linux amd64 only**. The imported Hermes reference source is not compiled or
 modified by this deployment.
 
 ## Exact application settings
@@ -68,7 +69,8 @@ The official Hermes entrypoint initializes storage and drops privileges. Our
 supervisor launches the private settings/runtime APIs and the custom server.
 The stock automatic profile-gateway boot hook is retained outside `cont-init.d`,
 and Gateway uses the native foreground/external-supervisor flags so only our
-supervisor owns its lifetime. This packaging change still needs a Linux boot/restart test.
+supervisor owns its lifetime. Linux first boot and container recreation passed
+the container smoke workflow linked below.
 A runtime failure retries while Settings stays available. A settings/web failure
 stops the container, allowing the restart policy to recover it.
 
@@ -83,22 +85,28 @@ build, backup and verification. No source patch rebasing is required; API/config
 changes may still require adapter updates. Do not run an in-container source
 updater.
 
-The runtime base is not the newest published official image. The newest release
-is 0.22.2, whose gateway control socket answers only `identify` and `status`, so
-it cannot serve the native sessions this application uses. The runtime is instead
-built from one exact upstream commit by
+The runtime base is not the published official v0.22.2 image: its diagnostic
+`identify` and `status` responses lack the session-authority contract, and it has
+no `session-ticket` verb. It cannot serve the native sessions this application
+uses. The runtime is instead built from upstream commit
+`7e9eb8d9a30f4a9bb9f8ecaf816b4b0ffdf47357` by
 `.github/workflows/hermes-runtime-image.yml` and pinned by digest in the
-Dockerfile. Replacing that pin with the official digest is the whole change once
-upstream publishes a release containing the session authority; delete the
-workflow at the same time. The published image is public, so Coolify and CI pull
-it without registry credentials.
+Dockerfile. Once an official release supports the required contract, verify its
+image through the smoke workflow before replacing the pin and retiring the build
+workflow. The previous official digest, `sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919`,
+is recorded for provenance; it is incompatible with the current adapter and must
+not be restored as a working runtime. The GHCR image is public, so Coolify and CI
+pull it without registry credentials.
 
-Compose parsing and isolated bootstrap/adapter tests pass locally. There is no
-running Docker daemon in the current development environment, so a Linux image
-build and container first-run setup remain unproven. Local Hermes setup, separate
-profile sessions and a real tool turn passed using a deterministic local model;
-no actual provider account has been exercised.
+The [Coolify image first run workflow](https://github.com/abdlx/hob/actions/runs/39033980310)
+passed at `8512599a`: Linux image build, authenticated first-run setup, native
+session/tool execution against an isolated simulated provider, and 33 checks
+across container recreation. It asserts Compose hardening and data persistence.
+The Chromium sandbox probe is diagnostic only; a green run alone does not prove
+that probe succeeded or that another host's kernel supports the sandbox.
+No actual provider account has been exercised.
 Native groups, durable admission tracking, guided setup and native workspace
-controls are implemented and have local verification. Full runtime restart,
-remaining setup surfaces, actual vendor accounts and Linux deployment still need
-verification; see `Hermes-Integration-Checkpoint.md` in the repository root.
+controls are implemented and have local verification. Active-work recovery across
+a full runtime restart, graceful shutdown, backup/restore, candidate upgrades,
+remaining setup surfaces and production-host behaviour still need verification;
+see `Hermes-Integration-Checkpoint.md` in the repository root.

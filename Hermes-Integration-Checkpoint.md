@@ -14,11 +14,11 @@ normal operation through the custom UI.
 
 The parent Git repository owns the application. The user's archived OpenClaw
 sources and pre-existing moves/deletions remain preserved. No Hermes or archived
-OpenClaw source has been edited by this integration. The integration milestone is
-prepared for the user's requested commit/push from parent baseline
+OpenClaw source has been edited by this integration. The integration milestone was
+committed and pushed from parent baseline
 `99a7f4fabe7eeb12409eec79b7787f1befd17a11` (`testing is left`). That commit is
-preserved. Deployment has not been performed; Git identifies the milestone commit
-containing this checkpoint.
+preserved. Application/runtime packaging is verified in CI at `8512599a`; this is
+not evidence of deployment to the user's production host.
 
 The imported `hermes-agent/` has no independent Git identity proven in this
 workspace. The local baseline manifest covers 19,825 files; comparison found no
@@ -30,13 +30,24 @@ exclusions. Its SHA-256 is:
 This is a local source fingerprint, not proof of an upstream commit. The manifest
 and comparison receipts are in the ignored verification evidence directory.
 
-Docker extends the official multi-architecture image:
+Docker extends a public, Linux amd64 runtime image built with upstream's own
+Dockerfile at commit `7e9eb8d9a30f4a9bb9f8ecaf816b4b0ffdf47357`:
 
-`nousresearch/hermes-agent@sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919`
+`ghcr.io/abdlx/hob-hermes-runtime:hermes-7e9eb8d9@sha256:18633293b436b15b8fb306cc065f9b86b21ddf4a9ac60601e07520044b6c00bc`
 
-The publisher registry supplied that digest. Image labels did not prove its source
-commit, and the local reference snapshot has not been proved identical to it.
-There is no running Docker daemon here, so image build/boot claims remain unverified.
+The `Hermes runtime image` workflow builds the unchanged upstream source; the
+local reference snapshot has not been proved identical to it. The previous
+official v0.22.2 digest,
+`docker.io/nousresearch/hermes-agent@sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919`,
+lacks the session-authority contract and `session-ticket` verb required by the
+adapter. It is a provenance reference, not a compatible downgrade. Return to an
+official image only when a release passes the same native-session checks.
+
+The [Coolify image first run workflow](https://github.com/abdlx/hob/actions/runs/39033980310)
+passed at `8512599a` on Ubuntu 22.04, including an image build and 33 native checks
+across container recreation against a simulated provider. No local Docker daemon
+is available. These CI checks do not prove actual vendor access, browser sandbox
+success (that probe is diagnostic only), or graceful termination of active work.
 
 ## Implemented application seams
 
@@ -136,8 +147,9 @@ The explicit default profile is used for both services. Gateway runs with native
 `--no-supervise --external-supervisor` flags; our supervisor owns restarts. Docker
 preserves the stock `02-reconcile-profiles` hook outside automatic init so persisted
 s6 autostart cannot create a competing Gateway. Upstream init, UID/volume setup,
-package tools and privilege drop remain. This image packaging choice is still
-pending actual Linux boot/restart verification.
+package tools and privilege drop remain. Linux first boot and container recreation
+now pass CI. Runtime-user verification and graceful termination of active work
+are separate remaining checks.
 
 Runtime child environment excludes application login/session and dashboard admin
 credentials. This is environment separation, not OS security isolation. A local
@@ -434,10 +446,11 @@ unsupported Node 25.3.0.
 
 | Check | Current result | Scope |
 | --- | --- | --- |
-| `node --test deploy/*.test.mjs server/test/*.test.mjs web/tests/*.test.mjs` | 202 passed, 0 failed/skipped | Bootstrap, native chat/recovery, profile concurrency, groups, MCP/workspace/setup operations, runtime selection, security boundaries and legacy regression contracts |
+| `node --test deploy/*.test.mjs server/test/*.test.mjs web/tests/*.test.mjs` | 203 passed, 0 failed/skipped (re-run 2026-10-17) | Includes control-socket peer UID regression; bootstrap, native chat/recovery, profile concurrency, groups, MCP/workspace/setup operations, runtime selection, security boundaries and legacy regression contracts |
 | `npm run build` in `web` | Passed | TypeScript and production Vite build; nonfatal plugin timing notice |
 | `npm run lint` in `web` | Passed, no warnings | Frontend source |
 | Standalone Compose config with public template/synthetic values | Passed | Parsing only; no daemon/build/start |
+| `Coolify image first run`, commit `8512599a`, run `39033980310` | Passed | Linux amd64 image build; first boot and 33 checks across container recreation; authentication, settings, native session/tool turn with isolated simulated provider, persisted bot roster/personality/schedule/history, Compose hardening. Browser/runtime probes log diagnostics and do not independently gate success. |
 | Native Hermes + custom server + simulated model verifier, recovery expansion | 28 checks passed | Real control plane, active-worker/adapter restart, run/tool/history; simulated model |
 | Further expanded native clarification check | FAILED: prompt was not projected for a raw API session | Source-confirmed missing clarification callback; canonical session bridge required |
 | Separate native canonical session verifier | 25 checks passed | Real profile-scoped native owner, question/answer, viewer disconnect/reconnect, durable receipt/history; simulated model |
@@ -458,12 +471,15 @@ OpenClaw schemas. Those obsolete source comparisons were replaced with behaviora
 forwarding/rejection tests; assertions were not skipped or disabled.
 
 Tests do not establish real vendor compatibility, adversarial OS isolation,
-container lifecycle, complete setup UX, complete group control coverage or full runtime recovery.
+graceful termination/recovery of active work across full runtime restart, complete
+setup UX, complete group control coverage, backup/restore or candidate upgrades.
 
 ## Remaining requirements — keep full goal active
 
-1. Prove Linux image build/boot/restart, initializer ordering, privilege drop,
-   capabilities, browser sandbox, graceful stop, backup/restore and candidate upgrades.
+1. Build, idle first boot, hardening configuration and container recreation now
+   pass CI. Still verify runtime-user identity, browser sandbox execution, graceful
+   stop/recovery of active work, backup/restore and candidate upgrades. The runtime
+   image supports Linux amd64 only; ARM deployment is not available yet.
 2. Finish interactive chat coverage on the now-connected canonical owner: verify
    actual dangerous-command approval, learning hooks, and full runtime restart.
    Preserve HTTP task recovery. Finish native unknown-acceptance lookup, retention/cleanup policy,

@@ -1,7 +1,9 @@
 # Deployment
 
 The image combines the custom hob UI/server with an unchanged, digest-pinned
-official Hermes runtime. Local reference and archived runtime source trees are
+upstream-source Hermes runtime (`7e9eb8d9`, built with upstream's Dockerfile and
+published to public GHCR). This runtime image supports Linux amd64 only.
+Local reference and archived runtime source trees are
 excluded from the app build context.
 
 ## Processes and first-run setup
@@ -21,7 +23,8 @@ This intentionally gives Gateway process ownership to our foreground supervisor:
 stock persisted s6 gateway autostart must not launch a competing instance on
 restart. Upstream init, package management, volume setup and privilege drop remain
 in place. The image build refuses a changed/missing hook path rather than silently
-assuming that a future image has the same contract. Linux execution remains unverified.
+assuming that a future image has the same contract. Linux first boot and container
+recreation pass the container smoke workflow linked below.
 
 A missing config is seeded without a provider and with external CLI login adoption
 disabled. Existing config bytes are kept.
@@ -83,10 +86,10 @@ native conversation history remains readable when a receipt disappears.
 
 The local native/custom-server proof now covers question display and actual answer
 delivery to a managed worker across adapter restart, plus a real tool side effect
-and persisted history, using a deterministic model. Real-provider and Linux image
-build/boot verification remain outstanding. Local source launches must use a
+and persisted history, using a deterministic model. Linux image build and first
+boot also pass CI; real-provider verification remains outstanding. Local source launches must use a
 supported Hermes Python (`HERMES_PYTHON`) with its PM-managed dependencies; the
-official image sets that interpreter. No bootstrap helper installs dependencies
+runtime image sets that interpreter. No bootstrap helper installs dependencies
 or starts a second Gateway.
 
 ## Standalone access
@@ -120,12 +123,17 @@ Stop the application and back up the complete `hermes-data` volume. Preserve its
 private credentials and database companion files together. Test restore before
 relying on the backup.
 
-The Dockerfile's official image digest is the runtime dependency pin. Build a
+The Dockerfile's runtime image digest is the dependency pin. Build a
 candidate after a deliberate digest update, test APIs, setup, model/tool turns,
 profile isolation, groups and recovery against copied state, then deploy. Keep a
 matching state backup for rollback; an older runtime may not read upgraded state.
 
-The local reference snapshot has not been proven identical to the published image.
-Local Hermes has passed control-plane and a real tool turn against a deterministic
-local model simulation. Container builds and real provider verification remain pending
-in this environment.
+The local reference snapshot has not been proven identical to the runtime image.
+The [Coolify image first run workflow](https://github.com/abdlx/hob/actions/runs/39033980310)
+passed at `8512599a`, including an image build and 33 authenticated/native checks
+across container recreation using a deterministic model fixture. It verifies
+hardening configuration, native session/tool execution and persisted state.
+The browser sandbox probe only logs its outcome; it does not gate success.
+Graceful shutdown, active-work recovery across full runtime restart, backup/restore,
+candidate upgrades, actual provider accounts and production-host behaviour remain
+unverified. No local Docker daemon is available.

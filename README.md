@@ -6,14 +6,16 @@ interface, login and adapter. Hermes source is not patched.
 
 This migration is still in progress. Real local Hermes has passed setup, separate
 bot/session storage, streaming chat and a tool write against a deterministic local
-model simulation. A real provider and Linux container boot remain unverified.
+model simulation. Linux image build, first boot and container recreation now pass
+the [container smoke workflow](https://github.com/abdlx/hob/actions/runs/39033980310)
+at `8512599a`. A real provider account has not been exercised.
 Dashboard chat now uses Hermes' authenticated native session interface. Questions,
 generation-bound controls and active work survive adapter reconnection. Older API
 conversations remain available as read-only history. HTTP task references retain
 their separate recovery path. Explicit groups now use native Hermes room workers,
 with separate member sessions and shared history. Native group approval/denial,
 in-flight cancellation and active-member removal have local verification. Full
-setup UX, real-provider use and Linux deployment still need work.
+setup UX, real-provider use and production deployment still need work.
 
 Goals, Library, Workshop and the identity panel now use native Hermes scheduling,
 workspace files, skills, pending skill reviews, personality and memory APIs.
@@ -30,8 +32,11 @@ then reload the browser if an existing installation still displays legacy action
 
 ## Runtime boundary
 
-The Dockerfile extends a digest-pinned official
-`nousresearch/hermes-agent` image. It preserves the upstream entrypoint, runtime,
+The Dockerfile extends a public, digest-pinned `ghcr.io/abdlx/hob-hermes-runtime`
+image built with upstream Hermes' own Dockerfile at commit
+`7e9eb8d9a30f4a9bb9f8ecaf816b4b0ffdf47357`. The published official v0.22.2 image
+lacks the native session authority this adapter requires. The runtime image is
+currently **Linux amd64 only**. It preserves the upstream entrypoint, runtime,
 package manager and privilege drop, and adds the custom UI and server. It does
 not copy the local `hermes-agent/` reference or archived OpenClaw sources.
 
@@ -115,12 +120,12 @@ outside this roster are preserved but are not automatically added as dashboard b
 An older OpenClaw `muse-data` volume is not mounted or migrated by the new
 configuration. Docker retains it; do not delete it if it contains needed history.
 
-The official image initializes storage as root, then drops application/runtime
+The upstream entrypoint initializes storage as root, then drops application/runtime
 processes to its Hermes user. Compose grants only the initialization capabilities
 listed in `compose.yaml`; it does not mount the Docker socket.
 
 Back up the complete Hermes volume while stopped and keep the backup private.
-Upgrade by changing the official image digest, building a candidate, testing it
+Upgrade by changing the runtime image digest, building a candidate, testing it
 against a copy of your data, and then promoting it. Do not use an in-container
 source updater. The adapter reduces coupling but does not guarantee that every
 future upstream version will be compatible without testing.

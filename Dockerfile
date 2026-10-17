@@ -4,12 +4,13 @@ ARG NODE_BUILD_IMAGE=docker.io/library/node:24-bookworm@sha256:64af3819f92758024
 # 0.22.2, whose gateway control socket answers only `identify` and `status`; the
 # native session authority this application requires (gateway/run_runtime.py, the
 # `session-ticket` verb, runtime_protocol 1) exists only on upstream's default
-# branch.
+# branch at the pinned commit below.
 #
 # So .github/workflows/hermes-runtime-image.yml builds that exact upstream commit
 # with upstream's own Dockerfile and publishes it to GHCR, and it is pinned here
-# by digest. Once upstream publishes a release that contains the session
-# authority, delete that workflow and re-pin the official digest, which is
+# by digest. Once upstream publishes a release that passes the session smoke,
+# retire that workflow and pin the tested official image. The previous official
+# image below is incompatible with this adapter; retain it only for provenance:
 #   docker.io/nousresearch/hermes-agent@sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919
 # Updating either digest is an explicit, tested runtime upgrade.
 ARG HERMES_IMAGE=ghcr.io/abdlx/hob-hermes-runtime:hermes-7e9eb8d9@sha256:18633293b436b15b8fb306cc065f9b86b21ddf4a9ac60601e07520044b6c00bc
