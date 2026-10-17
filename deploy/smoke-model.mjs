@@ -2,6 +2,7 @@
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createMcpOAuthFixture } from './smoke-mcp.mjs';
 
 export const SMOKE_MODEL = 'hob-container-smoke';
 export const SMOKE_PROMPT = 'HOB_CONTAINER_SMOKE_WRITE';
@@ -14,7 +15,9 @@ export const SMOKE_CONTENT = 'Hermes executed the isolated container smoke tool.
 const defaultFile = () => process.env.HOB_SMOKE_FILE || SMOKE_FILE;
 
 export function createSmokeModel({ file = defaultFile() } = {}) {
+  const mcp = createMcpOAuthFixture({ baseUrl: process.env.HOB_SMOKE_MCP_BASE });
   return createServer(async (req, res) => {
+    if (await mcp(req, res)) return;
     const json = (status, value) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
     if (req.method === 'GET' && req.url === '/healthz') return json(200, { fixture: true });
     if (req.method === 'GET' && req.url === '/v1/models') return json(200, { object: 'list', data: [{ id: SMOKE_MODEL, object: 'model', context_length: 128000 }] });

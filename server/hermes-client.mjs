@@ -177,6 +177,12 @@ export class HermesClient extends EventEmitter {
     return readJson(await this.#response('dashboard', pathname, options), this.maxResponseBytes);
   }
 
+  async mcpOAuthCallback(name, { profile, query }) {
+    const response = await this.#response('dashboard', `/api/mcp/oauth/callback/${hermesResource(name)}`, { profile, query });
+    // Callback HTML belongs to Hermes. Never proxy its markup, cookies or headers.
+    await response.body?.cancel();
+  }
+
   async *events(runId, { profile = 'default', signal } = {}) {
     const response = await this.#response('runtime', `/v1/runs/${hermesResource(runId)}/events`, { profile, signal, stream: true });
     if (!response.headers.get('content-type')?.includes('text/event-stream') || !response.body) {

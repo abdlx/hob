@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { seedHermesConfig } from './seed-hermes-config.mjs';
 import { prepareHermesRuntime } from './prepare-hermes-runtime.mjs';
+import { mcpOAuthOrigin } from '../server/hermes-mcp-oauth.mjs';
 
 async function listenerCredentials(filename) {
   const candidate = { version: 1, apiKey: randomBytes(32).toString('hex'), dashboardToken: randomBytes(32).toString('hex') };
@@ -57,6 +58,8 @@ export async function bootstrapHermes(env = process.env) {
   runtimeEnv.HERMES_GATEWAY_EXTERNAL_SUPERVISOR = '1';
   const dashboardEnv = { ...without(shared, /^(?:MUSE_|HOB_|HERMES_DASHBOARD_)/),
     HERMES_DASHBOARD_SESSION_TOKEN: credentials.dashboardToken };
+  const publicOrigin = mcpOAuthOrigin(env.MUSE_PUBLIC_URL);
+  if (publicOrigin) dashboardEnv.HERMES_DASHBOARD_PUBLIC_URL = publicOrigin;
   const appEnv = { ...shared, HOB_STATE_DIR: stateDir, HERMES_DASHBOARD_SESSION_TOKEN: credentials.dashboardToken,
     HERMES_API_URL: 'http://127.0.0.1:8642', HERMES_DASHBOARD_URL: 'http://127.0.0.1:8080' };
   const hermes = env.HERMES_EXECUTABLE || 'hermes';

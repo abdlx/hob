@@ -79,6 +79,18 @@ test('restart preserves exact user configuration bytes and listener credentials'
   });
 });
 
+test('MCP callback origin is provisioned only to settings from the explicit application origin', async () => {
+  await fixture(async env => {
+    const { processes: [settings, runtime, app] } = await bootstrap({ ...env,
+      MUSE_PUBLIC_URL: 'https://dashboard.example/', HERMES_DASHBOARD_PUBLIC_URL: 'https://other.invalid' });
+    assert.equal(settings.env.HERMES_DASHBOARD_PUBLIC_URL, 'https://dashboard.example');
+    assert.equal(runtime.env.HERMES_DASHBOARD_PUBLIC_URL, undefined);
+    assert.equal(app.env.MUSE_PUBLIC_URL, 'https://dashboard.example/');
+    const malformed = await bootstrap({ ...env, MUSE_PUBLIC_URL: 'https://dashboard.example/other' });
+    assert.equal(malformed.processes[0].env.HERMES_DASHBOARD_PUBLIC_URL, undefined);
+  });
+});
+
 test('corrupt listener state fails closed without rotating or overwriting existing bytes', async () => {
   await fixture(async env => {
     await bootstrap(env);

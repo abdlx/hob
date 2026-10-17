@@ -10,6 +10,7 @@ import { createHermesCanonicalChatRoutes } from './hermes-canonical-chat.mjs';
 import { createHermesWorkspaceRoutes } from './hermes-workspace.mjs';
 import { createHermesSetupRoutes } from './hermes-setup.mjs';
 import { createHermesGroups } from './hermes-groups.mjs';
+import { createHermesMcpOAuth } from './hermes-mcp-oauth.mjs';
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -109,7 +110,8 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   if (nativeSessions && !runJournal) throw new Error('Native chat requires a durable admission journal.');
   const hermesGroups = hermes && nativeSessions ? createHermesGroups({ client: hermes, bridge: nativeSessions, bots, home: process.env.HERMES_HOME }) : null;
   const hermesRoutes = hermes ? createHermesRoutes(hermes, bots, hermesGroups ? { removeBot: hermesGroups.removeBot } : {}) : null;
-  const hermesSetup = hermes ? createHermesSetupRoutes(hermes) : null;
+  const mcpOAuth = hermes ? createHermesMcpOAuth(hermes, { publicUrl }) : null;
+  const hermesSetup = hermes ? createHermesSetupRoutes(hermes, { mcpOAuth }) : null;
   const hermesWorkspace = hermes ? createHermesWorkspaceRoutes({ client: hermes, bridge: nativeSessions,
     workspaceRoot: process.env.HERMES_HOME ? path.join(process.env.HERMES_HOME, 'workspaces') : undefined }) : null;
   const hermesChat = gateway?.kind === 'hermes' ? createHermesChatRoutes(gateway, bots, runJournal) : null;
@@ -177,6 +179,10 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
       catch { throw new HttpError(400, 'Invalid URL encoding.'); }
       const route = url.pathname;
       const method = req.method;
+      // Provider redirects cannot carry the dashboard's SameSite=Strict cookie.
+      // Only this exact endpoint is public; the flow bridge validates an owned,
+      // unexpired, single-use state and rechecks bot enrollment before delivery.
+      if (mcpOAuth && route.startsWith('/api/mcp/oauth/callback/')) return await mcpOAuth.callback(req, res, url);
       if (route === '/healthz') {
         const state = typeof gateway.getServiceHealth === 'function' ? await gateway.getServiceHealth() : await startup();
         return json(res, state.ready ? 200 : 503, { ok: state.ready, gatewayConnected: gateway.connected });

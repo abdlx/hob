@@ -7,7 +7,7 @@ import { SMOKE_MODEL, SMOKE_PROMPT, SMOKE_REPLY, SMOKE_FILE, SMOKE_CONTENT } fro
 // Every write here is synthetic, and the caller must supply a fresh isolated
 // home. Checks assert only surfaces whose shape is owned by this repository or
 // is stable in Hermes's own dashboard contract.
-export function createHermesSmokeApi({ origin, password, modelUrl, fetchImpl = fetch }) {
+export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp, fetchImpl = fetch }) {
   let cookie = '';
   const checks = [];
   const check = (name, value, detail) => { assert.ok(value, detail ? name + ' (' + detail + ')' : name); checks.push(name); };
@@ -111,7 +111,26 @@ export function createHermesSmokeApi({ origin, password, modelUrl, fetchImpl = f
     const bot = await api('/api/hermes/profiles', 'POST', { name: 'smoke-bot', soul: 'Independent synthetic smoke bot.' });
     check('an additional bot needs explicit creation', bot.ok === true && bot.state === 'active');
     check('the new bot does not inherit Main personality', !String((await workspace('soul', 'GET', undefined, 'smoke-bot')).content).includes(soul.trim()));
-    return { providerTier, sessionId, requestKey, jobId: created.id, soul };
+    let mcpOAuth = false;
+    if (modelUrl && authorizeMcp) {
+      await api('/api/hermes/setup/mcp', 'POST', { name: 'smoke-oauth', url: new URL('/mcp', modelUrl).href, auth: 'oauth', confirm: true });
+      const flow = await api('/api/hermes/setup/mcp/smoke-oauth/auth', 'POST', { confirm: true });
+      check('native MCP OAuth publishes an owned authorization URL', flow.status === 'authorization_required' && typeof flow.authorizationUrl === 'string');
+      const redirect = new URL(await authorizeMcp(flow.authorizationUrl));
+      check('native MCP OAuth uses the public custom-dashboard callback', redirect.origin === origin && redirect.pathname === '/api/mcp/oauth/callback/smoke-oauth');
+      const callback = await fetchImpl(redirect, { redirect: 'error', signal: AbortSignal.timeout(10000) });
+      check('MCP OAuth callback works without a dashboard cookie', callback.status === 200 && !(await callback.text()).includes('access_token'));
+      check('MCP OAuth callback is single use', (await fetchImpl(redirect, { redirect: 'error', signal: AbortSignal.timeout(10000) })).status !== 200);
+      await retry('native MCP OAuth completion', async () => {
+        const result = await api('/api/hermes/setup/mcp/oauth/flows/' + flow.id);
+        assert.equal(result.status, 'approved', 'Native MCP OAuth has not completed.');
+      }, 60000);
+      const result = await api('/api/hermes/setup/mcp/smoke-oauth/test', 'POST', { confirm: true });
+      check('native MCP OAuth saved a working credential and lists real tools', result.ok === true && result.tools.some(item => item.name === 'smoke_echo'));
+      check('MCP OAuth attempts cannot be observed through another bot', (await request('/api/hermes/setup/mcp/oauth/flows/' + flow.id + '?profile=smoke-bot')).status === 404);
+      mcpOAuth = true;
+    }
+    return { providerTier, sessionId, requestKey, jobId: created.id, soul, mcpOAuth };
   };
 
   const afterRestart = async saved => {
@@ -121,6 +140,10 @@ export function createHermesSmokeApi({ origin, password, modelUrl, fetchImpl = f
     const row = rows(await workspace('jobs')).find(item => item.id === saved.jobId);
     check('the paused schedule survives recreation without executing', paused(row), 'observed ' + JSON.stringify(row || null));
     check('credentials survive recreation without exposure', (await api('/api/hermes/credentials')).EXAMPLE_PROVIDER_API_KEY?.is_set === true);
+    if (saved.mcpOAuth) {
+      const result = await api('/api/hermes/setup/mcp/smoke-oauth/test', 'POST', { confirm: true });
+      check('native MCP OAuth credentials survive container recreation', result.ok === true && result.tools.some(item => item.name === 'smoke_echo'));
+    }
     if (!saved.sessionId) return;
     // A conversation read is the authority proof: it must answer again after the
     // application process is replaced, using the same durable native state.

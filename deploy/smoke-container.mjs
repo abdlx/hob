@@ -176,6 +176,7 @@ try {
       healthcheck: { test: ['CMD', '/usr/local/bin/node', '-e', modelProbe],
         interval: '2s', timeout: '5s', start_period: '3s', retries: 30 },
       environment: { HOB_SMOKE_MODEL_PORT: '18793', HOB_SMOKE_HOST: '0.0.0.0',
+        HOB_SMOKE_MCP_BASE: 'http://smoke-model:18793',
         HOB_SMOKE_FILE: '/opt/data/workspaces/main/' + SMOKE_FILE } };
   }
   await writeFile(override, JSON.stringify({ services }));
@@ -201,7 +202,15 @@ try {
   probeRuntimeState(container);
   const unauthorized = await fetch(origin + '/api/sessions', { headers: { Connection: 'close' }, signal: AbortSignal.timeout(10000) });
   assert.equal(unauthorized.status, 401);
-  const smoke = createHermesSmokeApi({ origin, password, modelUrl: providerTier ? modelUrl : undefined });
+  const smoke = createHermesSmokeApi({ origin, password, modelUrl: providerTier ? modelUrl : undefined,
+    authorizeMcp: url => {
+      // Only this fixture's URL may be fetched from the private Compose network.
+      const target = new URL(url);
+      assert.equal(target.origin, 'http://smoke-model:18793');
+      assert.equal(target.pathname, '/oauth/authorize');
+      const script = "fetch(process.argv[1], {redirect:'manual', signal:AbortSignal.timeout(5000)}).then(r => {if(r.status !== 302) throw Error(); process.stdout.write(JSON.stringify({location:r.headers.get('location')}));}).catch(() => {console.error('Synthetic OAuth redirect failed'); process.exitCode=1;});";
+      return JSON.parse(docker(['exec', container, '/usr/local/bin/node', '-e', script, url], 10000)).location;
+    } });
   const saved = await smoke.firstBoot();
   verifyRuntimeUsers(container);
   console.log('Actual image first boot passed ' + smoke.checks.length + ' authenticated native checks.');

@@ -19,7 +19,7 @@ const envInput = value => {
 const managedChannel = name => ['api_server', 'webhook'].includes(name);
 
 /** Native setup forms; never shell commands, arbitrary URLs, or a second config owner. */
-export function createHermesSetupRoutes(client) {
+export function createHermesSetupRoutes(client, { mcpOAuth } = {}) {
   return async (req, res, url, { json, body }) => {
     const route = url.pathname.slice('/api/hermes/setup/'.length), method = req.method;
     const profiles = url.searchParams.getAll('profile');
@@ -35,6 +35,20 @@ export function createHermesSetupRoutes(client) {
       const { profile: _profile, ...result } = value;
       return result;
     };
+    if (route === 'mcp/oauth/flows' && method === 'GET' && mcpOAuth) return json(res, 200, await mcpOAuth.list(profile));
+    const oauthFlow = /^mcp\/oauth\/flows\/([a-zA-Z0-9_-]{1,128})$/.exec(route);
+    if (oauthFlow && mcpOAuth) {
+      if (method === 'GET') return json(res, 200, await mcpOAuth.poll(oauthFlow[1], profile));
+      if (method === 'DELETE') { await input([]); return json(res, 200, await mcpOAuth.cancel(oauthFlow[1], profile)); }
+    }
+    const oauthStart = /^mcp\/([^/]+)\/auth$/.exec(route);
+    if (oauthStart && method === 'POST' && mcpOAuth) {
+      const value = await input(['confirm']);
+      if (value.confirm !== true) throw invalid('Confirm starting sign-in for this bot’s MCP server.');
+      let name;
+      try { name = decodeURIComponent(oauthStart[1]); } catch { throw invalid('Invalid MCP server name.'); }
+      return json(res, 200, await mcpOAuth.start(name, profile));
+    }
     if (route === 'mcp' && method === 'GET') {
       const result = await dashboard('/api/mcp/servers');
       if (!Array.isArray(result.servers)) throw new HermesError(502, 'Hermes returned an invalid MCP inventory.', 'HERMES_PROTOCOL_ERROR');
