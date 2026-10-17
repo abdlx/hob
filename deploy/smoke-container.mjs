@@ -136,7 +136,7 @@ function probeChromiumSandbox(container) {
     'if [ -z "$chromium" ]; then echo NOT_FOUND >&2; exit 3; fi',
     'test "$(id -u)" != 0 || exit 3',
     'profile=$(mktemp -d) || exit 3',
-    'if "$chromium" --headless --no-first-run --no-default-browser-check --user-data-dir="$profile" --dump-dom about:blank >/dev/null 2>"$profile/probe.err"; then echo SANDBOX_OK; else echo SANDBOX_FAILED >&2; head -n 4 "$profile/probe.err" >&2; exit 1; fi',
+    'if timeout --signal=TERM --kill-after=3 25 "$chromium" --headless --no-first-run --no-default-browser-check --user-data-dir="$profile" --dump-dom about:blank >/dev/null 2>"$profile/probe.err"; then echo SANDBOX_OK; else code=$?; echo "SANDBOX_FAILED exit=$code" >&2; head -n 20 "$profile/probe.err" >&2; exit 1; fi',
   ].join('\n');
   // docker exec starts with the image's root HOME. Match the upstream main
   // wrapper's runtime HOME as well as its user; a UID-only switch leaves
