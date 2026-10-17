@@ -201,6 +201,24 @@ test('uncertain auth starts are observed and fenced rather than replayed', async
   assert.equal(f.calls.filter(call => call.path.endsWith('/auth')).length, 1);
 });
 
+test('a confirmed native refusal leaves no admitted attempt and permits a later explicit retry', async t => {
+  const f = await fixture(t);
+  f.override((req, res, url) => { if (!url.pathname.endsWith('/auth')) return false; res.writeHead(429); res.end(); return true; });
+  assert.equal((await f.request('mcp/docs/auth', 'POST', { confirm: true })).status, 429);
+  assert.deepEqual(await (await f.request('mcp/oauth/flows')).json(), { flows: [] });
+  assert.equal(f.calls.filter(call => call.path.endsWith('/auth')).length, 1);
+  f.override(undefined);
+  await f.start();
+  assert.equal(f.calls.filter(call => call.path.endsWith('/auth')).length, 2);
+});
+
+test('credential replacement during discovery prevents starting OAuth under the new enrollment', async t => {
+  const f = await fixture(t);
+  f.override((req, res, url) => { if (url.pathname === '/api/mcp/servers') f.keys.set('coder', 'replacement-enrollment'); return false; });
+  assert.equal((await f.request('mcp/docs/auth', 'POST', { confirm: true })).status, 404);
+  assert.equal(f.calls.filter(call => call.path.endsWith('/auth')).length, 0);
+});
+
 test('expired flows reject callbacks and polling without touching the native owner', async () => {
   let clock = 1, count = 0;
   const bridge = createHermesMcpOAuth({ credentialBinding: async () => 'binding',

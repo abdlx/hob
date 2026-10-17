@@ -97,6 +97,8 @@ export function createHermesMcpOAuth(client, { publicUrl, now = Date.now } = {})
       // Native precondition refusals are known non-admissions. An unavailable
       // service or lost/malformed reply remains fenced; neither is retried.
       if ([400, 403, 404, 409, 422, 429].includes(error.status)) flows.delete(flow.id);
+      if (error.status === 409) throw new HermesError(409, 'Hermes still has a sign-in attempt for this server. Wait for it to finish or expire before starting again.', 'MCP_OAUTH_IN_PROGRESS');
+      if (error.status === 429) throw new HermesError(429, 'Hermes has too many sign-ins in progress. Wait for an earlier attempt to finish before trying again.', 'MCP_OAUTH_LIMIT');
       throw error;
     }
     if (typeof result?.flow_id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(result.flow_id)) {
