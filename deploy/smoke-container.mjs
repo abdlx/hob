@@ -95,8 +95,11 @@ try {
   const services = { muse: { image, pull_policy: 'never',
     ports: [{ target: 3000, published: String(port), host_ip: '127.0.0.1', protocol: 'tcp' }] } };
   if (providerTier) {
+    // The fixture reuses the application image, so the image healthcheck would
+    // probe port 3000 and report this service unhealthy. It is a fixture, not a
+    // gateway, and disabling the check only prevents that false negative.
     services['smoke-model'] = { image, pull_policy: 'never', entrypoint: ['/usr/local/bin/node'],
-      command: ['/app/deploy/smoke-model.mjs'],
+      command: ['/app/deploy/smoke-model.mjs'], healthcheck: { disable: true },
       environment: { HOB_SMOKE_MODEL_PORT: '18793', HOB_SMOKE_HOST: '0.0.0.0',
         HOB_SMOKE_FILE: '/opt/data/workspaces/main/' + SMOKE_FILE } };
   }
