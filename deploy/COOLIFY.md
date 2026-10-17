@@ -78,10 +78,20 @@ UI if chat is unavailable despite a healthy service.
 
 ## Updates and validation
 
-Updates use an explicit official image digest in the Dockerfile, followed by a
-candidate build, backup and verification. No source patch rebasing is required;
-API/config changes may still require adapter updates. Do not run an in-container
-source updater.
+Updates use an explicit image digest in the Dockerfile, followed by a candidate
+build, backup and verification. No source patch rebasing is required; API/config
+changes may still require adapter updates. Do not run an in-container source
+updater.
+
+The runtime base is not the newest published official image. The newest release
+is 0.22.2, whose gateway control socket answers only `identify` and `status`, so
+it cannot serve the native sessions this application uses. The runtime is instead
+built from one exact upstream commit by
+`.github/workflows/hermes-runtime-image.yml` and pinned by digest in the
+Dockerfile. Replacing that pin with the official digest is the whole change once
+upstream publishes a release containing the session authority; delete the
+workflow at the same time. The published image is public, so Coolify and CI pull
+it without registry credentials.
 
 Compose parsing and isolated bootstrap/adapter tests pass locally. There is no
 running Docker daemon in the current development environment, so a Linux image
