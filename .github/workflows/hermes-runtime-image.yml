@@ -1,0 +1,66 @@
+name: Hermes runtime image
+
+# The pinned official Hermes container image is release 0.22.2. Its gateway
+# control socket answers only `identify` and `status`, but this application
+# needs the native session authority (gateway/run_runtime.py,
+# gateway/session_authorities.py, the `session-ticket` verb and
+# `runtime_protocol` 1) which upstream has on its default branch but has not
+# published as an image.
+#
+# This workflow builds that image from one exact upstream commit with upstream's
+# own Dockerfile and publishes it to GHCR, so this repository can keep pinning a
+# single immutable image reference. Once upstream publishes a release that
+# contains the session authority, delete this workflow and re-pin the official
+# digest in the Dockerfile.
+#
+# Run on demand or when this file changes. It is a slow build and is
+# deliberately not triggered by ordinary source changes.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/hermes-runtime-image.yml'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: hermes-runtime-image
+  cancel-in-progress: false
+
+env:
+  # The exact upstream commit this repository's session client is written
+  # against: it publishes gateway.sock, protocol 1, served_profiles entries
+  # carrying `home`, and the session-ticket verb.
+  HERMES_COMMIT: 7e9eb8d9a30f4a9bb9f8ecaf816b4b0ffdf47357
+  IMAGE: ghcr.io/abdlx/hob-hermes-runtime
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    steps:
+      - name: Reclaim runner disk for the Hermes build
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "$AGENT_TOOLSDIRECTORY" 2>/dev/null || true
+          df -h /
+      - name: Fetch the pinned upstream source
+        run: |
+          set -euo pipefail
+          git init --quiet hermes-source
+          cd hermes-source
+          git remote add origin https://github.com/NousResearch/hermes-agent.git
+          git fetch --depth 1 origin "$HERMES_COMMIT"
+          git checkout --quiet --detach FETCH_HEAD
+          git log -1 --format='%H %cI %s'
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Set up a container builder
+        run: docker buildx create --name hermes --driver docker-container --use --bootstrap
+      - name: Build and publish the pinned runtime
+        run: |
+          set -euo pipefail
+          tag="hermes-${HERMES_COMMIT:0:8}"
+          docker buildx build --platform linux/amd64 --tag "$IMAGE:$tag" --push ./hermes-source
+          docker buildx imagetools inspect "$IMAGE:$tag"
