@@ -1,9 +1,19 @@
 // Frontend boundary proof with synthetic API fixtures. This does not certify a live Gateway.
 import assert from 'node:assert/strict';
-import { createRequire } from 'node:module';
+import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
-const require = createRequire(new URL('../openclaw/package.json', import.meta.url));
-const { chromium } = require('playwright-core');
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+// playwright-core is a test-only dependency and is intentionally not part of the
+// shipped web build. Resolve it from an explicit override or a local install.
+const candidates = [
+  process.env.HOB_UI_TEST_PLAYWRIGHT,
+  fileURLToPath(new URL('../web/node_modules/playwright-core/package.json', import.meta.url)),
+  fileURLToPath(new URL('../node_modules/playwright-core/package.json', import.meta.url)),
+];
+const playwright = candidates.find(candidate => candidate && existsSync(candidate));
+if (!playwright) throw new Error('The frontend smoke needs playwright-core: install it with "npm install --no-save playwright-core" inside web/, or point HOB_UI_TEST_PLAYWRIGHT at its package.json.');
+const { chromium } = createRequire(playwright)('playwright-core');
 const baseURL = process.env.HOB_UI_TEST_URL || 'http://127.0.0.1:4180';
 const browser = await chromium.launch({ headless: true, chromiumSandbox: true, ...(process.env.HOB_UI_TEST_BROWSER ? { executablePath: process.env.HOB_UI_TEST_BROWSER } : {}) });
 const errors = [];
