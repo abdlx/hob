@@ -56,14 +56,13 @@ async function ready() {
 
 function probeRuntimeState(container) {
   // Bounded, secret-free facts about the native runtime the application attaches
-  // to: state names, socket presence, process count and a probe verdict. It never
-  // prints environment values, tickets, configuration or application log lines.
+  // to. It prints state names, presence flags, a process count and an error class
+  // or message, and it runs the application's own bootstrap with stdout discarded
+  // so no ticket can reach the log.
   const script = [
-    'echo "runtime_probe home=$HERMES_HOME python=${HERMES_PYTHON:-python3} uid=$(id -u)"',
-    'echo "home_entries=$(ls -1 "$HERMES_HOME" 2>/dev/null | tr "\\n" ",")"',
-    'for name in gateway.sock gateway.sock.path gateway.lock gateway_state.json; do',
-    '  if [ -e "$HERMES_HOME/$name" ]; then echo "present:$name"; else echo "absent:$name"; fi',
-    'done',
+    'echo "runtime_probe home=$HERMES_HOME python=${HERMES_PYTHON:-python3} probe_uid=$(id -u) home_owner=$(stat -c %u "$HERMES_HOME" 2>/dev/null)"',
+    'echo "layers=$(for layer in /opt/hermes/pm /opt/hermes/hermes_cli /opt/hermes/pm-runtime /opt/hermes/.venv /app/deploy/hermes-session-bootstrap.py; do if [ -e "$layer" ]; then printf "%s=yes " "$layer"; else printf "%s=no " "$layer"; fi; done)"',
+    'for name in gateway.sock gateway.sock.path gateway.lock gateway_state.json; do if [ -e "$HERMES_HOME/$name" ]; then echo "present:$name"; else echo "absent:$name"; fi; done',
     'if command -v ps >/dev/null 2>&1; then echo "gateway_cmdline_processes=$(ps -eo args | grep -c "[g]ateway run")"; fi',
     'cat > /tmp/hob-runtime-probe.py <<\'PROBE\'',
     'import json, os, sys',
@@ -73,12 +72,17 @@ function probeRuntimeState(container) {
     '    activate_dependencies(os.environ["HERMES_DIR"])',
     '    from hermes_cli.gateway_runtime import attachable, discover_gateway_endpoint',
     '    result = discover_gateway_endpoint(os.environ["HERMES_HOME"], timeout=5)',
-    '    print(json.dumps({"state": result.state, "reason": result.reason_code, "attachable": attachable(result)}))',
+    '    verdict = {"state": result.state, "reason": result.reason_code, "attachable": attachable(result)}',
     'except Exception as error:',
-    '    print(json.dumps({"error": type(error).__name__}))',
+    '    verdict = {"error": type(error).__name__, "detail": str(error)[:160]}',
+    'print(json.dumps(verdict))',
     'PROBE',
-    '"${HERMES_PYTHON:-python3}" /tmp/hob-runtime-probe.py 2>/dev/null || echo "runtime_probe_failed"',
-    'rm -f /tmp/hob-runtime-probe.py',
+    'runner=""',
+    'if [ -x /command/s6-setuidgid ]; then runner="/command/s6-setuidgid hermes"; fi',
+    '$runner "${HERMES_PYTHON:-python3}" /tmp/hob-runtime-probe.py 2>/dev/null || echo "runtime_probe_failed"',
+    '$runner "${HERMES_PYTHON:-python3}" /app/deploy/hermes-session-bootstrap.py >/tmp/hob-boot.out 2>/tmp/hob-boot.err',
+    'echo "app_bootstrap_exit=$? stderr=$(head -n 1 /tmp/hob-boot.err)"',
+    'rm -f /tmp/hob-runtime-probe.py /tmp/hob-boot.out /tmp/hob-boot.err',
   ].join('\n');
   try {
     console.log('Native runtime probe: ' + docker(['exec', container, 'sh', '-c', script], 90000));
