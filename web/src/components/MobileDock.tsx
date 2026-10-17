@@ -1,4 +1,4 @@
-import { MessageCircle, Newspaper, BookOpen, SquareCheck, Shapes, Settings } from 'lucide-react';
+import { MessageCircle, Newspaper, BookOpen, SquareCheck, Shapes, Settings, Users } from 'lucide-react';
 import { useChat } from '../context/ChatContext';
 import { BottomDock } from './BottomDock/BottomDock';
 import type { DockItemConfig } from './BottomDock/types';
@@ -15,6 +15,7 @@ export function MobileDock() {
   const { activeNav, setActiveNav } = useChat();
   return <div className="md:hidden pt-2 pb-1 flex justify-center items-center gap-1">
     <BottomDock items={items} activeId={activeNav} onChange={setActiveNav} showSearch={false} />
+    <button type="button" aria-label="Groups" onClick={() => setActiveNav('groups')} className={`rounded-full p-2.5 border border-[#262626] ${activeNav === 'groups' ? 'bg-[#242424]' : 'bg-[#111111]'}`}><Users size={17} /></button>
     <button type="button" aria-label="Settings" onClick={() => setActiveNav('settings')} className={`rounded-full p-2.5 border border-[#262626] ${activeNav === 'settings' ? 'bg-[#242424]' : 'bg-[#111111]'}`}><Settings size={17} /></button>
   </div>;
 }

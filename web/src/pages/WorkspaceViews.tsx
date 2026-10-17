@@ -3,6 +3,7 @@ import { ArrowLeft, FileText, Image, Play, Plus, RefreshCw, Save, Trash2, X } fr
 import { apiFetch } from '../services/api';
 import { arrayReplacementPaths } from '../services/config';
 import { useChat } from '../context/ChatContext';
+import { useRuntime } from '../context/RuntimeContext';
 import { MarkdownView } from '../components/MarkdownView';
 import { buttonClass, cardClass, Field, inputClass, Notice } from '../components/WorkspaceUI';
 import { errorText } from '../components/workspaceUtils';
@@ -12,6 +13,8 @@ import { SetupWizard } from '../components/SetupWizard';
 import { LearningSettings } from '../components/LearningSettings';
 import { WorkshopView } from './WorkshopView';
 import { HermesSettings } from './HermesSettings';
+import { HermesGoals, HermesWorkspace } from './HermesWorkspace';
+import { HermesGroups } from './HermesGroups';
 
 export interface GoalJob {
   id: string; name: string; enabled: boolean; configRevision?: string;
@@ -25,7 +28,7 @@ function scheduleLabel(job: GoalJob) {
   const schedule = job.schedule;
   return schedule.kind === 'at' ? new Date(schedule.at || '').toLocaleString() : schedule.kind === 'every' ? `Every ${Math.round((schedule.everyMs || 0) / 60000)} min` : schedule.kind === 'cron' ? `${schedule.expr}${schedule.tz ? ` · ${schedule.tz}` : ''}` : schedule.kind;
 }
-export function DailyGoals() {
+function OpenClawDailyGoals() {
   const [jobs, setJobs] = useState<GoalJob[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -168,24 +171,22 @@ function OpenClawSettingsView() {
 }
 
 function SettingsView() {
-  const [runtime, setRuntime] = useState('');
-  const [error, setError] = useState('');
-  useEffect(() => {
-    let active = true;
-    void apiFetch<{ runtime: string }>('/api/runtime').then(result => {
-      if (active) setRuntime(result.runtime);
-    }).catch(error => { if (active) setError(errorText(error)); });
-    return () => { active = false; };
-  }, []);
-  if (error) return <Notice error>{error}</Notice>;
-  if (!runtime) return <Notice>Loading runtime settings…</Notice>;
+  const runtime = useRuntime();
   if (runtime === 'hermes') return <HermesSettings />;
   if (runtime === 'openclaw') return <OpenClawSettingsView />;
   return <Notice error>The server reported an unsupported runtime.</Notice>;
 }
 
+export function DailyGoals() {
+  const { agent } = useChat();
+  const runtime = useRuntime();
+  if (!agent) return <Notice>Loading scheduled goals…</Notice>;
+  return runtime === 'hermes' ? <HermesGoals key={agent.id} profile={agent.id} compact /> : <OpenClawDailyGoals />;
+}
+
 export function WorkspaceViews({ activeNav }: { activeNav: string }) {
-  const { setActiveNav } = useChat();
+  const { setActiveNav, agent } = useChat();
+  const runtime = useRuntime();
   const title = activeNav === 'idea' ? 'Workshop' : activeNav.charAt(0).toUpperCase() + activeNav.slice(1);
-  return <><header className="h-[58px] border-b border-[#181818] px-5 flex items-center gap-3 shrink-0"><button className="text-[#9d8b73] md:hidden" title="Back to chat" onClick={() => setActiveNav('chat')}><ArrowLeft size={16} /></button><h1 className="text-[14px] font-medium text-[#e0d7c9]">{title}</h1></header><div className="flex-1 overflow-y-auto p-5 md:p-7"><div className="mx-auto max-w-[900px]">{activeNav === 'library' ? <LibraryView /> : activeNav === 'goals' ? <GoalsView /> : activeNav === 'settings' ? <SettingsView /> : activeNav === 'idea' ? <WorkshopView /> : activeNav === 'feed' ? <Notice>Your agent activity appears in the Activity panel. Scheduled results are available in Goals.</Notice> : <Notice>Select a conversation from Search to continue chatting.</Notice>}</div></div></>;
+  return <><header className="h-[58px] border-b border-[#181818] px-5 flex items-center gap-3 shrink-0"><button className="text-[#9d8b73] md:hidden" title="Back to chat" onClick={() => setActiveNav('chat')}><ArrowLeft size={16} /></button><h1 className="text-[14px] font-medium text-[#e0d7c9]">{title}</h1></header><div className="flex-1 overflow-y-auto p-5 md:p-7"><div className="mx-auto max-w-[900px]">{activeNav === 'groups' ? runtime === 'hermes' ? <HermesGroups /> : <Notice>Groups require the Hermes runtime.</Notice> : activeNav === 'settings' ? <SettingsView /> : !agent ? <Notice>Loading bot workspace…</Notice> : runtime === 'hermes' && ['library', 'goals', 'idea'].includes(activeNav) ? <HermesWorkspace page={activeNav} /> : activeNav === 'library' ? <LibraryView /> : activeNav === 'goals' ? <GoalsView /> : activeNav === 'idea' ? <WorkshopView /> : activeNav === 'feed' ? <Notice>Your agent activity appears in the Activity panel. Scheduled results are available in Goals.</Notice> : <Notice>Select a conversation from Search to continue chatting.</Notice>}</div></div></>;
 }

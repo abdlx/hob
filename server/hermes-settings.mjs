@@ -1,4 +1,4 @@
-const SECRET = /(?:api[_-]?keys?|passwords?|tokens?|secrets?|credentials?|private[_-]?keys?|^key$|^authorization$|^proxy-authorization$|^cookies?$|^set-cookie$)$/i;
+const SECRET = /(?:api[_-]?keys?(?:[_-]?preview)?|passwords?|tokens?|secrets?|credentials?|private[_-]?keys?|^key$|^authorization$|^proxy-authorization$|^cookies?$|^set-cookie$)$/i;
 export const STORED_SECRET = '[stored credential]';
 
 export function redactHermesSettings(value) {

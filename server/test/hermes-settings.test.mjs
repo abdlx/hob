@@ -18,6 +18,7 @@ test('inline credentials are masked recursively without exposing credential pref
   });
   assert.equal(settings.model.api_key, 'synthetic-model-key');
   assert.equal(JSON.stringify(publicSettings).includes('synthetic-'), false);
+  assert.equal(redactHermesSettings({ api_key_preview: 'synthetic-prefix-preview' }).api_key_preview, STORED_SECRET);
 });
 
 test('a stored-secret placeholder can never become an actual saved credential', () => {

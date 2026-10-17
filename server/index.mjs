@@ -2,6 +2,8 @@ import { HermesClient } from './hermes-client.mjs';
 import { createApp } from './app.mjs';
 import path from 'node:path';
 import { HermesBotRegistry, HermesBots } from './hermes-bots.mjs';
+import { HermesRunJournal } from './hermes-run-journal.mjs';
+import { HermesSessionBridge } from './hermes-session.mjs';
 
 if (!process.env.MUSE_PASSWORD && !process.env.MUSE_ACCESS_TOKEN) {
   console.error('Set MUSE_PASSWORD or MUSE_ACCESS_TOKEN before starting hob.');
@@ -17,9 +19,11 @@ if (!process.env.HERMES_HOME || !process.env.HOB_STATE_DIR) throw new Error('Sta
 const registry = await HermesBotRegistry.open({ stateDir: process.env.HOB_STATE_DIR, mainApiKey: process.env.API_SERVER_KEY });
 const bots = new HermesBots({ registry, client: new HermesClient(clientOptions), workspaceRoot: path.join(process.env.HERMES_HOME, 'workspaces') });
 const gateway = new HermesClient({ ...clientOptions, profileAccess: profile => registry.token(profile) });
-const server = createApp({ gateway, bots, ...(process.env.MUSE_STATIC_DIR ? { staticDir: process.env.MUSE_STATIC_DIR } : {}) });
+const runJournal = await HermesRunJournal.open(process.env.HOB_STATE_DIR);
+const nativeSessions = new HermesSessionBridge({ profileAccess: profile => registry.token(profile) });
+const server = createApp({ gateway, bots, runJournal, nativeSessions, ...(process.env.MUSE_STATIC_DIR ? { staticDir: process.env.MUSE_STATIC_DIR } : {}) });
 gateway.start();
 server.listen(Number(process.env.MUSE_PORT || 3000), process.env.MUSE_HOST || '127.0.0.1', () => console.log(`hob listening on port ${process.env.MUSE_PORT || 3000}.`));
-const shutdown = () => { gateway.stop(); server.close(); server.closeAllConnections(); };
+const shutdown = () => { nativeSessions.close(); gateway.stop(); server.close(); server.closeAllConnections(); };
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);

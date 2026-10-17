@@ -29,7 +29,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   return <div className="hob-auth h-full w-full flex items-center justify-center px-6">
     <div className="hob-auth-card w-full max-w-sm rounded-3xl border p-8 space-y-6">
       <Brand />
-      <div><h1 className="text-3xl font-semibold text-[#f6eee6] tracking-tight">A little more life.</h1><p className="mt-2 text-xs leading-relaxed text-[#8a8883]">Your helpful household spirit. Powered by OpenClaw, on your server.</p></div>
+      <div><h1 className="text-3xl font-semibold text-[#f6eee6] tracking-tight">A little more life.</h1><p className="mt-2 text-xs leading-relaxed text-[#8a8883]">Your helpful household spirit. Powered by Hermes, on your server.</p></div>
       {!state && !error && <p className="text-xs text-[#8a8883]" role="status">Connecting…</p>}
       {state?.configured && <form onSubmit={login} className="space-y-3">
         <label className="block text-xs text-[#dedcd8]" htmlFor="password">Server password</label>

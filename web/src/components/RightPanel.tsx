@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { List, Shield, Globe, SquareCheck, Fingerprint, CheckCircle2, FileText, X, Check, RefreshCw, Plus, Camera, Save, ArrowLeft } from 'lucide-react';
 import { useChat } from '../context/ChatContext';
+import { useRuntime } from '../context/RuntimeContext';
 import { apiFetch } from '../services/api';
 import { DogeshAvatar } from './DogeshAvatar';
 import { MarkdownView } from './MarkdownView';
 import { DailyGoals } from '../pages/WorkspaceViews';
+import { HermesBrowser, HermesIdentity } from '../pages/HermesWorkspace';
 import { buttonClass, Field, inputClass, Notice } from './WorkspaceUI';
 import { errorText } from './workspaceUtils';
 
 interface BrowserTab { targetId: string; title?: string; url?: string; type?: string }
-function BrowserPanel() {
+function OpenClawBrowserPanel() {
   const [tabs, setTabs] = useState<BrowserTab[]>([]);
   const [selected, setSelected] = useState('');
   const [url, setUrl] = useState('');
@@ -36,7 +38,7 @@ function BrowserPanel() {
 }
 
 interface AgentFile { agentId: string; workspace: string; file: { name: string; content: string; hash?: string; missing?: boolean } }
-function IdentityPanel() {
+function OpenClawIdentityPanel() {
   const { agent, updateAgent } = useChat();
   const [identityEditing, setIdentityEditing] = useState(false);
   const [name, setName] = useState(agent?.name || '');
@@ -79,6 +81,20 @@ function IdentityPanel() {
   };
   const saveIdentity = async () => { if (!name.trim()) { setError('Enter an agent name.'); return; } setBusy(true); setError(''); try { await updateAgent({ id: agentId, name: name.trim(), ...(avatarUrl !== (agent?.avatarUrl || '') ? { avatarUrl } : {}), ...(model.trim() && model.trim() !== agent?.model ? { model: model.trim() } : {}) }); setIdentityEditing(false); setStatus('Identity saved.'); } catch (error) { setError(errorText(error)); } finally { setBusy(false); } };
   return <div className="space-y-3 pt-2">{error && <Notice error>{error}</Notice>}{status && <Notice>{status}</Notice>}{selected ? <><div className="flex items-center justify-between gap-1"><button className={buttonClass} onClick={() => { fileRequest.current++; setSelected(null); setFile(null); setDraft(''); setEditing(false); setStatus(''); setBusy(false); }}><ArrowLeft size={11} /></button><span className="text-[12px] text-[#c9b69b]">{selected}</span>{editing ? <button disabled={busy} className={buttonClass} onClick={saveFile}><Save size={11} />Save</button> : <button disabled={busy || !file} className={buttonClass} onClick={() => setEditing(true)}>Edit</button>}</div>{busy ? <Notice>Loading agent file…</Notice> : file && (editing ? <><textarea aria-label={`Edit ${selected}`} className={`${inputClass} font-mono min-h-[320px]`} value={draft} onChange={(event) => setDraft(event.target.value)} /><button className={buttonClass} onClick={() => { setDraft(file.file.content || ''); setEditing(false); }}>Cancel</button></> : file.file.missing ? <Notice>{selected} has not been created yet. Click Edit to create it.</Notice> : <MarkdownView content={file.file.content} />)}</> : <><div className="flex items-center justify-between"><span className="text-xs text-[#a39888]">Agent identity</span><button className={buttonClass} onClick={() => { setName(agent?.name || ''); setAvatarUrl(agent?.avatarUrl || ''); setModel(agent?.model || ''); setIdentityEditing(true); }}><Plus size={11} />{agent?.name ? 'Edit identity' : 'Add identity'}</button></div>{identityEditing && <div className="space-y-3 rounded-xl p-3 border border-[#29231b]"><Field label="Name"><input className={inputClass} value={name} onChange={(event) => setName(event.target.value)} /></Field><Field label="Avatar URL"><input className={inputClass} placeholder="https://…" value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} /></Field><Field label="Model"><input className={inputClass} value={model} onChange={(event) => setModel(event.target.value)} placeholder="provider/model" /></Field><div className="flex gap-2"><button disabled={busy} className={buttonClass} onClick={saveIdentity}>Save identity</button><button className={buttonClass} onClick={() => setIdentityEditing(false)}>Cancel</button></div></div>}{agent?.roleDescription && <p className="text-[11px] text-[#8d8374] px-1">{agent.roleDescription}</p>}{[{ name: 'SOUL.md', title: 'Soul', description: 'Personality, values, and behavior' }, { name: 'MEMORY.md', title: 'Memory', description: 'Long-term memory and context' }].map((item) => <button key={item.name} onClick={() => open(item.name)} className="w-full rounded-2xl border border-[#28231c] bg-[#11100e] text-left p-4 hover:border-[#766047] cursor-pointer"><FileText size={16} className="text-[#b79870] mb-2" /><p className="text-[12px] text-[#d8c8b0]">{item.title}</p><p className="text-[10px] text-[#817665] mt-1">{item.description}</p><p className="text-[9px] text-[#675e52] mt-1">{item.name}</p></button>)}</>}</div>;
+}
+
+function BrowserPanel() {
+  const { agent } = useChat();
+  const runtime = useRuntime();
+  if (!agent) return <Notice>Loading browser…</Notice>;
+  return runtime === 'hermes' ? <HermesBrowser key={agent.id} profile={agent.id} /> : <OpenClawBrowserPanel />;
+}
+
+function IdentityPanel() {
+  const { agent } = useChat();
+  const runtime = useRuntime();
+  if (!agent) return <Notice>Loading identity…</Notice>;
+  return runtime === 'hermes' ? <HermesIdentity key={agent.id} profile={agent.id} /> : <OpenClawIdentityPanel />;
 }
 
 export function RightPanel() {

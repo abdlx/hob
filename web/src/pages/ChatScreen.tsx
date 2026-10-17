@@ -6,12 +6,16 @@ import { ChatInput } from '../components/ChatInput';
 import { RightPanel } from '../components/RightPanel';
 import { ChatsDrawer } from '../components/ChatsDrawer';
 import { useChat } from '../context/ChatContext';
+import { useRuntime } from '../context/RuntimeContext';
 import { WorkspaceViews } from './WorkspaceViews';
 import { Notice } from '../components/WorkspaceUI';
 import { MobileDock } from '../components/MobileDock';
+import { HermesRunPanel } from '../components/HermesRunPanel';
 
 export const ChatScreen: React.FC = () => {
-  const { activeNav, error, clearError, refresh, isPreparing } = useChat();
+  const { activeNav, error, clearError, refresh, isPreparing, isCreatingConversation, activeSessionId, sessions, createNewSession } = useChat();
+  const runtime = useRuntime();
+  const readOnly = sessions.find(session => session.id === activeSessionId)?.readOnly === true;
   return (
     <div className="hob-app flex h-full w-full overflow-hidden text-[#e5e5e5]">
       {/* Skinny Left Navigation Bar */}
@@ -23,16 +27,19 @@ export const ChatScreen: React.FC = () => {
       {/* Main Center Chat Container */}
       <main id="main-content" className="hob-main flex-1 flex flex-col h-full min-w-0 relative overflow-hidden">
         {isPreparing && <div className="px-4 pt-2"><Notice>Your agent runtime is starting. Settings remain available.</Notice></div>}
+        {isCreatingConversation && <div className="px-4 pt-2"><Notice>Creating your conversation…</Notice></div>}
         {error && <div className="px-4 pt-2"><Notice error>{error}<span className="flex gap-3 mt-2"><button onClick={refresh} className="underline">Retry</button><button onClick={clearError} className="underline">Dismiss</button></span></Notice></div>}
         {activeNav === 'chat' || activeNav === 'search' ? <>
           <ChatHeader />
+          {readOnly && <div className="px-4 py-2"><Notice>This older API conversation is preserved as history. <button className="underline" onClick={createNewSession}>Start a new interactive conversation</button></Notice></div>}
+          {runtime === 'hermes' && activeSessionId && <HermesRunPanel key={`controls:${activeSessionId}`} sessionId={activeSessionId} />}
           <ChatMessageList />
-          <ChatInput />
+          <ChatInput key={`composer:${activeSessionId}`} />
         </> : <><WorkspaceViews activeNav={activeNav} /><div className="shrink-0 p-2 md:hidden"><MobileDock /></div></>}
       </main>
 
       {/* Right Agent & Tasks Side Panel */}
-      <RightPanel />
+      {activeNav !== 'groups' && <RightPanel />}
     </div>
   );
 };

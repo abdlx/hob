@@ -2,7 +2,7 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { createApp } from '../app.mjs';
-import { HermesClient, hermesSessionKey } from '../hermes-client.mjs';
+import { HermesClient, hermesSessionKey, hermesNativeSessionKey } from '../hermes-client.mjs';
 
 let upstream, app, origin, cookie, client;
 let mode = 'complete';
@@ -64,6 +64,33 @@ const request = (path, method = 'GET', data, profile = 'default') => fetch(`${or
   ...(data ? { body: JSON.stringify(data) } : {}),
 });
 const turn = (session, profile = 'default') => request(`/api/sessions/${encodeURIComponent(session)}/turns`, 'POST', { content: 'Hello', idempotencyKey: `request-${admissions}` }, profile);
+
+test('a canonical conversation never falls back to HTTP when its native bridge is missing', async () => {
+  const before = calls.length;
+  const response = await request(`/api/sessions/${hermesNativeSessionKey('coder', 'session-1')}/messages`);
+  assert.equal(response.status, 503); assert.equal(calls.length, before);
+});
+
+test('stale dashboard operations cannot fall through into OpenClaw RPC on Hermes', async () => {
+  const before = calls.length;
+  let rpcCalls = 0;
+  const original = client.request;
+  client.request = () => { rpcCalls++; throw new Error('Unexpected legacy RPC.'); };
+  try {
+    for (const [route, method, data] of [
+      ['/api/settings/schema', 'GET'], ['/api/library', 'GET'], ['/api/browser/tabs', 'GET'],
+      ['/api/settings', 'PATCH', { baseHash: 'synthetic', patch: {} }],
+      ['/api/settings/rpc', 'POST', { method: 'skills.proposals.apply' }],
+      ['/api/agent', 'PATCH', { name: 'Old client' }],
+    ]) {
+      const response = await request(route, method, data);
+      assert.equal(response.status, 409, `${method} ${route}`);
+      assert.equal((await response.json()).code, 'DASHBOARD_RUNTIME_MISMATCH');
+    }
+    assert.equal(rpcCalls, 0);
+    assert.equal(calls.length, before);
+  } finally { client.request = original; }
+});
 
 test('the app declares Hermes and translates the canonical session creation envelope', async () => {
   assert.deepEqual(await (await request('/api/runtime')).json(), { runtime: 'hermes' });

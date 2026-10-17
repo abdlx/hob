@@ -10,6 +10,7 @@ export const ChatsDrawer: React.FC = () => {
     createNewSession,
     isLeftDrawerOpen,
     toggleLeftDrawer,
+    isCreatingConversation,
   } = useChat();
 
   const [search, setSearch] = useState('');
@@ -48,6 +49,7 @@ export const ChatsDrawer: React.FC = () => {
         <div className="p-3">
           <button
             onClick={createNewSession}
+            disabled={isCreatingConversation}
             className="w-full flex items-center justify-center space-x-2 py-2 px-4 bg-[#161616] hover:bg-[#222222] text-white text-sm font-medium rounded-full border border-[#262626] transition-colors cursor-pointer"
           >
             <Plus size={15} className="text-white" />

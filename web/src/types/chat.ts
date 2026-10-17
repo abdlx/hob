@@ -28,7 +28,7 @@ export interface AgentProfile {
   systemPrompt?: string;
 }
 
-export type TaskStatus = 'completed' | 'in_progress' | 'cancelled' | 'pending';
+export type TaskStatus = 'completed' | 'in_progress' | 'cancelled' | 'pending' | 'failed' | 'interrupted' | 'unknown';
 
 export interface TaskItem {
   id: string;
@@ -45,6 +45,8 @@ export interface ChatSession {
   createdAt: string;
   lastMessageSnippet?: string;
   agentId: string;
+  transport?: 'canonical' | 'api';
+  readOnly?: boolean;
 }
 
 export type RightPanelTab = 'tasks' | 'security' | 'browser' | 'goals' | 'identity';

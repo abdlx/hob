@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { createHash } from 'node:crypto';
 
 export class HermesError extends Error {
   constructor(status, message, code = 'HERMES_UNAVAILABLE') {
@@ -39,16 +40,22 @@ export function hermesSessionKey(profile, sessionId) {
   return Buffer.from(JSON.stringify([hermesProfile(profile), sessionId])).toString('base64url');
 }
 
+export function hermesNativeSessionKey(profile, sessionId) {
+  hermesResource(sessionId);
+  return Buffer.from(JSON.stringify([hermesProfile(profile), sessionId, 'canonical'])).toString('base64url');
+}
+
 export function parseHermesSessionKey(key) {
   if (typeof key !== 'string' || key.length > 1024 || !/^[A-Za-z0-9_-]+$/.test(key)) {
     throw new HermesError(400, 'Invalid conversation identifier.', 'INVALID_RESOURCE');
   }
   try {
     const tuple = JSON.parse(Buffer.from(key, 'base64url').toString('utf8'));
-    if (!Array.isArray(tuple) || tuple.length !== 2) throw new Error();
+    if (!Array.isArray(tuple) || (tuple.length !== 2 && (tuple.length !== 3 || tuple[2] !== 'canonical'))) throw new Error();
     const [profile, sessionId] = tuple;
-    if (hermesSessionKey(profile, sessionId) !== key) throw new Error();
-    return { profile, sessionId };
+    const canonical = tuple.length === 3;
+    if ((canonical ? hermesNativeSessionKey : hermesSessionKey)(profile, sessionId) !== key) throw new Error();
+    return { profile, sessionId, ...(canonical ? { transport: 'canonical' } : {}) };
   } catch {
     throw new HermesError(400, 'Invalid conversation identifier.', 'INVALID_RESOURCE');
   }
@@ -104,7 +111,12 @@ export class HermesClient extends EventEmitter {
   #timer;
   #stopped = true;
 
-  async #response(surface, pathname, { profile = 'default', method = 'GET', body, signal, idempotencyKey, stream = false } = {}) {
+  async credentialBinding(profile = 'default') {
+    const key = this.#profileAccess ? await this.#profileAccess(hermesProfile(profile)) : this.#apiKey;
+    return createHash('sha256').update(key).digest('hex');
+  }
+
+  async #response(surface, pathname, { profile = 'default', method = 'GET', body, query, signal, idempotencyKey, stream = false } = {}) {
     profile = hermesProfile(profile);
     if (!pathname.startsWith('/') || pathname.startsWith('//') || /[\\?#\x00-\x20]/.test(pathname)
       || pathname.split('/').some(part => ['.', '..'].includes(decodeURIComponent(part)))) {
@@ -117,6 +129,10 @@ export class HermesClient extends EventEmitter {
     }
     const url = new URL(dashboard || profile === 'default' ? pathname : `/p/${profile}${pathname}`,
       dashboard ? this.dashboardUrl : this.runtimeUrl);
+    for (const [key, value] of Object.entries(query || {})) {
+      if (key === 'profile') throw new HermesError(400, 'Profile must use the bound selector.', 'INVALID_PROFILE');
+      url.searchParams.set(key, String(value));
+    }
     if (dashboard) url.searchParams.set('profile', profile);
     const headers = { Accept: stream ? 'text/event-stream' : 'application/json' };
     const apiKey = this.#profileAccess ? await this.#profileAccess(profile) : this.#apiKey;
@@ -225,6 +241,17 @@ export class HermesClient extends EventEmitter {
     } catch {
       return { ready: false, status: 'settings_unavailable', runtime: 'hermes', agentConnected: this.connected };
     }
+  }
+
+  async getProfileStatus(profile = 'default') {
+    try {
+      const capabilities = await this.runtime('/v1/capabilities', { profile });
+      if (capabilities?.features?.run_status !== true || capabilities?.features?.run_events_sse !== true) return { ready: false };
+      // Hot-profile discovery can advertise the listener before its session
+      // authority/store is initialized. Check the selected bot, not Main.
+      const sessions = await this.runtime('/api/sessions', { profile });
+      return { ready: Array.isArray(sessions?.data) };
+    } catch { return { ready: false }; }
   }
 
   start() {

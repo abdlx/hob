@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiFetch } from '../services/api';
+import { apiFetch, chatApi } from '../services/api';
 import { hermesConfigChanges, hermesModelSelectionResult } from '../services/hermes-settings';
 import type { HermesConfig } from '../services/hermes-settings';
 import { buttonClass, cardClass, Field, inputClass, Notice } from '../components/WorkspaceUI';
 import { errorText } from '../components/workspaceUtils';
+import { HermesModelPicker } from '../components/HermesModelPicker';
+import { HermesAccountsSettings, HermesChannelsSettings, HermesToolsSettings } from '../components/HermesIntegrations';
+import { HermesMcpSettings } from '../components/HermesMcpSettings';
 
 interface Profile { name: string; display_name?: string; description?: string; model?: string; provider?: string; state?: string }
 interface Credential { is_set: boolean; description?: string; category?: string }
 
 export function HermesSettings() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [profile, setProfile] = useState('default');
+  const [profile, setProfile] = useState(() => chatApi.getProfile());
   const [snapshot, setSnapshot] = useState<HermesConfig | null>(null);
   const [configText, setConfigText] = useState('');
   const [credentials, setCredentials] = useState<Record<string, Credential>>({});
@@ -19,6 +22,8 @@ export function HermesSettings() {
   const [provider, setProvider] = useState('');
   const [model, setModel] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
+  const [endpointName, setEndpointName] = useState('');
+  const [endpointSecret, setEndpointSecret] = useState('');
   const [modelConfirmation, setModelConfirmation] = useState('');
   const [newName, setNewName] = useState('');
   const [soul, setSoul] = useState('');
@@ -59,7 +64,17 @@ export function HermesSettings() {
   async function selectModel(confirmExpensive = false) {
     setBusy(true); setError(''); setStatus('');
     try {
-      const result = hermesModelSelectionResult(await submit('model', { scope: 'main', provider: provider.trim(), model: model.trim(),
+      let selectedProvider = provider.trim();
+      if (baseUrl.trim() && ['custom', 'local'].includes(selectedProvider.toLowerCase())) {
+        // A named native endpoint binds URL + key to an identity. Bare custom
+        // can resolve an older saved endpoint serving the same model name.
+        const endpoint = await submit('custom-endpoints', { name: endpointName.trim(), base_url: baseUrl.trim(), model: model.trim(),
+          ...(endpointSecret ? { api_key: endpointSecret } : {}), make_default: false }, 'POST') as { ok?: boolean; id?: string };
+        if (endpoint.ok !== true || !endpoint.id) throw new Error('Hermes did not confirm the custom endpoint. Refresh settings before retrying.');
+        selectedProvider = endpoint.id;
+        setEndpointSecret('');
+      }
+      const result = hermesModelSelectionResult(await submit('model', { scope: 'main', provider: selectedProvider, model: model.trim(),
         ...(baseUrl.trim() ? { base_url: baseUrl.trim() } : {}), ...(confirmExpensive ? { confirm_expensive_model: true } : {}) }, 'POST'));
       if (!result.saved) { setModelConfirmation(result.confirmation); return; }
       setModelConfirmation('');
@@ -72,19 +87,28 @@ export function HermesSettings() {
   return <div className="space-y-5">
     <div className="flex items-center justify-between gap-3"><p className="text-[12px] text-[#aaa297]">Configure Hermes and your independent bots.</p><button className={buttonClass} disabled={busy || loading} onClick={load}>Refresh</button></div>
     {error && <Notice error>{error}</Notice>}{status && <Notice>{status}</Notice>}
-    <Field label="Bot"><select className={inputClass} disabled={busy || loading} value={profile} onChange={event => { loadSequence.current++; setProfile(event.target.value); setSnapshot(null); setSecret(''); setProvider(''); setModel(''); setBaseUrl(''); setModelConfirmation(''); setStatus(''); }}>
+    <Field label="Bot"><select className={inputClass} disabled={busy || loading} value={profile} onChange={event => { loadSequence.current++; setProfile(event.target.value); setSnapshot(null); setSecret(''); setProvider(''); setModel(''); setBaseUrl(''); setEndpointName(''); setEndpointSecret(''); setModelConfirmation(''); setStatus(''); }}>
       <option value="default">Main</option>{profiles.filter(item => item.name !== 'default' && (!item.state || item.state === 'active')).map(item => <option key={item.name} value={item.name}>{item.display_name || item.name}</option>)}
     </select></Field>
     <section className={`${cardClass} space-y-3`}><h2 className="text-sm text-[#dfd1bd]">Connect a model</h2>
+      <HermesModelPicker key={profile} profile={profile} provider={provider} model={model} busy={busy}
+        chooseProvider={(value, keyEnv) => { setProvider(value); setModel(''); setBaseUrl(''); setEndpointName(''); setEndpointSecret(''); setModelConfirmation(''); setSecret(''); setKey(keyEnv || ''); }}
+        chooseModel={value => { setModel(value); setModelConfirmation(''); }} />
       <Field label="Credential name" hint="Provider and tool credentials are stored by Hermes for the selected bot."><input className={inputClass} list="hermes-credential-names" value={key} disabled={busy} onChange={event => setKey(event.target.value)} /><datalist id="hermes-credential-names">{Object.keys(credentials).map(name => <option key={name} value={name} />)}</datalist></Field>
       <Field label="API key" hint={credentials[key]?.is_set ? 'A credential is already stored. Leave it unchanged unless you intend to replace it.' : 'Enter the key supplied by your provider.'}><input className={inputClass} type="password" autoComplete="new-password" value={secret} disabled={busy} onChange={event => setSecret(event.target.value)} /></Field>
       <button className={buttonClass} disabled={busy || !key.trim() || !secret.trim()} onClick={() => action(async () => { await submit('credentials', { key: key.trim(), value: secret }); setSecret(''); }, 'Credential saved for this bot.')}>Save credential</button>
-      <Field label="Provider" hint="Use the provider identifier supported by Hermes, such as openai or anthropic."><input className={inputClass} value={provider} placeholder="Provider identifier" disabled={busy} onChange={event => { setProvider(event.target.value); setModelConfirmation(''); }} /></Field>
-      <Field label="Model"><input className={inputClass} value={model} placeholder="Model identifier" disabled={busy} onChange={event => { setModel(event.target.value); setModelConfirmation(''); }} /></Field>
       <Field label="Custom endpoint (optional)" hint="For a local or compatible provider, enter its API base URL. Leave blank to use the provider’s normal endpoint."><input className={inputClass} value={baseUrl} placeholder="http://localhost:8000/v1" disabled={busy} onChange={event => { setBaseUrl(event.target.value); setModelConfirmation(''); }} /></Field>
-      <button className={buttonClass} disabled={busy || !provider.trim() || !model.trim()} onClick={() => selectModel()}>Select model</button>
+      {baseUrl.trim() && ['custom', 'local'].includes(provider.trim().toLowerCase()) && <div className="space-y-3">
+        <Field label="Endpoint name" hint="Give this endpoint a distinct name. Reusing a name updates that saved endpoint."><input className={inputClass} value={endpointName} disabled={busy} onChange={event => { setEndpointName(event.target.value); setModelConfirmation(''); }} /></Field>
+        <Field label="Custom endpoint API key (optional)" hint="This key belongs to this endpoint. Leave blank for a keyless local server or to preserve its existing credential."><input className={inputClass} type="password" autoComplete="new-password" value={endpointSecret} disabled={busy} onChange={event => { setEndpointSecret(event.target.value); setModelConfirmation(''); }} /></Field>
+      </div>}
+      <button className={buttonClass} disabled={busy || !provider.trim() || !model.trim() || Boolean(baseUrl.trim() && ['custom', 'local'].includes(provider.trim().toLowerCase()) && !endpointName.trim())} onClick={() => selectModel()}>Select model</button>
       {modelConfirmation && <div className="space-y-2"><Notice>{modelConfirmation}</Notice><button className={buttonClass} disabled={busy} onClick={() => selectModel(true)}>Confirm this model selection</button></div>}
     </section>
+    <HermesAccountsSettings key={`accounts:${profile}`} profile={profile} />
+    <HermesToolsSettings key={`tools:${profile}`} profile={profile} />
+    <HermesMcpSettings key={`mcp:${profile}`} profile={profile} />
+    <HermesChannelsSettings key={`channels:${profile}`} profile={profile} />
     <section className={`${cardClass} space-y-3`}><h2 className="text-sm text-[#dfd1bd]">Create a bot</h2>
       <Field label="Name" hint="Use lowercase letters, digits, underscores or hyphens; start with a letter."><input className={inputClass} value={newName} disabled={busy} onChange={event => setNewName(event.target.value)} /></Field>
       <Field label="Personality and instructions"><textarea className={inputClass} rows={4} value={soul} disabled={busy} onChange={event => setSoul(event.target.value)} /></Field>

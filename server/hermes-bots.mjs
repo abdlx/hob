@@ -109,7 +109,7 @@ export class HermesBots {
   #workspaceRoot;
   #settingUp = new Set();
   constructor({ registry, client, workspaceRoot }) {
-    this.#registry = registry; this.#client = client; this.#workspaceRoot = path.resolve(workspaceRoot);
+    this.#registry = registry; this.#client = client; this.#workspaceRoot = path.resolve(workspaceRoot, 'bots');
   }
   async list() {
     const native = await this.#client.dashboard('/api/profiles');

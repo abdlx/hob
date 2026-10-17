@@ -7,8 +7,9 @@ import {
 import { MobileDock } from './MobileDock';
 
 export const ChatInput: React.FC = () => {
-  const { sendMessage, isLoading, isPreparing, setActiveNav } = useChat();
-  const [text, setText] = useState('');
+  const { sendMessage, isLoading, isPreparing, isCreatingConversation, setActiveNav, sessions, activeSessionId, getComposerDraft, setComposerDraft } = useChat();
+  const readOnly = sessions.find(session => session.id === activeSessionId)?.readOnly === true;
+  const [text, setText] = useState(() => getComposerDraft(activeSessionId));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -27,9 +28,10 @@ export const ChatInput: React.FC = () => {
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!text.trim() || isLoading || isPreparing) return;
+    if (!text.trim() || isLoading || isPreparing || isCreatingConversation || readOnly) return;
     const current = text.trim();
     setText('');
+    setComposerDraft(activeSessionId, '');
     if (textareaRef.current) {
       textareaRef.current.style.height = '';
     }
@@ -66,10 +68,10 @@ export const ChatInput: React.FC = () => {
           ref={textareaRef}
           rows={1}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => { setText(e.target.value); setComposerDraft(activeSessionId, e.target.value); }}
           onKeyDown={handleKeyDown}
-          placeholder="Message"
-          disabled={isPreparing}
+          placeholder={readOnly ? 'Start a new conversation to continue' : 'Message'}
+          disabled={isPreparing || isCreatingConversation || readOnly}
           className="flex-1 bg-transparent text-[#e5e5e5] placeholder-[#73716c] text-[12.5px] md:text-[13.5px] focus:outline-none resize-none p-0 m-0 h-[20px] md:h-[22px] leading-[20px] md:leading-[22px] text-left"
         />
 
@@ -78,7 +80,7 @@ export const ChatInput: React.FC = () => {
           <button
             type="submit"
             aria-label="Send message"
-            disabled={isLoading || isPreparing}
+            disabled={isLoading || isPreparing || isCreatingConversation || readOnly}
             className="w-[24px] h-[24px] md:w-7 md:h-7 rounded-full bg-white hover:bg-neutral-200 text-black flex items-center justify-center transition-all cursor-pointer shrink-0 disabled:opacity-40 shadow-xs"
           >
             <ArrowUp size={13} className="md:w-[15px] md:h-[15px]" strokeWidth={2.5} />

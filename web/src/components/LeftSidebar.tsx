@@ -7,6 +7,7 @@ import {
   SquareCheck,
   Shapes,
   Settings,
+  Users,
 } from 'lucide-react';
 import { useChat } from '../context/ChatContext';
 import { Brand } from './Brand';
@@ -19,6 +20,7 @@ export interface NavItemConfig {
 
 const sidebarNavItems: NavItemConfig[] = [
   { key: 'chat', icon: MessageCircle, label: 'Chat' },
+  { key: 'groups', icon: Users, label: 'Groups' },
   { key: 'search', icon: Search, label: 'Search' },
   { key: 'feed', icon: Newspaper, label: 'Feed' },
   { key: 'idea', icon: BookOpen, label: 'Workshop' },
@@ -45,8 +47,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
     if (onSelectNav) onSelectNav(key);
   };
 
-  const middleItems = sidebarNavItems.slice(0, 6);
-  const settingsItem = sidebarNavItems[6];
+  const middleItems = sidebarNavItems.filter(item => item.key !== 'settings');
+  const settingsItem = sidebarNavItems.find(item => item.key === 'settings')!;
 
   return (
     <aside className="hob-sidebar hidden md:flex w-[76px] flex-col items-center justify-between py-5 select-none shrink-0 z-20 border-r border-[#25211e]" aria-label="Main navigation">

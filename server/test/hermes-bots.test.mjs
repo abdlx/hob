@@ -50,7 +50,7 @@ test('operator-created bot gets independent credentials and workspace through na
   const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work') });
   assert.deepEqual(await bots.create({ name: 'research', soul: 'Research only.' }), { ok: true, name: 'research', state: 'active' });
   const settings = upstream.calls.find(call => call.route === '/api/config');
-  assert.deepEqual(settings.body, { profile: 'research', config: { terminal: { cwd: path.join(root, 'work', 'research') }, auth: { adopt_external_logins: false } } });
+  assert.deepEqual(settings.body, { profile: 'research', config: { terminal: { cwd: path.join(root, 'work', 'bots', 'research') }, auth: { adopt_external_logins: false } } });
   const credential = upstream.calls.find(call => call.route === '/api/env');
   assert.equal(credential.profile, 'research');
   assert.equal(credential.body.key, 'API_SERVER_KEY');
@@ -58,6 +58,15 @@ test('operator-created bot gets independent credentials and workspace through na
   assert.notEqual(credential.body.value, mainApiKey);
   assert.equal((await HermesBotRegistry.open(options)).token('research'), registry.token('research'));
   assert.ok(!JSON.stringify(await bots.list()).includes(credential.body.value));
+}));
+
+test('a named bot called main cannot reuse the Main bot’s working directory', async () => fixture(async ({ registry, root }) => {
+  const upstream = native();
+  const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work') });
+  await bots.create({ name: 'main' });
+  const config = upstream.calls.find(call => call.route === '/api/config').body.config;
+  assert.equal(config.terminal.cwd, path.join(root, 'work', 'bots', 'main'));
+  assert.notEqual(config.terminal.cwd, path.join(root, 'work', 'main'));
 }));
 
 test('partial native setup stays pending across restart and resumes without recreating a profile', async () => fixture(async ({ registry, root, options }) => {

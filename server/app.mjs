@@ -6,6 +6,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHermesRoutes } from './hermes-routes.mjs';
 import { createHermesChatRoutes } from './hermes-chat.mjs';
+import { createHermesCanonicalChatRoutes } from './hermes-canonical-chat.mjs';
+import { createHermesWorkspaceRoutes } from './hermes-workspace.mjs';
+import { createHermesSetupRoutes } from './hermes-setup.mjs';
+import { createHermesGroups } from './hermes-groups.mjs';
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -101,9 +105,15 @@ async function browserImage(stateDir, filename) {
   } finally { await handle?.close(); await rootHandle.close(); }
 }
 
-export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gateway : undefined, bots, password = process.env.MUSE_PASSWORD, accessToken = process.env.MUSE_ACCESS_TOKEN, sessionSecret = process.env.MUSE_SESSION_SECRET, publicUrl = process.env.MUSE_PUBLIC_URL, secureCookies = process.env.MUSE_SECURE_COOKIES === 'true', stateDir = process.env.OPENCLAW_STATE_DIR, staticDir = fileURLToPath(new URL('../web/dist', import.meta.url)) }) {
-  const hermesRoutes = hermes ? createHermesRoutes(hermes, bots) : null;
-  const hermesChat = gateway?.kind === 'hermes' ? createHermesChatRoutes(gateway, bots) : null;
+export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gateway : undefined, bots, runJournal, nativeSessions, password = process.env.MUSE_PASSWORD, accessToken = process.env.MUSE_ACCESS_TOKEN, sessionSecret = process.env.MUSE_SESSION_SECRET, publicUrl = process.env.MUSE_PUBLIC_URL, secureCookies = process.env.MUSE_SECURE_COOKIES === 'true', stateDir = process.env.OPENCLAW_STATE_DIR, staticDir = fileURLToPath(new URL('../web/dist', import.meta.url)) }) {
+  if (nativeSessions && !runJournal) throw new Error('Native chat requires a durable admission journal.');
+  const hermesGroups = hermes && nativeSessions ? createHermesGroups({ client: hermes, bridge: nativeSessions, bots, home: process.env.HERMES_HOME }) : null;
+  const hermesRoutes = hermes ? createHermesRoutes(hermes, bots, hermesGroups ? { removeBot: hermesGroups.removeBot } : {}) : null;
+  const hermesSetup = hermes ? createHermesSetupRoutes(hermes) : null;
+  const hermesWorkspace = hermes ? createHermesWorkspaceRoutes({ client: hermes, bridge: nativeSessions,
+    workspaceRoot: process.env.HERMES_HOME ? path.join(process.env.HERMES_HOME, 'workspaces') : undefined }) : null;
+  const hermesChat = gateway?.kind === 'hermes' ? createHermesChatRoutes(gateway, bots, runJournal) : null;
+  const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat }) : null;
   const configured = Boolean(password || accessToken);
   const secret = sessionSecret || createHash('sha256').update(`muse-session:${password || accessToken || randomBytes(32).toString('hex')}`).digest();
   const fingerprint = createHash('sha256').update(`${password || ''}:${accessToken || ''}`).digest('base64url');
@@ -127,7 +137,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
     if (origin !== allowed) throw new HttpError(403, 'Request origin does not match hob.');
   };
   const rpc = (method, params = {}) => gateway.request(method, params);
-  const startup = async () => gateway.connected
+  const startup = async profile => canonicalChat ? canonicalChat.readiness(profile || 'default') : gateway.connected
     ? typeof gateway.getStartupStatus === 'function' ? gateway.getStartupStatus() : { ready: true, status: 'started' }
     : { ready: false, status: 'disconnected' };
   const paged = async (method, field, params) => {
@@ -195,9 +205,15 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
         if (route === '/api/runtime' && method === 'GET') return json(res, 200, { runtime: hermes ? 'hermes' : 'openclaw' });
         if (route.startsWith('/api/hermes/')) {
           if (!hermesRoutes) throw new HttpError(503, 'Hermes has not been connected to this server.');
+          if (route === '/api/hermes/groups' || route.startsWith('/api/hermes/groups/')) {
+            if (!hermesGroups) throw new HttpError(503, 'Hermes native group coordination is unavailable.');
+            return await hermesGroups.route(req, res, url, { json, body });
+          }
+          if (route.startsWith('/api/hermes/setup/')) return await hermesSetup(req, res, url, { json, body });
+          if (route.startsWith('/api/hermes/workspace/')) return await hermesWorkspace(req, res, url, { json, body });
           return await hermesRoutes(req, res, url, { json, body, startEvents, sendEvent });
         }
-        if (route === '/api/readiness' && method === 'GET') return json(res, 200, await startup());
+        if (route === '/api/readiness' && method === 'GET') return json(res, 200, await startup(req.headers['x-hob-profile']));
         if (route === '/api/auth/logout' && method === 'POST') { setCookie(res, '', 0); return json(res, 200, { authenticated: false }); }
         if (route === '/api/events' && method === 'GET') {
           startEvents(res); streams.add(res);
@@ -206,7 +222,10 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
           req.on('close', () => { clearInterval(heartbeat); streams.delete(res); });
           return;
         }
+        if (canonicalChat && await canonicalChat(req, res, url, { json, body, startEvents, sendEvent, required })) return;
         if (hermesChat && await hermesChat(req, res, url, { json, body, startEvents, sendEvent, required })) return;
+        // A stale dashboard must never reach OpenClaw RPC on a Hermes server.
+        if (hermes) return json(res, 409, { error: 'This dashboard action uses a different runtime. Reload the page after updating the dashboard and server together.', code: 'DASHBOARD_RUNTIME_MISMATCH' });
         if (route === '/api/sessions' && method === 'GET') return json(res, 200, (await sessions()).map(presentSession));
         if (route === '/api/sessions' && method === 'POST') {
           const input = await body(req);
@@ -421,6 +440,21 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   });
   server.requestTimeout = 30000;
   server.headersTimeout = 15000;
+  let runPoll;
+  let pollingRuns = false;
+  if (hermesChat && runJournal) server.once('listening', () => {
+    const poll = async () => {
+      if (pollingRuns) return;
+      pollingRuns = true;
+      try { await Promise.allSettled([hermesChat.reconcile(), ...(canonicalChat ? [canonicalChat.reconcile()] : [])]); }
+      finally { pollingRuns = false; }
+    };
+    runPoll = setInterval(() => { void poll(); }, 5000);
+    runPoll.unref();
+    void poll();
+  });
+  server.once('close', () => clearInterval(runPoll));
+  server.once('close', () => { canonicalChat?.close(); nativeSessions?.close(); });
   server.on('close', () => { for (const res of streams) res.end(); streams.clear(); });
   return server;
 }

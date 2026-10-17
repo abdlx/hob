@@ -1,7 +1,7 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { HermesClient, hermesSessionKey, parseHermesSessionKey } from '../hermes-client.mjs';
+import { HermesClient, hermesSessionKey, hermesNativeSessionKey, parseHermesSessionKey } from '../hermes-client.mjs';
 
 let upstream, origin;
 const received = [];
@@ -26,6 +26,22 @@ after(async () => {
 });
 const client = options => new HermesClient({ runtimeUrl: origin, dashboardUrl: origin,
   apiKey: 'synthetic-runtime-key', dashboardToken: 'synthetic-dashboard-token', ...options });
+
+test('dashboard query values are encoded without changing the profile or upstream route', async () => {
+  await client().dashboard('/api/skills/content', { profile: 'coder', query: { name: 'notes&profile=default?next=/api/env' } });
+  const call = received.at(-1), url = new URL(call.url, origin);
+  assert.equal(url.pathname, '/api/skills/content'); assert.equal(url.searchParams.get('profile'), 'coder');
+  assert.equal(url.searchParams.get('name'), 'notes&profile=default?next=/api/env');
+  const count = received.length;
+  await assert.rejects(client().dashboard('/api/skills/content', { query: { profile: 'all' } }), error => error.status === 400);
+  assert.equal(received.length, count);
+});
+
+test('canonical and API session keys cannot alias even for the same bot and native identifier', () => {
+  const canonical = hermesNativeSessionKey('coder', 'same-id');
+  assert.notEqual(canonical, hermesSessionKey('coder', 'same-id'));
+  assert.deepEqual(parseHermesSessionKey(canonical), { profile: 'coder', sessionId: 'same-id', transport: 'canonical' });
+});
 
 test('runtime calls select the exact profile and never send dashboard or browser credentials', async () => {
   respond = undefined;
@@ -176,4 +192,19 @@ test('a generic JSON success is not an agent-ready protocol, while setup health 
   const transport = client();
   assert.deepEqual(await transport.getStartupStatus(), { ready: false, status: 'disconnected', runtime: 'hermes' });
   assert.deepEqual(await transport.getServiceHealth(), { ready: true, status: 'settings_available', runtime: 'hermes', agentConnected: false });
+});
+
+test('a bot is not ready merely because its capabilities or Main listener are available', async () => {
+  let sessionsReady = false;
+  const urls = [];
+  const transport = new HermesClient({ apiKey: 'synthetic-profile-key', fetchImpl: async url => {
+    urls.push(String(url));
+    if (url.pathname.endsWith('/v1/capabilities')) return Response.json({ features: { run_status: true, run_events_sse: true } });
+    return sessionsReady ? Response.json({ data: [] }) : Response.json({ error: 'initializing' }, { status: 503 });
+  } });
+  transport.connected = true;
+  assert.deepEqual(await transport.getProfileStatus('coder'), { ready: false });
+  sessionsReady = true;
+  assert.deepEqual(await transport.getProfileStatus('coder'), { ready: true });
+  assert.ok(urls.every(value => new URL(value).pathname.startsWith('/p/coder/')));
 });

@@ -53,6 +53,34 @@ test('native Hermes endpoints retain application authentication and origin check
   assert.equal(calls.length, count);
 });
 
+test('workspace actions use the same authenticated boundary and refuse cross-origin writes before upstream calls', async () => {
+  const count = calls.length;
+  assert.equal((await fetch(`${origin}/api/hermes/workspace/skills`)).status, 401);
+  assert.equal((await request('workspace/skill', 'POST', { name: 'notes', content: '# Notes' }, { Origin: 'https://attacker.invalid' })).status, 403);
+  assert.equal(calls.length, count);
+  assert.equal((await request('workspace/skills?profile=coder')).status, 200);
+  assert.equal(calls.at(-1).url, '/api/skills?profile=coder');
+  assert.equal(calls.at(-1).headers['x-hermes-session-token'], 'settings-only-secret');
+  assert.equal(calls.at(-1).headers.cookie, undefined);
+});
+
+test('setup actions require app authentication and reject cross-origin provider sign-in', async () => {
+  const count = calls.length;
+  assert.equal((await fetch(`${origin}/api/hermes/setup/models`)).status, 401);
+  assert.equal((await request('setup/accounts/nous/start', 'POST', { confirm: true }, { Origin: 'https://attacker.invalid' })).status, 403);
+  assert.equal(calls.length, count);
+  assert.equal((await request('setup/models?profile=coder')).status, 200);
+  assert.match(calls.at(-1).url, /profile=coder/);
+  assert.equal(calls.at(-1).headers['x-hermes-session-token'], 'settings-only-secret');
+});
+
+test('group controls share app authentication and origin enforcement before native coordination', async () => {
+  const count = calls.length;
+  assert.equal((await fetch(`${origin}/api/hermes/groups`)).status, 401);
+  assert.equal((await request('groups', 'POST', { name: 'Shared' }, { Origin: 'https://attacker.invalid' })).status, 403);
+  assert.equal(calls.length, count);
+});
+
 test('settings and runtime operations reach separate authenticated upstream surfaces', async () => {
   assert.equal((await request('config?profile=research')).status, 200);
   assert.equal(calls.at(-1).url, '/api/config?profile=research');
@@ -104,10 +132,24 @@ test('session creation and messages preserve the selected runtime profile', asyn
   assert.equal(calls.at(-1).url, '/p/research/api/sessions/session-1/messages');
 });
 
+test('custom endpoints use the native named-provider owner without implicit model activation', async () => {
+  assert.equal((await request('custom-endpoints?profile=coder', 'POST', {
+    name: 'Local research', base_url: 'http://127.0.0.1:9000/v1', model: 'shared-model', api_key: 'synthetic-endpoint-key',
+  })).status, 200);
+  assert.equal(calls.at(-1).url, '/api/providers/custom-endpoints?profile=coder');
+  assert.equal(calls.at(-1).body.make_default, false);
+  assert.equal(calls.at(-1).body.profile, 'coder');
+  const count = calls.length;
+  assert.equal((await request('custom-endpoints', 'POST', { make_default: true })).status, 400);
+  assert.equal((await request('custom-endpoints', 'POST', { api_key: '[stored credential]' })).status, 400);
+  assert.equal(calls.length, count);
+});
+
 test('run admission forwards idempotency once and exposes approval, steering and cancellation', async () => {
   assert.equal((await request('runs?profile=coder', 'POST', { input: 'hello', session_id: 'session-1' }, { 'Idempotency-Key': 'stable-request-1' })).status, 202);
   assert.equal(calls.at(-1).headers['idempotency-key'], 'stable-request-1');
-  for (const [operation, input] of [['approval', { choice: 'once', request_id: 'approval-1' }], ['steer', { input: 'Use Python' }], ['stop', {}]]) {
+  for (const [operation, input] of [['approval', { choice: 'once', request_id: 'approval-1' }],
+    ['clarify', { request_id: 'question-1', execution_generation: 42, answer: 'Report' }], ['steer', { input: 'Use Python' }], ['stop', {}]]) {
     assert.equal((await request(`runs/run-1/${operation}?profile=coder`, 'POST', input)).status, 200);
     assert.equal(calls.at(-1).url, `/p/coder/v1/runs/run-1/${operation}`);
     assert.deepEqual(calls.at(-1).body, input);

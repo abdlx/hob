@@ -8,8 +8,9 @@ const MANAGEMENT = new Map([
   ['GET credentials', '/api/env'], ['PUT credentials', '/api/env'],
   ['GET models', '/api/model/options'], ['GET model', '/api/model/info'],
   ['POST model', '/api/model/set'], ['GET skills', '/api/skills'],
+  ['GET custom-endpoints', '/api/providers/custom-endpoints'], ['POST custom-endpoints', '/api/providers/custom-endpoints'],
 ]);
-const MANAGED_ENV = /^(?:API_SERVER_|MUSE_|HOB_|GATEWAY_MULTIPLEX_PROFILES$|HERMES_API_KEY$|HERMES_DASHBOARD_|HERMES_GATEWAY_|HERMES_(?:HOME|DIR|EXECUTABLE|INSTALL_ROOT|PYTHON|RUNTIME_DIR)$|PATH$|PYTHONPATH$|LD_|NODE_OPTIONS$)/;
+export const MANAGED_ENV = /^(?:API_SERVER_|MUSE_|HOB_|GATEWAY_MULTIPLEX_PROFILES$|HERMES_API_KEY$|HERMES_DASHBOARD_|HERMES_GATEWAY_|HERMES_(?:HOME|DIR|EXECUTABLE|INSTALL_ROOT|PYTHON|RUNTIME_DIR)$|PATH$|PYTHONPATH$|LD_|NODE_OPTIONS$)/;
 
 function resourceId(encoded) {
   try { const value = decodeURIComponent(encoded); hermesResource(value); return value; }
@@ -23,7 +24,7 @@ function object(value) {
   return value;
 }
 
-export function createHermesRoutes(client, bots) {
+export function createHermesRoutes(client, bots, { removeBot } = {}) {
   return async (req, res, url, { json, body, startEvents, sendEvent }) => {
     const method = req.method;
     const path = url.pathname.slice('/api/hermes/'.length);
@@ -71,7 +72,8 @@ export function createHermesRoutes(client, bots) {
       const resource = profileMatch[2];
       if (!resource && method === 'DELETE') {
         if (name === 'default') throw new HermesError(400, 'The Main bot cannot be deleted.', 'INVALID_PROFILE');
-        return json(res, 200, await (bots ? bots.remove(name) : client.dashboard(`/api/profiles/${name}`, { method })));
+        const remove = () => bots ? bots.remove(name) : client.dashboard(`/api/profiles/${name}`, { method });
+        return json(res, 200, await (removeBot ? removeBot(name, remove) : remove()));
       }
       if (resource && ((method === 'GET' && resource === 'soul') || method === 'PUT')) {
         const input = method === 'GET' ? undefined : object(await body(req));
@@ -102,9 +104,15 @@ export function createHermesRoutes(client, bots) {
             throw new HermesError(400, 'Stored credential placeholders cannot be saved. Submit only changed settings.', 'INVALID_REQUEST');
           }
         }
+        if (path === 'custom-endpoints') {
+          if (input.make_default === true || containsStoredSecret(input)) {
+            throw new HermesError(400, 'Save the endpoint first, then explicitly select its model.', 'INVALID_REQUEST');
+          }
+          input.make_default = false;
+        }
       }
       const result = await client.dashboard(upstream, { ...options, body: input });
-      return json(res, 200, path === 'config' ? redactHermesSettings(result) : result);
+      return json(res, 200, ['config', 'custom-endpoints'].includes(path) ? redactHermesSettings(result) : result);
     }
 
     if (path === 'sessions' && ['GET', 'POST'].includes(method)) {
@@ -130,7 +138,7 @@ export function createHermesRoutes(client, bots) {
         ...options, body: input, idempotencyKey: req.headers['idempotency-key'],
       }));
     }
-    const run = /^runs\/([^/]+)(?:\/(events|approval|steer|stop))?$/.exec(path);
+    const run = /^runs\/([^/]+)(?:\/(events|approval|clarify|steer|stop))?$/.exec(path);
     if (run) {
       const runId = resourceId(run[1]);
       if (run[2] === 'events' && method === 'GET') {
@@ -149,7 +157,7 @@ export function createHermesRoutes(client, bots) {
         }
         return;
       }
-      if ((!run[2] && method === 'GET') || (['approval', 'steer', 'stop'].includes(run[2]) && method === 'POST')) {
+      if ((!run[2] && method === 'GET') || (['approval', 'clarify', 'steer', 'stop'].includes(run[2]) && method === 'POST')) {
         return json(res, 200, await client.runtime(`/v1/runs/${hermesResource(runId)}${run[2] ? `/${run[2]}` : ''}`, {
           ...options, ...(method === 'POST' ? { body: object(await body(req)) } : {}),
         }));

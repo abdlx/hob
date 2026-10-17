@@ -9,17 +9,28 @@ excluded from the app build context.
 The inherited Hermes entrypoint performs its normal initialization and privilege
 drop. Our application supervisor then launches:
 
-- `hermes serve --host 127.0.0.1 --port 8080 --isolated`: private settings service.
-- `hermes gateway run`: the private runtime API, bound to 127.0.0.1:8642.
+- `hermes -p default serve --host 127.0.0.1 --port 8080 --isolated`: private settings service.
+- `hermes -p default gateway run --no-supervise --external-supervisor`: the private
+  runtime API, bound to 127.0.0.1:8642.
 - The custom web server on port 3000.
 
 The upstream container's separate dashboard slot is disabled to avoid binding a
-second settings server. Its entrypoint and package/runtime lifecycle are retained.
+second settings server. The image takes `02-reconcile-profiles` out of automatic
+boot and preserves it under `/app/deploy/upstream-reconcile-profiles.disabled`.
+This intentionally gives Gateway process ownership to our foreground supervisor:
+stock persisted s6 gateway autostart must not launch a competing instance on
+restart. Upstream init, package management, volume setup and privilege drop remain
+in place. The image build refuses a changed/missing hook path rather than silently
+assuming that a future image has the same contract. Linux execution remains unverified.
 
-A missing config is seeded without a provider. Existing config bytes are kept.
+A missing config is seeded without a provider and with external CLI login adoption
+disabled. Existing config bytes are kept.
 Listener credentials are generated once in `/opt/data/.hob/listener-auth.json`,
 read privately by the adapter, and reused on restart. A corrupt record fails
 startup rather than silently rotating credentials. No credentials are CLI arguments.
+After settings becomes available, bootstrap persists Main's API listener key through
+Hermes' own credential API before launching Gateway. Multiplexed secret scopes do
+not accept an inherited process API key as profile credential consent.
 
 The runtime child environment excludes the app login/session credentials and
 dashboard administration token. This is environment separation; filesystem and
@@ -44,9 +55,39 @@ working directory defaults to `workspaces/main`; existing operator config may
 override execution settings.
 
 The old OpenClaw volume is left untouched and is not implicitly imported.
-Additional-bot workspace enforcement and durable app roster/recovery are still
-being implemented; separate profile memory does not by itself prove complete
-execution isolation.
+The operator-created roster persists in `.hob/bots.json`. Named bots receive distinct
+keys and working directories under `workspaces/bots/<name>` through the native
+settings/credential owners before dashboard activation. A bot called `main` cannot
+collide with Main's `workspaces/main` directory. Unenrolled profiles do not become
+dashboard bots merely because Hermes discovers them. Partial setup remains pending
+for explicit operator recovery; revoked enrollment stays revoked if setup was in flight.
+These are application routing/state boundaries; a local backend with shared OS access
+can still reach other files/processes. Execution sandbox isolation remains required.
+
+Dashboard conversations use the authenticated Gateway-owned native session socket,
+with a separate connection per enrolled bot. New conversations never fall back to
+raw HTTP agents. Pre-migration API conversations remain read-only history; their
+existing task/recovery controls continue to use their original owner. The dashboard
+chooses a native conversation on startup and offers a new one when only old API
+history exists.
+
+HTTP run and native admission references persist in `.hob/runs.json`. Include the
+journal and matching bot credentials in backups. Startup never resubmits work.
+Native pending acceptance can be recovered by observation of the owner ledger;
+an unknown acceptance absent from the pending projection remains fenced rather
+than being blindly replayed. HTTP recovery retains its original explicitly
+confirmed, credential-bound durable replay window. Do not clear the journal to
+bypass unknown work. Native `unknown` outcomes require an explicit current
+admission/generation resolution. Missing receipts do not prove completion, and
+native conversation history remains readable when a receipt disappears.
+
+The local native/custom-server proof now covers question display and actual answer
+delivery to a managed worker across adapter restart, plus a real tool side effect
+and persisted history, using a deterministic model. Real-provider and Linux image
+build/boot verification remain outstanding. Local source launches must use a
+supported Hermes Python (`HERMES_PYTHON`) with its PM-managed dependencies; the
+official image sets that interpreter. No bootstrap helper installs dependencies
+or starts a second Gateway.
 
 ## Standalone access
 
@@ -85,4 +126,6 @@ profile isolation, groups and recovery against copied state, then deploy. Keep a
 matching state backup for rollback; an older runtime may not read upgraded state.
 
 The local reference snapshot has not been proven identical to the published image.
-Container builds and live provider verification remain pending in this environment.
+Local Hermes has passed control-plane and a real tool turn against a deterministic
+local model simulation. Container builds and real provider verification remain pending
+in this environment.
