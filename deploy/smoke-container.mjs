@@ -39,6 +39,7 @@ const environment = {
 const composeArgs = ['compose', '--project-name', project, '--project-directory', root,
   '-f', resolve(root, 'compose.yaml'), '-f', override];
 let started = false;
+let appContainer = null;
 let runError;
 
 function docker(args, timeout = 400000) {
@@ -51,6 +52,39 @@ const compose = (...args) => docker([...composeArgs, ...args]);
 async function ready() {
   const status = await fetch(origin + '/healthz', { headers: { Connection: 'close' }, signal: AbortSignal.timeout(10000) });
   assert.equal(status.status, 200, 'The real Gateway must finish writable startup preparation.');
+}
+
+function probeRuntimeState(container) {
+  // Bounded, secret-free facts about the native runtime the application attaches
+  // to: state names, socket presence, process count and a probe verdict. It never
+  // prints environment values, tickets, configuration or application log lines.
+  const script = [
+    'echo "runtime_probe home=$HERMES_HOME python=${HERMES_PYTHON:-python3} uid=$(id -u)"',
+    'echo "home_entries=$(ls -1 "$HERMES_HOME" 2>/dev/null | tr "\\n" ",")"',
+    'for name in gateway.sock gateway.sock.path gateway.lock gateway_state.json; do',
+    '  if [ -e "$HERMES_HOME/$name" ]; then echo "present:$name"; else echo "absent:$name"; fi',
+    'done',
+    'if command -v ps >/dev/null 2>&1; then echo "gateway_cmdline_processes=$(ps -eo args | grep -c "[g]ateway run")"; fi',
+    'cat > /tmp/hob-runtime-probe.py <<\'PROBE\'',
+    'import json, os, sys',
+    'sys.path.insert(0, os.environ["HERMES_DIR"])',
+    'try:',
+    '    from pm.environments import activate_dependencies',
+    '    activate_dependencies(os.environ["HERMES_DIR"])',
+    '    from hermes_cli.gateway_runtime import attachable, discover_gateway_endpoint',
+    '    result = discover_gateway_endpoint(os.environ["HERMES_HOME"], timeout=5)',
+    '    print(json.dumps({"state": result.state, "reason": result.reason_code, "attachable": attachable(result)}))',
+    'except Exception as error:',
+    '    print(json.dumps({"error": type(error).__name__}))',
+    'PROBE',
+    '"${HERMES_PYTHON:-python3}" /tmp/hob-runtime-probe.py 2>/dev/null || echo "runtime_probe_failed"',
+    'rm -f /tmp/hob-runtime-probe.py',
+  ].join('\n');
+  try {
+    console.log('Native runtime probe: ' + docker(['exec', container, 'sh', '-c', script], 90000));
+  } catch (error) {
+    console.error('Native runtime probe inconclusive: ' + error.message);
+  }
 }
 
 function reportContainerState() {
@@ -77,15 +111,16 @@ function probeChromiumSandbox(container) {
   // the shipped browser can use its namespace sandbox or reports why it cannot.
   const script = [
     'chromium=""',
-    'for candidate in /ms-playwright/*/chrome-linux/chrome /ms-playwright/*/chrome-linux/headless_shell /root/.cache/ms-playwright/*/chrome-linux/chrome /opt/*/chrome-linux/chrome /usr/bin/chromium /usr/bin/chromium-browser /usr/bin/google-chrome; do',
+    'for candidate in "${PLAYWRIGHT_BROWSERS_PATH:-/ms-playwright}"/*/chrome-linux/chrome "${PLAYWRIGHT_BROWSERS_PATH:-/ms-playwright}"/*/chrome-linux/headless_shell /ms-playwright/*/chrome-linux/chrome /root/.cache/ms-playwright/*/chrome-linux/chrome /opt/hermes/tools/*/chrome-linux/chrome /usr/bin/chromium /usr/bin/chromium-browser /usr/bin/google-chrome; do',
     '  if [ -x "$candidate" ]; then chromium="$candidate"; break; fi',
     'done',
+    'if [ -z "$chromium" ]; then chromium=$(find "${PLAYWRIGHT_BROWSERS_PATH:-/opt/hermes/tools}" -maxdepth 4 -type f -name chrome -perm -u+x 2>/dev/null | head -n 1); fi',
     'if [ -z "$chromium" ]; then echo NOT_FOUND; exit 3; fi',
     'profile=$(mktemp -d)',
     'if "$chromium" --headless --no-first-run --no-default-browser-check --user-data-dir="$profile" --dump-dom about:blank >/dev/null 2>/tmp/chromium-probe.err; then echo SANDBOX_OK; else echo SANDBOX_FAILED; head -n 4 /tmp/chromium-probe.err; fi',
   ].join('\n');
   try {
-    console.log('Blank-profile browser sandbox probe: ' + docker(['exec', container, 'sh', '-lc', script], 60000));
+    console.log('Blank-profile browser sandbox probe: ' + docker(['exec', container, 'sh', '-c', script], 60000));
   } catch (error) {
     console.error('Browser sandbox probe inconclusive: ' + error.message);
   }
@@ -116,6 +151,7 @@ try {
   compose('up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '300');
   await ready();
   const container = compose('ps', '--quiet', 'muse');
+  appContainer = container;
   assert.ok(container && !container.includes('\n'), 'Exactly one app container must be running.');
   const hardening = JSON.parse(docker(['inspect', '--format', '{{json .HostConfig}}', container]));
   assert.equal(hardening.Privileged, false);
@@ -127,6 +163,7 @@ try {
   assert.ok(!hardening.Binds?.some(item => item.includes('docker.sock')));
   console.log('Hardening, capabilities, seccomp and the absence of a Docker socket are verified.');
   probeChromiumSandbox(container);
+  probeRuntimeState(container);
   const unauthorized = await fetch(origin + '/api/sessions', { headers: { Connection: 'close' }, signal: AbortSignal.timeout(10000) });
   assert.equal(unauthorized.status, 401);
   const smoke = createHermesSmokeApi({ origin, password, modelUrl: providerTier ? modelUrl : undefined });
@@ -141,7 +178,7 @@ try {
   else console.log('The synthetic provider tier was disabled (MUSE_SMOKE_PROVIDER=0); no model turn was claimed.');
 } catch (error) {
   runError = error;
-  if (started) reportContainerState();
+  if (started) { reportContainerState(); if (appContainer) probeRuntimeState(appContainer); }
   throw error;
 } finally {
   // Only this freshly generated Compose project and its test volume are removed.
