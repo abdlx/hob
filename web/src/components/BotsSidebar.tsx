@@ -123,7 +123,7 @@ export const BotsSidebar: React.FC = () => {
                 onClick={() => void selectAgent(bot.id)}
                 className={`relative rounded-2xl p-1 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff965c] ${
                   isSelected
-                    ? 'bg-[#3a2416] ring-1 ring-[#ff965c]/70 shadow-[0_0_16px_rgba(255,150,92,0.18)]'
+                    ? 'bg-[#333a42]'
                     : 'hover:bg-[#251b14]'
                 }`}
                 aria-label={`Select ${bot.name}${isSelected ? ' (active)' : ''}`}
@@ -275,7 +275,7 @@ export const BotsSidebar: React.FC = () => {
                   }}
                   className={`group relative flex items-center gap-3 p-2.5 rounded-2xl cursor-pointer transition-all duration-150 border ${
                     isSelected
-                      ? 'bg-[#251a12] border-[#553723] text-white shadow-sm ring-1 ring-[#ff965c]/25'
+                      ? 'bg-[#252c34] border-[#46515d] text-white'
                       : 'bg-[#15110e]/50 hover:bg-[#1c1611] border-[#251d16]/70 hover:border-[#382b1f] text-[#b3a696]'
                   }`}
                 >

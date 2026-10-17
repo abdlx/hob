@@ -24,7 +24,7 @@ export const DogeshAvatar: React.FC<DogeshAvatarProps> = ({
       style={{ width: size, height: size }}
     >
       <div
-        className="w-full h-full rounded-full overflow-hidden border border-[#382d22] shadow-sm bg-[#211a14] flex items-center justify-center ring-2 ring-[#443322]/40"
+        className="w-full h-full rounded-full overflow-hidden border border-[#3b444f] bg-[#20262d] flex items-center justify-center"
       >
         <img
           src={avatarUrl || '/brand/hob-mark.png'}

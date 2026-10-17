@@ -110,9 +110,33 @@ button:disabled { cursor: not-allowed; }
 .settings-editor { box-shadow: 0 18px 48px #00000024; }
 .settings-nav { background: #101923; }
 .settings-nav::-webkit-scrollbar { width: 3px; height: 3px; }
-.settings-field:focus-within { border-color: color-mix(in srgb, var(--hob-accent) 60%, var(--hob-border)); box-shadow: 0 0 0 1px #8eb8ff26; }
+.settings-field:focus-within { border-color: #3b444f; box-shadow: none; }
 .settings-group > summary::-webkit-details-marker { display: none; }
 .settings-group[open] > summary svg { transform: rotate(180deg); }
+
+/* The workspace uses a quiet monochrome treatment. Keep interaction states
+   readable without the orange rings, colored status glows, or layered shadows
+   that made the previous UI feel noisy. */
+.hob-app, .hob-auth { filter: grayscale(1); }
+.hob-app *, .hob-auth * { text-shadow: none !important; }
+.hob-app .shadow-sm,
+.hob-app .shadow-md,
+.hob-app .shadow-lg,
+.hob-app .shadow-xl,
+.hob-app .shadow-2xl,
+.hob-app .shadow-inner { box-shadow: none !important; }
+.hob-composer-form,
+.hob-composer-form:focus-within { box-shadow: none !important; }
+.hob-composer-form { border-color: #343b45 !important; }
+.hob-composer-form:focus-within { border-color: #343b45 !important; }
+.hob-composer-form textarea:focus,
+.hob-composer-form textarea:focus-visible { outline: none !important; box-shadow: none !important; }
+.hob-app input:focus,
+.hob-app textarea:focus,
+.hob-app select:focus { box-shadow: none !important; }
+.hob-app input:focus-visible,
+.hob-app textarea:focus-visible,
+.hob-app select:focus-visible { outline: 1px solid #727b87; outline-offset: 1px; }
 @keyframes hob-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes hob-pulse { 50% { opacity: .35; } }
 @media (max-width: 1100px) { .hob-shortcuts { grid-template-columns: 1fr; } .hob-shortcut { min-height: auto; display: grid; grid-template-columns: 24px 1fr; column-gap: 14px; padding: 16px 18px; } .hob-shortcut > span:first-child { grid-row: 1 / 3; margin: 0; } .hob-shortcut > span:first-child > svg:last-child { display: none; } .hob-shortcut strong { margin-bottom: 4px; } }
