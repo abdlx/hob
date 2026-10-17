@@ -10,6 +10,11 @@ interface ChatMessageItemProps {
 export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => {
   const isUser = message.role === 'user';
 
+  // A reply placeholder is intentionally kept in browser state while Hermes
+  // streams. The thinking indicator represents that state; an empty assistant
+  // bubble should never be rendered.
+  if (!message.content.trim()) return null;
+
   const renderedContent = <MarkdownView content={isUser ? message.content : displayGatewayNotice(message.content)} />;
 
   if (isUser) {
