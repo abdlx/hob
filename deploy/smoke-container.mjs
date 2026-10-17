@@ -133,17 +133,41 @@ function probeChromiumSandbox(container) {
     '  if [ -x "$candidate" ]; then chromium="$candidate"; break; fi',
     'done',
     'if [ -z "$chromium" ]; then chromium=$(find "${PLAYWRIGHT_BROWSERS_PATH:-/opt/hermes/tools}" -maxdepth 4 -type f -name chrome -perm -u+x 2>/dev/null | head -n 1); fi',
-    'if [ -z "$chromium" ]; then echo NOT_FOUND; exit 3; fi',
-    'runner=""',
-    'if [ -x /command/s6-setuidgid ]; then runner="/command/s6-setuidgid hermes"; fi',
-    'profile=$($runner mktemp -d) || exit 3',
-    'if $runner "$chromium" --headless --no-first-run --no-default-browser-check --user-data-dir="$profile" --dump-dom about:blank >/dev/null 2>/tmp/chromium-probe.err; then echo SANDBOX_OK; else echo SANDBOX_FAILED; head -n 4 /tmp/chromium-probe.err; fi',
+    'if [ -z "$chromium" ]; then echo NOT_FOUND >&2; exit 3; fi',
+    'test "$(id -u)" != 0 || exit 3',
+    'profile=$(mktemp -d) || exit 3',
+    'if "$chromium" --headless --no-first-run --no-default-browser-check --user-data-dir="$profile" --dump-dom about:blank >/dev/null 2>"$profile/probe.err"; then echo SANDBOX_OK; else echo SANDBOX_FAILED >&2; head -n 4 "$profile/probe.err" >&2; exit 1; fi',
   ].join('\n');
-  try {
-    console.log('Blank-profile browser sandbox probe: ' + docker(['exec', container, 'sh', '-c', script], 60000));
-  } catch (error) {
-    console.error('Browser sandbox probe inconclusive: ' + error.message);
-  }
+  // docker exec starts with the image's root HOME. Match the upstream main
+  // wrapper's runtime HOME as well as its user; a UID-only switch leaves
+  // Crashpad trying to write under /root and never reaches the sandbox check.
+  const result = docker(['exec', '--user', 'hermes', '--env', 'HOME=/opt/data', container, 'sh', '-c', script], 60000);
+  assert.equal(result.trim(), 'SANDBOX_OK', 'The shipped Chromium must launch with its sandbox enabled.');
+  console.log('Blank-profile browser sandbox probe: ' + result);
+}
+
+function verifyRuntimeUsers(container) {
+  const script = [
+    'import json, os',
+    'from pathlib import Path',
+    'expected = os.stat("/opt/data").st_uid',
+    'assert expected != 0, "The runtime home must belong to an unprivileged user"',
+    'roles = {"supervisor": [], "web": [], "gateway": [], "settings": []}',
+    'for entry in Path("/proc").iterdir():',
+    '    if not entry.name.isdigit(): continue',
+    '    try:',
+    '        args = (entry / "cmdline").read_bytes().split(b"\\0")',
+    '        role = "supervisor" if b"/app/deploy/start.mjs" in args else "web" if b"/app/server/index.mjs" in args else "gateway" if b"gateway" in args and b"run" in args else "settings" if b"serve" in args and b"--isolated" in args else None',
+    '        if role is None: continue',
+    '        status = (entry / "status").read_text()',
+    '        uids = [int(uid) for line in status.splitlines() if line.startswith("Uid:") for uid in line.split()[1:]]',
+    '        assert uids and all(uid == expected for uid in uids), role + " did not drop runtime privileges"',
+    '        roles[role].append(expected)',
+    '    except (FileNotFoundError, ProcessLookupError): continue',
+    'assert all(roles.values()), "Every application service must be running for the privilege check"',
+    'print(json.dumps(roles))',
+  ].join('\n');
+  console.log('Runtime service users verified: ' + docker(['exec', container, '/opt/hermes/.venv/bin/python', '-c', script], 30000));
 }
 
 try {
@@ -188,11 +212,13 @@ try {
   assert.equal(unauthorized.status, 401);
   const smoke = createHermesSmokeApi({ origin, password, modelUrl: providerTier ? modelUrl : undefined });
   const saved = await smoke.firstBoot();
+  verifyRuntimeUsers(container);
   console.log('Actual image first boot passed ' + smoke.checks.length + ' authenticated native checks.');
   compose('up', '-d', '--no-build', '--pull', 'never', '--force-recreate', '--wait', '--wait-timeout', '300');
   await ready();
   assert.notEqual(compose('ps', '--quiet', 'muse'), container, 'Recreation must replace the container.');
   await smoke.afterRestart(saved);
+  verifyRuntimeUsers(compose('ps', '--quiet', 'muse'));
   console.log('All ' + smoke.checks.length + ' checks passed across container recreation.');
   if (saved.providerTier) console.log('A real Hermes tool turn used only the isolated local fixture provider.');
   else console.log('The synthetic provider tier was disabled (MUSE_SMOKE_PROVIDER=0); no model turn was claimed.');
