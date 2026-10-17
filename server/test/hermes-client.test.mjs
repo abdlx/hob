@@ -70,6 +70,24 @@ test('missing settings credential fails before any unauthenticated upstream requ
   assert.equal(received.length, count);
 });
 
+test('native dependency setup can have a bounded longer deadline without retrying failed writes', async () => {
+  const seen = [];
+  const transport = client({ timeoutMs: 1, fetchImpl: async (_url, options) => {
+    seen.push(options);
+    await new Promise(resolve => setTimeout(resolve, 15));
+    options.signal.throwIfAborted();
+    return new Response('{"ok":true}', { headers: { 'Content-Type': 'application/json' } });
+  } });
+  assert.deepEqual(await transport.dashboard('/api/memory/providers/example/setup', { method: 'POST', body: { values: {} }, timeoutMs: 300000 }), { ok: true });
+  await assert.rejects(transport.dashboard('/api/memory/providers/example/setup', { method: 'POST', body: {} }), error => error.status === 503);
+  assert.equal(seen.length, 2);
+  for (const timeoutMs of [0, -1, 600001, 1.5, '300000']) await assert.rejects(transport.dashboard('/api/memory', { timeoutMs }), error => error.status === 400);
+  assert.equal(seen.length, 2);
+  const abort = new AbortController(); abort.abort();
+  await assert.rejects(transport.dashboard('/api/memory', { timeoutMs: 300000, signal: abort.signal }), /cancelled/);
+  assert.equal(seen.length, 3);
+});
+
 test('runtime credentials cannot appear in serialized client state', () => {
   const serialized = JSON.stringify(client());
   assert.equal(serialized.includes('synthetic-runtime-key'), false);

@@ -116,7 +116,7 @@ export class HermesClient extends EventEmitter {
     return createHash('sha256').update(key).digest('hex');
   }
 
-  async #response(surface, pathname, { profile = 'default', method = 'GET', body, query, signal, idempotencyKey, stream = false } = {}) {
+  async #response(surface, pathname, { profile = 'default', method = 'GET', body, query, signal, idempotencyKey, stream = false, timeoutMs = this.timeoutMs } = {}) {
     profile = hermesProfile(profile);
     if (!pathname.startsWith('/') || pathname.startsWith('//') || /[\\?#\x00-\x20]/.test(pathname)
       || pathname.split('/').some(part => ['.', '..'].includes(decodeURIComponent(part)))) {
@@ -145,7 +145,8 @@ export class HermesClient extends EventEmitter {
       }
       headers['Idempotency-Key'] = idempotencyKey;
     }
-    const deadline = AbortSignal.timeout(stream ? 30 * 60 * 1000 : this.timeoutMs);
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 600000) throw new HermesError(400, 'Invalid request deadline.', 'INVALID_REQUEST');
+    const deadline = AbortSignal.timeout(stream ? 30 * 60 * 1000 : timeoutMs);
     try {
       // Never retry writes, follow redirects, or forward browser headers/cookies.
       const response = await this.#fetch(url, { method, headers, redirect: 'error',

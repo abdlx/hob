@@ -7,6 +7,7 @@ import { errorText } from '../components/workspaceUtils';
 import { HermesModelPicker } from '../components/HermesModelPicker';
 import { HermesAccountsSettings, HermesChannelsSettings, HermesToolsSettings } from '../components/HermesIntegrations';
 import { HermesMcpSettings } from '../components/HermesMcpSettings';
+import { HermesMemorySettings } from '../components/HermesMemorySettings';
 
 interface Profile { name: string; display_name?: string; description?: string; model?: string; provider?: string; state?: string }
 interface Credential { is_set: boolean; description?: string; category?: string }
@@ -108,6 +109,7 @@ export function HermesSettings() {
     <HermesAccountsSettings key={`accounts:${profile}`} profile={profile} />
     <HermesToolsSettings key={`tools:${profile}`} profile={profile} />
     <HermesMcpSettings key={`mcp:${profile}`} profile={profile} />
+    <HermesMemorySettings key={`memory:${profile}`} profile={profile} />
     <HermesChannelsSettings key={`channels:${profile}`} profile={profile} />
     <section className={`${cardClass} space-y-3`}><h2 className="text-sm text-[#dfd1bd]">Create a bot</h2>
       <Field label="Name" hint="Use lowercase letters, digits, underscores or hyphens; start with a letter."><input className={inputClass} value={newName} disabled={busy} onChange={event => setNewName(event.target.value)} /></Field>

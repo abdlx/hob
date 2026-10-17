@@ -111,6 +111,32 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
     const bot = await api('/api/hermes/profiles', 'POST', { name: 'smoke-bot', soul: 'Independent synthetic smoke bot.' });
     check('an additional bot needs explicit creation', bot.ok === true && bot.state === 'active');
     check('the new bot does not inherit Main personality', !String((await workspace('soul', 'GET', undefined, 'smoke-bot')).content).includes(soul.trim()));
+    // Use a bundled native provider with synthetic credentials and a loopback-
+    // network endpoint. No memory session or external vendor account is started.
+    // This verifies the real schema/config/selection owners, not vendor recall.
+    let memorySetup = false;
+    if (modelUrl) {
+      const route = '/api/hermes/setup/memory';
+      const mainBefore = await api(route);
+      const catalog = await api(route + '?profile=smoke-bot', 'GET', undefined, 'smoke-bot');
+      check('native external-memory catalog is readable for the selected bot', catalog.providers.some(item => item.name === 'retaindb'));
+      const form = await api(route + '/providers/retaindb?profile=smoke-bot', 'GET', undefined, 'smoke-bot');
+      check('native RetainDB setup fields are projected without activation', ['api_key', 'base_url', 'project'].every(key => form.fields.some(field => field.key === key))
+        && (await api(route + '?profile=smoke-bot', 'GET', undefined, 'smoke-bot')).active === catalog.active);
+      check('external memory cannot be selected without confirmation', (await request(route + '/provider?profile=smoke-bot', 'PUT', { provider: 'retaindb' }, 'smoke-bot')).status === 400);
+      const memorySecret = 'synthetic-isolated-memory-key';
+      const selected = await api(route + '/providers/retaindb?profile=smoke-bot', 'PUT', { surface: form.surface,
+        values: { api_key: memorySecret, base_url: new URL('/', modelUrl).href, project: 'isolated-smoke-bot' }, confirm: true }, 'smoke-bot');
+      check('confirmed native memory setup selects only the intended bot', selected.active === 'retaindb' && (await api(route)).active === mainBefore.active);
+      const configured = await api(route + '/providers/retaindb?profile=smoke-bot', 'GET', undefined, 'smoke-bot');
+      check('native memory credentials are masked while non-secret values persist', configured.fields.find(field => field.key === 'api_key')?.isSet === true
+        && !JSON.stringify(configured).includes(memorySecret) && configured.fields.find(field => field.key === 'project')?.value === 'isolated-smoke-bot');
+      const builtin = await api(route + '/provider?profile=smoke-bot', 'PUT', { provider: '', confirm: true }, 'smoke-bot');
+      check('selecting built-in memory does not delete provider configuration', builtin.active === ''
+        && (await api(route + '/providers/retaindb?profile=smoke-bot', 'GET', undefined, 'smoke-bot')).fields.find(field => field.key === 'api_key')?.isSet === true);
+      await api(route + '/provider?profile=smoke-bot', 'PUT', { provider: 'retaindb', confirm: true }, 'smoke-bot');
+      memorySetup = true;
+    }
     let mcpOAuth = false;
     if (modelUrl && authorizeMcp) {
       await api('/api/hermes/setup/mcp', 'POST', { name: 'smoke-oauth', url: new URL('/mcp', modelUrl).href, auth: 'oauth', confirm: true });
@@ -130,7 +156,7 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       check('MCP OAuth attempts cannot be observed through another bot', (await request('/api/hermes/setup/mcp/oauth/flows/' + flow.id + '?profile=smoke-bot')).status === 404);
       mcpOAuth = true;
     }
-    return { providerTier, sessionId, requestKey, jobId: created.id, soul, mcpOAuth };
+    return { providerTier, sessionId, requestKey, jobId: created.id, soul, mcpOAuth, memorySetup };
   };
 
   const afterRestart = async saved => {
@@ -140,6 +166,14 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
     const row = rows(await workspace('jobs')).find(item => item.id === saved.jobId);
     check('the paused schedule survives recreation without executing', paused(row), 'observed ' + JSON.stringify(row || null));
     check('credentials survive recreation without exposure', (await api('/api/hermes/credentials')).EXAMPLE_PROVIDER_API_KEY?.is_set === true);
+    if (saved.memorySetup) {
+      const memory = await api('/api/hermes/setup/memory?profile=smoke-bot', 'GET', undefined, 'smoke-bot');
+      const form = await api('/api/hermes/setup/memory/providers/retaindb?profile=smoke-bot', 'GET', undefined, 'smoke-bot');
+      check('native memory selection and settings survive recreation', memory.active === 'retaindb'
+        && form.fields.find(field => field.key === 'project')?.value === 'isolated-smoke-bot'
+        && form.fields.find(field => field.key === 'api_key')?.isSet === true);
+      check('another bot retains built-in memory after recreation', (await api('/api/hermes/setup/memory')).active === '');
+    }
     if (saved.mcpOAuth) {
       const result = await api('/api/hermes/setup/mcp/smoke-oauth/test', 'POST', { confirm: true });
       check('native MCP OAuth credentials survive container recreation', result.ok === true && result.tools.some(item => item.name === 'smoke_echo'));

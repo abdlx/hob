@@ -50,6 +50,13 @@ modified by this deployment.
    no additional port needs exposing. Return to Settings to observe completion
    and use **Test connection**. Servers requiring a vendor-fixed loopback callback
    need a different onboarding flow; this hosted callback does not replace it.
+8. Optional: in **Settings → Memory providers**, choose a provider, edit its
+   native fields, then review and confirm **save and select**. This may send the
+   bot's memory/conversations to the provider. Use separate external projects or
+   namespaces to preserve separation between bots. Dependency setup is a separate
+   confirmed action; it does not submit unsaved fields or select the provider.
+   Selecting built-in memory again preserves stored external settings and data.
+   Existing sessions may need restarting to use a changed provider.
 
 No custom build/start command is needed. Do not publish ports 8080 or 8642, add a
 host port mapping, or mount the host Docker socket. The application Dockerfile

@@ -74,6 +74,17 @@ test('setup actions require app authentication and reject cross-origin provider 
   assert.equal(calls.at(-1).headers['x-hermes-session-token'], 'settings-only-secret');
 });
 
+test('memory setup keeps authentication and origin checks ahead of all native access', async () => {
+  const count = calls.length;
+  assert.equal((await fetch(`${origin}/api/hermes/setup/memory?profile=coder`)).status, 401);
+  for (const [route, method, body] of [
+    ['setup/memory/provider?profile=coder', 'PUT', { provider: '', confirm: true }],
+    ['setup/memory/providers/example?profile=coder', 'PUT', { surface: 'declared', values: {}, confirm: true }],
+    ['setup/memory/providers/example/setup?profile=coder', 'POST', { confirm: true }],
+  ]) assert.equal((await request(route, method, body, { Origin: 'https://attacker.invalid' })).status, 403);
+  assert.equal(calls.length, count);
+});
+
 test('group controls share app authentication and origin enforcement before native coordination', async () => {
   const count = calls.length;
   assert.equal((await fetch(`${origin}/api/hermes/groups`)).status, 401);

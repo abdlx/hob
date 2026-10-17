@@ -113,8 +113,17 @@ attempt, review the authorization provider's page, and return to Settings for
 status and connection testing. `MUSE_PUBLIC_URL` must name this dashboard's origin.
 Closing an attempt does not disconnect credentials already saved by Hermes.
 Pre-registered clients with a vendor-fixed loopback callback are not automated
-through this hosted flow. External account CLI flows, QR onboarding, external-memory
-setup forms and actual vendor interoperability still need work. MCP OAuth has
+through this hosted flow. **Memory providers** exposes native provider fields,
+masked credentials, explicit dependency setup and confirmed provider selection
+for the selected bot. Saving provider fields can also select that provider; the
+confirmation states this before submission. Built-in memory remains available,
+and selecting it again does not delete external data or stored credentials.
+External projects/namespaces can share data across bots if configured identically;
+choose separate partitions when independent external memory is required. Existing
+sessions may need restarting after a provider change. Dependency setup submits no
+unsaved form fields and may install packages on the Hermes host.
+External account CLI flows, QR onboarding and actual vendor interoperability
+still need work. MCP OAuth has
 real-runtime verification against an isolated simulated provider; its rendered
 UI interaction and real vendor sign-in remain unverified.
 

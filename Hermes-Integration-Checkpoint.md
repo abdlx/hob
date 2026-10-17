@@ -536,7 +536,7 @@ setup UX, complete group control coverage, backup/restore or candidate upgrades.
    staged-create/explicit-approve path. Keep legacy OpenClaw RPC components out of
    the Hermes render branch.
 5. Finish setup beyond the native catalog/tool/channel/device-flow forms now added:
-   QR onboarding, external-memory configuration, richer model/backend controls,
+   QR onboarding, richer model/backend controls,
    learning history and actual vendor device-login verification. External CLI-only
    OAuth flows remain an upstream interface limitation; do not simulate support.
    Complete rendered MCP create/probe/OAuth checks against a live owned endpoint
@@ -550,3 +550,28 @@ setup UX, complete group control coverage, backup/restore or candidate upgrades.
 
 These gaps prevent completion. Adapter tests and the successful local simulation
 must not be used to claim that the complete product is finished or production-ready.
+
+## External-memory setup checkpoint
+
+The custom Settings page now projects native memory-provider catalogs and both
+declared and legacy provider forms. Hermes owns configuration, credentials,
+dependency setup and selection. Saving a provider's fields can select it, so the
+UI requires confirmation and warns about external data sharing. Read-only form
+loads and provider dropdown changes do not select anything. Blank credentials
+preserve stored values; edited-field saves preserve explicit false/zero/clears.
+Setup does not submit unsaved fields, and output/commands are not returned to the
+browser. Failures may leave partial native settings, so the UI refreshes status
+and never retries a write automatically. Built-in selection preserves external
+credentials/data; existing sessions may need restarting after a provider change.
+
+Local checks: 239 tests passed on the full repeat; typecheck, frontend build and
+lint passed. The first full run had one intermittent `Invalid run journal` error
+in the unchanged native-chat restart test. Its isolated run (13 tests) and the
+full repeat passed. This is retained as an indeterminate restart-race observation,
+not silently counted as a passing first run. The build has the existing nonfatal
+500 kB chunk warning. Rendered memory-provider interaction remains unverified:
+the browser tool cannot initialize on this host. Linux native-provider setup,
+selection and recreation checks are added to the container smoke workflow;
+their result must be inspected for the exact candidate commit before a deployment
+claim. Neither these checks nor the UI claim a real external-provider recall or
+vendor-account verification.
