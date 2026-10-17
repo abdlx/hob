@@ -36,7 +36,21 @@ function OpenClawDailyGoals() {
   useEffect(() => { const initial = window.setTimeout(load, 0); const timer = window.setInterval(load, 30000); return () => { window.clearTimeout(initial); window.clearInterval(timer); }; }, [load]);
   const today = new Date().toDateString();
   const daily = jobs.filter((job) => (job.enabled && job.state?.nextRunAtMs && new Date(job.state.nextRunAtMs).toDateString() === today) || (job.state?.lastRunAtMs && new Date(job.state.lastRunAtMs).toDateString() === today));
-  return <div className="space-y-2 pt-2"><div className="flex justify-between items-center text-[11px] text-[#aaa297] px-1"><span>Today's goals</span><button title="Refresh today's goals" onClick={load}><RefreshCw size={12} /></button></div>{error && <Notice error>{error}</Notice>}{loading ? <Notice>Loading scheduled tasks…</Notice> : daily.length === 0 ? <Notice>No tasks scheduled or completed today.</Notice> : daily.map((job) => { const upcoming = job.enabled && job.state?.nextRunAtMs && new Date(job.state.nextRunAtMs).toDateString() === today; return <div key={job.id} className="rounded-xl border border-[#25211c] p-3"><p className="text-[12px] text-[#dcd4c8]">{job.name}</p><p className="text-[10px] text-[#847a6d] mt-1">{upcoming ? 'Next: ' : `${job.state?.lastRunStatus || 'Ran'} · `}{new Date(upcoming ? job.state!.nextRunAtMs! : job.state!.lastRunAtMs!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p><p className="text-[10px] text-[#9a9388] mt-1 line-clamp-3">{job.payload.message || job.payload.text}</p></div>; })}</div>;
+  return <div className="space-y-3 pt-2">
+    <div className="flex justify-between items-center text-xs font-semibold uppercase tracking-wider text-[#9d907e] px-1">
+      <span>Today's goals</span>
+      <button title="Refresh today's goals" onClick={load} className="text-[#a59784] hover:text-[#faeee1] transition-colors p-1"><RefreshCw size={15} /></button>
+    </div>
+    {error && <Notice error>{error}</Notice>}
+    {loading ? <Notice>Loading scheduled tasks…</Notice> : daily.length === 0 ? <Notice>No tasks scheduled or completed today.</Notice> : daily.map((job) => {
+      const upcoming = job.enabled && job.state?.nextRunAtMs && new Date(job.state.nextRunAtMs).toDateString() === today;
+      return <div key={job.id} className="rounded-2xl border border-[#2d251d] bg-[#16120e] p-3.5 space-y-1">
+        <p className="text-sm font-semibold text-[#eee4d5]">{job.name}</p>
+        <p className="text-xs text-[#8f8272]">{upcoming ? 'Next: ' : `${job.state?.lastRunStatus || 'Ran'} · `}{new Date(upcoming ? job.state!.nextRunAtMs! : job.state!.lastRunAtMs!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+        <p className="text-xs md:text-sm text-[#aea292] mt-1 line-clamp-3 leading-relaxed">{job.payload.message || job.payload.text}</p>
+      </div>;
+    })}
+  </div>;
 }
 
 function GoalsView() {
@@ -71,9 +85,53 @@ function GoalsView() {
       setEditing(null);
     });
   };
-  return <div className="space-y-4"><div className="flex items-center justify-between"><p className="text-[12px] text-[#847b6d]">Scheduled tasks run through your OpenClaw agent.</p><div className="flex gap-2"><button className={buttonClass} title="Refresh goals" disabled={busy} onClick={load}><RefreshCw size={13} /></button><button className={buttonClass} onClick={() => edit('new')}><Plus size={13} />New goal</button></div></div>{error && <Notice error>{error}</Notice>}
-    {editing && <div className={`${cardClass} space-y-3`}><div className="flex justify-between text-sm"><span>{editing === 'new' ? 'Schedule a goal' : 'Edit goal'}</span><button title="Close editor" onClick={() => setEditing(null)}><X size={14} /></button></div><Field label="Name"><input className={inputClass} value={name} onChange={(event) => setName(event.target.value)} /></Field><Field label="Agent instructions"><textarea rows={4} className={inputClass} value={message} onChange={(event) => setMessage(event.target.value)} /></Field><Field label="Schedule"><select className={inputClass} value={kind} onChange={(event) => { setKind(event.target.value); setValue(event.target.value === 'cron' ? '0 9 * * *' : event.target.value === 'every' ? '60' : ''); }}><option value="cron">Recurring cron expression</option><option value="every">Every interval</option><option value="at">Once at a date and time</option>{!['cron', 'every', 'at'].includes(kind) && <option value={kind}>{kind}</option>}</select></Field><Field label={kind === 'every' ? 'Interval in minutes' : kind === 'at' ? 'Date and time (your timezone)' : 'Cron expression'} hint={kind === 'cron' ? 'Minute · hour · day · month · weekday' : undefined}><input className={inputClass} type={kind === 'at' ? 'datetime-local' : kind === 'every' ? 'number' : 'text'} value={value} onChange={(event) => setValue(event.target.value)} /></Field>{kind === 'cron' && <Field label="Timezone"><input className={inputClass} value={tz} onChange={(event) => setTz(event.target.value)} /></Field>}<button disabled={busy || !['cron', 'every', 'at'].includes(kind)} className={buttonClass} onClick={save}><Save size={12} />{busy ? 'Saving…' : 'Save goal'}</button></div>}
-    {loading ? <Notice>Loading scheduled tasks…</Notice> : jobs.length === 0 ? <Notice>No scheduled tasks yet. Create a goal to give your agent something to do later.</Notice> : jobs.map((job) => <div className={`${cardClass} space-y-3`} key={job.id}><div className="flex items-start justify-between gap-3"><div><h3 className="text-[13px] font-medium">{job.name}</h3><p className="text-[11px] text-[#9a8c78] mt-1">{scheduleLabel(job)}</p><p className="text-[10px] text-[#756e63] mt-1">{job.enabled ? 'Enabled' : 'Paused'}{job.state?.nextRunAtMs ? ` · Next: ${new Date(job.state.nextRunAtMs).toLocaleString()}` : ''}{job.state?.lastRunStatus ? ` · Last run: ${job.state.lastRunStatus}` : ''}</p></div><button className={buttonClass} disabled={busy} onClick={() => edit(job)}>Edit</button></div><p className="text-[12px] text-[#b0a89c] whitespace-pre-wrap">{job.payload.message || job.payload.text || 'Advanced task payload'}</p>{job.state?.lastError && <Notice error>{job.state.lastError}</Notice>}<div className="flex gap-2 flex-wrap"><button disabled={busy} className={buttonClass} onClick={() => action(() => apiFetch(`/api/goals/${encodeURIComponent(job.id)}/run`, jsonInit('POST', {})))}><Play size={12} />Run now</button><button disabled={busy} className={buttonClass} onClick={() => action(() => apiFetch(`/api/goals/${encodeURIComponent(job.id)}`, jsonInit('PATCH', { patch: { enabled: !job.enabled }, expectedConfigRevision: job.configRevision })))}>{job.enabled ? 'Pause' : 'Resume'}</button><button className={buttonClass} disabled={busy} title="Delete goal" onClick={() => setDeleteId(job.id)}><Trash2 size={12} /></button></div>{deleteId === job.id && <div className="flex items-center gap-2 text-[11px]"><span>Delete this scheduled task?</span><button className={buttonClass} disabled={busy} onClick={() => action(async () => { await apiFetch(`/api/goals/${encodeURIComponent(job.id)}`, { method: 'DELETE' }); setDeleteId(null); })}>Delete</button><button className={buttonClass} onClick={() => setDeleteId(null)}>Cancel</button></div>}</div>)}
+  return <div className="space-y-4">
+    <div className="flex items-center justify-between">
+      <p className="text-xs md:text-sm text-[#9c9081]">Scheduled tasks run through your OpenClaw agent.</p>
+      <div className="flex gap-2">
+        <button className={buttonClass} title="Refresh goals" disabled={busy} onClick={load}><RefreshCw size={14} /></button>
+        <button className={buttonClass} onClick={() => edit('new')}><Plus size={14} />New goal</button>
+      </div>
+    </div>
+    {error && <Notice error>{error}</Notice>}
+    {editing && <div className={`${cardClass} space-y-3.5`}>
+      <div className="flex justify-between text-sm md:text-base font-semibold">
+        <span>{editing === 'new' ? 'Schedule a goal' : 'Edit goal'}</span>
+        <button title="Close editor" onClick={() => setEditing(null)} className="text-[#a09382] hover:text-white p-1"><X size={16} /></button>
+      </div>
+      <Field label="Name"><input className={inputClass} value={name} onChange={(event) => setName(event.target.value)} /></Field>
+      <Field label="Agent instructions"><textarea rows={4} className={`${inputClass} leading-relaxed`} value={message} onChange={(event) => setMessage(event.target.value)} /></Field>
+      <Field label="Schedule"><select className={inputClass} value={kind} onChange={(event) => { setKind(event.target.value); setValue(event.target.value === 'cron' ? '0 9 * * *' : event.target.value === 'every' ? '60' : ''); }}><option value="cron">Recurring cron expression</option><option value="every">Every interval</option><option value="at">Once at a date and time</option>{!['cron', 'every', 'at'].includes(kind) && <option value={kind}>{kind}</option>}</select></Field>
+      <Field label={kind === 'every' ? 'Interval in minutes' : kind === 'at' ? 'Date and time (your timezone)' : 'Cron expression'} hint={kind === 'cron' ? 'Minute · hour · day · month · weekday' : undefined}><input className={inputClass} type={kind === 'at' ? 'datetime-local' : kind === 'every' ? 'number' : 'text'} value={value} onChange={(event) => setValue(event.target.value)} /></Field>
+      {kind === 'cron' && <Field label="Timezone"><input className={inputClass} value={tz} onChange={(event) => setTz(event.target.value)} /></Field>}
+      <button disabled={busy || !['cron', 'every', 'at'].includes(kind)} className={buttonClass} onClick={save}><Save size={14} />{busy ? 'Saving…' : 'Save goal'}</button>
+    </div>}
+    {loading ? <Notice>Loading scheduled tasks…</Notice> : jobs.length === 0 ? <Notice>No scheduled tasks yet. Create a goal to give your agent something to do later.</Notice> : jobs.map((job) => (
+      <div className={`${cardClass} space-y-3`} key={job.id}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm md:text-base font-semibold text-[#eee4d5]">{job.name}</h3>
+            <p className="text-xs md:text-sm text-[#baa995] mt-1">{scheduleLabel(job)}</p>
+            <p className="text-xs text-[#8f8272] mt-0.5">{job.enabled ? 'Enabled' : 'Paused'}{job.state?.nextRunAtMs ? ` · Next: ${new Date(job.state.nextRunAtMs).toLocaleString()}` : ''}{job.state?.lastRunStatus ? ` · Last run: ${job.state.lastRunStatus}` : ''}</p>
+          </div>
+          <button className={buttonClass} disabled={busy} onClick={() => edit(job)}>Edit</button>
+        </div>
+        <p className="text-xs md:text-sm text-[#c5baa9] whitespace-pre-wrap leading-relaxed">{job.payload.message || job.payload.text || 'Advanced task payload'}</p>
+        {job.state?.lastError && <Notice error>{job.state.lastError}</Notice>}
+        <div className="flex gap-2 flex-wrap">
+          <button disabled={busy} className={buttonClass} onClick={() => action(() => apiFetch(`/api/goals/${encodeURIComponent(job.id)}/run`, jsonInit('POST', {})))}><Play size={13} />Run now</button>
+          <button disabled={busy} className={buttonClass} onClick={() => action(() => apiFetch(`/api/goals/${encodeURIComponent(job.id)}`, jsonInit('PATCH', { patch: { enabled: !job.enabled }, expectedConfigRevision: job.configRevision })))}>{job.enabled ? 'Pause' : 'Resume'}</button>
+          <button className={buttonClass} disabled={busy} title="Delete goal" onClick={() => setDeleteId(job.id)}><Trash2 size={13} /></button>
+        </div>
+        {deleteId === job.id && (
+          <div className="flex items-center gap-2 text-xs md:text-sm">
+            <span>Delete this scheduled task?</span>
+            <button className={buttonClass} disabled={busy} onClick={() => action(async () => { await apiFetch(`/api/goals/${encodeURIComponent(job.id)}`, { method: 'DELETE' }); setDeleteId(null); })}>Delete</button>
+            <button className={buttonClass} onClick={() => setDeleteId(null)}>Cancel</button>
+          </div>
+        )}
+      </div>
+    ))}
   </div>;
 }
 
@@ -90,7 +148,54 @@ function LibraryView() {
   useEffect(() => { const initial = window.setTimeout(load, 0); let cancelled = false; const poll = window.setInterval(() => { void apiFetch<{ files: LibraryFile[]; truncated?: boolean }>(`/api/library?kind=${kind}`).then((result) => { if (!cancelled) { setFiles(result.files); setTruncated(Boolean(result.truncated)); } }).catch((error: unknown) => { if (!cancelled) setError(errorText(error)); }); }, 30000); return () => { cancelled = true; window.clearTimeout(initial); window.clearInterval(poll); }; }, [load, kind]);
   const url = (file: LibraryFile) => `/api/library/file?sessionId=${encodeURIComponent(file.sessionId)}&path=${encodeURIComponent(file.path)}`;
   const preview = async (file: LibraryFile) => { setSelected(file); setContent(''); setError(''); if (kind === 'media') return; setLoading(true); try { const data = await apiFetch<{ content?: string; text?: string; file?: { content?: string } }>(url(file)); setContent(data.content ?? data.text ?? data.file?.content ?? 'This file has no text preview. Use Download to open it.'); } catch (error) { setError(errorText(error)); } finally { setLoading(false); } };
-  return <div className="space-y-4"><div className="flex justify-between"><div className="inline-flex rounded-full bg-[#111] border border-[#26211b] p-1">{['artifacts', 'media'].map((tab) => <button key={tab} onClick={() => { setKind(tab); setSelected(null); setLoading(true); }} className={`rounded-full px-4 py-1.5 text-[11px] capitalize ${kind === tab ? 'bg-[#2b231a] text-[#dfc5a3]' : 'text-[#8e8578]'}`}>{tab}</button>)}</div><button onClick={load} className={buttonClass} title="Refresh library"><RefreshCw size={13} /></button></div>{truncated && <Notice>The library search reached its limit. Some workspace files may not be listed.</Notice>}{error && <Notice error>{error}</Notice>}{selected ? <div className={`${cardClass} space-y-3`}><div className="flex items-center justify-between"><button className={buttonClass} onClick={() => setSelected(null)}><ArrowLeft size={12} />Back</button><span className="text-[12px] truncate px-3">{selected.name}</span><a className={buttonClass} href={`${url(selected)}&download=1`} target="_blank" rel="noreferrer">Download</a></div>{loading ? <Notice>Loading preview…</Notice> : kind === 'media' ? (selected.mimeType?.startsWith('video/') || /\.(mp4|webm|mov|m4v)$/i.test(selected.name)) ? <video controls onError={() => setError('This video could not be previewed. Use Download to open it.')} className="w-full rounded-xl max-h-[60vh]" src={`${url(selected)}&raw=1`} /> : (selected.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|flac)$/i.test(selected.name)) ? <audio controls onError={() => setError('This audio could not be previewed. Use Download to open it.')} className="w-full" src={`${url(selected)}&raw=1`} /> : <img className="max-w-full max-h-[60vh] mx-auto rounded-xl" alt={selected.name} onError={() => setError('This media could not be previewed. Use Download to open it.')} src={`${url(selected)}&raw=1`} /> : /\.(md|markdown)$/i.test(selected.name) ? <MarkdownView content={content} /> : <pre className="overflow-auto text-[11px] text-[#bcb5a9] whitespace-pre-wrap select-text">{content}</pre>}</div> : loading ? <Notice>Loading library…</Notice> : files.length === 0 ? <Notice>No {kind} yet. Files created by your agent appear here.</Notice> : <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">{files.map((file) => <button key={`${file.sessionId}:${file.path}`} onClick={() => preview(file)} className={`${cardClass} text-left hover:border-[#69543a] cursor-pointer`}><div className="text-[#c0a17b] mb-3">{kind === 'media' ? <Image size={22} /> : <FileText size={22} />}</div><p className="text-[12px] truncate">{file.name}</p><p className="text-[10px] text-[#7c7264] mt-1">{file.size ? `${(file.size / 1024).toFixed(1)} KB` : file.mimeType || 'File'}{file.updatedAtMs ? ` · ${new Date(file.updatedAtMs).toLocaleDateString()}` : ''}</p></button>)}</div>}</div>;
+  return <div className="space-y-4">
+    <div className="flex justify-between items-center">
+      <div className="inline-flex rounded-xl bg-[#110e0c] border border-[#2a221b] p-1">
+        {['artifacts', 'media'].map((tab) => (
+          <button key={tab} onClick={() => { setKind(tab); setSelected(null); setLoading(true); }} className={`rounded-lg px-4 py-1.5 text-xs md:text-sm font-medium capitalize transition-colors ${kind === tab ? 'bg-[#2b2118] text-[#ff9e63]' : 'text-[#8e8272] hover:text-[#d4c6b4]'}`}>{tab}</button>
+        ))}
+      </div>
+      <button onClick={load} className={buttonClass} title="Refresh library"><RefreshCw size={14} /></button>
+    </div>
+    {truncated && <Notice>The library search reached its limit. Some workspace files may not be listed.</Notice>}
+    {error && <Notice error>{error}</Notice>}
+    {selected ? (
+      <div className={`${cardClass} space-y-3.5`}>
+        <div className="flex items-center justify-between">
+          <button className={buttonClass} onClick={() => setSelected(null)}><ArrowLeft size={14} />Back</button>
+          <span className="text-sm font-semibold truncate px-3 text-[#eee4d5]">{selected.name}</span>
+          <a className={buttonClass} href={`${url(selected)}&download=1`} target="_blank" rel="noreferrer">Download</a>
+        </div>
+        {loading ? <Notice>Loading preview…</Notice> : kind === 'media' ? (
+          (selected.mimeType?.startsWith('video/') || /\.(mp4|webm|mov|m4v)$/i.test(selected.name)) ? (
+            <video controls onError={() => setError('This video could not be previewed. Use Download to open it.')} className="w-full rounded-xl max-h-[60vh]" src={`${url(selected)}&raw=1`} />
+          ) : (selected.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|flac)$/i.test(selected.name)) ? (
+            <audio controls onError={() => setError('This audio could not be previewed. Use Download to open it.')} className="w-full" src={`${url(selected)}&raw=1`} />
+          ) : (
+            <img className="max-w-full max-h-[60vh] mx-auto rounded-xl" alt={selected.name} onError={() => setError('This media could not be previewed. Use Download to open it.')} src={`${url(selected)}&raw=1`} />
+          )
+        ) : /\.(md|markdown)$/i.test(selected.name) ? (
+          <MarkdownView content={content} />
+        ) : (
+          <pre className="overflow-auto text-xs md:text-sm text-[#c8bfb0] whitespace-pre-wrap select-text font-mono p-3 bg-[#0d0b09] rounded-xl border border-[#272019]">{content}</pre>
+        )}
+      </div>
+    ) : loading ? (
+      <Notice>Loading library…</Notice>
+    ) : files.length === 0 ? (
+      <Notice>No {kind} yet. Files created by your agent appear here.</Notice>
+    ) : (
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+        {files.map((file) => (
+          <button key={`${file.sessionId}:${file.path}`} onClick={() => preview(file)} className={`${cardClass} text-left hover:border-[#73583c] hover:bg-[#191410] transition-all cursor-pointer`}>
+            <div className="text-[#c99f6f] mb-3">{kind === 'media' ? <Image size={24} /> : <FileText size={24} />}</div>
+            <p className="text-sm font-semibold truncate text-[#eee4d5]">{file.name}</p>
+            <p className="text-xs text-[#8c8070] mt-1">{file.size ? `${(file.size / 1024).toFixed(1)} KB` : file.mimeType || 'File'}{file.updatedAtMs ? ` · ${new Date(file.updatedAtMs).toLocaleDateString()}` : ''}</p>
+          </button>
+        ))}
+      </div>
+    )}
+  </div>;
 }
 
 type Config = Record<string, unknown>;
@@ -188,5 +293,37 @@ export function WorkspaceViews({ activeNav }: { activeNav: string }) {
   const { setActiveNav, agent } = useChat();
   const runtime = useRuntime();
   const title = activeNav === 'idea' ? 'Workshop' : activeNav.charAt(0).toUpperCase() + activeNav.slice(1);
-  return <><header className="h-[58px] border-b border-[#181818] px-5 flex items-center gap-3 shrink-0"><button className="text-[#9d8b73] md:hidden" title="Back to chat" onClick={() => setActiveNav('chat')}><ArrowLeft size={16} /></button><h1 className="text-[14px] font-medium text-[#e0d7c9]">{title}</h1></header><div className="flex-1 overflow-y-auto p-5 md:p-7"><div className="mx-auto max-w-[900px]">{activeNav === 'groups' ? runtime === 'hermes' ? <HermesGroups /> : <Notice>Groups require the Hermes runtime.</Notice> : activeNav === 'settings' ? <SettingsView /> : !agent ? <Notice>Loading bot workspace…</Notice> : runtime === 'hermes' && ['library', 'goals', 'idea'].includes(activeNav) ? <HermesWorkspace page={activeNav} /> : activeNav === 'library' ? <LibraryView /> : activeNav === 'goals' ? <GoalsView /> : activeNav === 'idea' ? <WorkshopView /> : activeNav === 'feed' ? <Notice>Your agent activity appears in the Activity panel. Scheduled results are available in Goals.</Notice> : <Notice>Select a conversation from Search to continue chatting.</Notice>}</div></div></>;
+  return (
+    <>
+      <header className="h-[64px] border-b border-[#241e18] px-6 flex items-center gap-3.5 shrink-0">
+        <button className="text-[#a89885] hover:text-white md:hidden p-1.5 transition-colors" title="Back to chat" onClick={() => setActiveNav('chat')}>
+          <ArrowLeft size={18} />
+        </button>
+        <h1 className="text-base md:text-lg font-semibold text-[#f0e7dc]">{title}</h1>
+      </header>
+      <div className="flex-1 overflow-y-auto p-6 md:p-8">
+        <div className="mx-auto max-w-[960px]">
+          {activeNav === 'groups' ? (
+            runtime === 'hermes' ? <HermesGroups /> : <Notice>Groups require the Hermes runtime.</Notice>
+          ) : activeNav === 'settings' ? (
+            <SettingsView />
+          ) : !agent ? (
+            <Notice>Loading bot workspace…</Notice>
+          ) : runtime === 'hermes' && ['library', 'goals', 'idea'].includes(activeNav) ? (
+            <HermesWorkspace page={activeNav} />
+          ) : activeNav === 'library' ? (
+            <LibraryView />
+          ) : activeNav === 'goals' ? (
+            <GoalsView />
+          ) : activeNav === 'idea' ? (
+            <WorkshopView />
+          ) : activeNav === 'feed' ? (
+            <Notice>Your agent activity appears in the Activity panel. Scheduled results are available in Goals.</Notice>
+          ) : (
+            <Notice>Select a conversation from Search to continue chatting.</Notice>
+          )}
+        </div>
+      </div>
+    </>
+  );
 }

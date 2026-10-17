@@ -1,5 +1,6 @@
 import React from 'react';
 import { LeftSidebar } from '../components/LeftSidebar';
+import { BotsSidebar } from '../components/BotsSidebar';
 import { ChatHeader } from '../components/ChatHeader';
 import { ChatMessageList } from '../components/ChatMessageList';
 import { ChatInput } from '../components/ChatInput';
@@ -21,14 +22,17 @@ export const ChatScreen: React.FC = () => {
       {/* Skinny Left Navigation Bar */}
       <LeftSidebar />
 
+      {/* Extending Bots (Contacts) Sidebar */}
+      <BotsSidebar />
+
       {/* Slide-over Conversations Drawer */}
       <ChatsDrawer />
 
       {/* Main Center Chat Container */}
       <main id="main-content" className="hob-main flex-1 flex flex-col h-full min-w-0 relative overflow-hidden">
-        {isPreparing && <div className="px-4 pt-2"><Notice>Your agent runtime is starting. Settings remain available.</Notice></div>}
-        {isCreatingConversation && <div className="px-4 pt-2"><Notice>Creating your conversation…</Notice></div>}
-        {error && <div className="px-4 pt-2"><Notice error>{error}<span className="flex gap-3 mt-2"><button onClick={refresh} className="underline">Retry</button><button onClick={clearError} className="underline">Dismiss</button></span></Notice></div>}
+        {isPreparing && <div className="px-4 pt-2.5"><Notice>Your agent runtime is starting. Settings remain available.</Notice></div>}
+        {isCreatingConversation && <div className="px-4 pt-2.5"><Notice>Creating your conversation…</Notice></div>}
+        {error && <div className="px-4 pt-2.5"><Notice error>{error}<div className="flex gap-2.5 mt-2.5"><button onClick={refresh} className="px-3 py-1 rounded-lg bg-red-900/50 hover:bg-red-900/80 text-red-100 font-medium text-xs transition-colors cursor-pointer">Retry</button><button onClick={clearError} className="px-3 py-1 rounded-lg bg-red-950/40 hover:bg-red-950/80 text-red-300 text-xs transition-colors cursor-pointer border border-red-900/40">Dismiss</button></div></Notice></div>}
         {activeNav === 'chat' || activeNav === 'search' ? <>
           <ChatHeader />
           {readOnly && <div className="px-4 py-2"><Notice>This older API conversation is preserved as history. <button className="underline" onClick={createNewSession}>Start a new interactive conversation</button></Notice></div>}

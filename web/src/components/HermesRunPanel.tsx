@@ -55,10 +55,10 @@ export function HermesRunPanel({ sessionId }: { sessionId: string }) {
   if (!run && !error) return null;
   const active = run && ['queued', 'running', 'waiting_for_approval', 'stopping'].includes(run.status);
   const unknown = run && ['unknown', 'admitting', 'unavailable'].includes(run.status);
-  return <div className="px-4 py-2 space-y-2 text-xs">
+  return <div className="px-5 py-2.5 space-y-2.5 text-xs md:text-sm">
     {error && <Notice error>{error}</Notice>}
-    {run && <div className="flex items-center justify-between gap-3 text-[#aaa297]">
-      <span>Run: {run.status.replaceAll('_', ' ')}</span>
+    {run && <div className="flex items-center justify-between gap-3 text-[#c0b3a1]">
+      <span className="font-medium capitalize">Run: {run.status.replaceAll('_', ' ')}</span>
       <div className="flex gap-2"><button className={buttonClass} disabled={busy} onClick={() => load()}>Refresh status</button>
         {active && <button className={buttonClass} disabled={busy || run.status === 'stopping'} onClick={() => control('abort', { expectedRunId: run.runId })}>Stop run</button>}</div>
     </div>}

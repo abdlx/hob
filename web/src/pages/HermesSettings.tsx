@@ -87,12 +87,12 @@ export function HermesSettings() {
   }
 
   return <div className="space-y-5">
-    <div className="flex items-center justify-between gap-3"><p className="text-[12px] text-[#aaa297]">Configure Hermes and your independent bots.</p><button className={buttonClass} disabled={busy || loading} onClick={load}>Refresh</button></div>
+    <div className="flex items-center justify-between gap-3"><p className="text-xs md:text-sm text-[#baa995]">Configure Hermes and your independent bots.</p><button className={buttonClass} disabled={busy || loading} onClick={load}>Refresh</button></div>
     {error && <Notice error>{error}</Notice>}{status && <Notice>{status}</Notice>}
     <Field label="Bot"><select className={inputClass} disabled={busy || loading} value={profile} onChange={event => { loadSequence.current++; setProfile(event.target.value); setSnapshot(null); setSecret(''); setProvider(''); setModel(''); setBaseUrl(''); setEndpointName(''); setEndpointSecret(''); setModelConfirmation(''); setStatus(''); }}>
       <option value="default">Main</option>{profiles.filter(item => item.name !== 'default' && (!item.state || item.state === 'active')).map(item => <option key={item.name} value={item.name}>{item.display_name || item.name}</option>)}
     </select></Field>
-    <section className={`${cardClass} space-y-3`}><h2 className="text-sm text-[#dfd1bd]">Connect a model</h2>
+    <section className={`${cardClass} space-y-3.5`}><h2 className="text-base md:text-lg font-semibold text-[#f0e4d4]">Connect a model</h2>
       <HermesModelPicker key={profile} profile={profile} provider={provider} model={model} busy={busy}
         chooseProvider={(value, keyEnv) => { setProvider(value); setModel(''); setBaseUrl(''); setEndpointName(''); setEndpointSecret(''); setModelConfirmation(''); setSecret(''); setKey(keyEnv || ''); }}
         chooseModel={value => { setModel(value); setModelConfirmation(''); }} />

@@ -17,6 +17,15 @@ export interface ChatMessage {
   toolCalls?: ToolCall[];
 }
 
+export interface AgentListItem {
+  id: string;
+  name: string;
+  avatarUrl?: string;
+  roleDescription?: string;
+  model?: string;
+  status?: 'connected' | 'idle' | 'busy' | 'disconnected';
+}
+
 export interface AgentProfile {
   id: string;
   name: string;

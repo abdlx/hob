@@ -121,7 +121,15 @@ export function createHermesChatRoutes(client, bots, journal = new HermesRunJour
     }
     if (url.pathname === '/api/agents' && method === 'GET') {
       const roster = await listBots();
-      json(res, 200, { agents: (roster.profiles || []).filter(item => !item.state || item.state === 'active').map(item => ({ id: item.name, name: item.display_name || (item.name === 'default' ? 'Main' : item.name) })) }); return true;
+      json(res, 200, {
+        agents: (roster.profiles || []).filter(item => !item.state || item.state === 'active').map(item => ({
+          id: item.name,
+          name: item.display_name || item.bot_title || (item.name === 'default' ? 'Main' : item.name),
+          roleDescription: item.description || '',
+          model: item.model || '',
+          avatarUrl: item.avatar || item.avatarUrl || '',
+        }))
+      }); return true;
     }
     if (url.pathname === '/api/tasks' && method === 'GET') {
       await reconcile(profile);

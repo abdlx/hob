@@ -46,10 +46,10 @@ export const ChatInput: React.FC = () => {
   };
 
   return (
-    <div className="hob-composer w-full max-w-[800px] mx-auto px-3 md:px-6 pb-2 md:pb-4 pt-1">
+    <div className="hob-composer w-full max-w-[840px] mx-auto px-4 md:px-8 pb-3 md:pb-5 pt-1.5">
       <form
         onSubmit={handleSubmit}
-        className="hob-composer-form w-full min-h-[60px] rounded-2xl px-4 flex items-center gap-3 transition-colors"
+        className="hob-composer-form w-full min-h-[64px] rounded-2xl md:rounded-3xl px-4 md:px-5 py-2.5 flex items-center gap-3.5 transition-all shadow-md"
       >
         {/* Plus button */}
         <button
@@ -57,9 +57,9 @@ export const ChatInput: React.FC = () => {
           title="Add context"
           aria-label="Open library"
           onClick={() => setActiveNav('library')}
-          className="text-white hover:text-white transition-colors shrink-0 cursor-pointer flex items-center justify-center p-0.5"
+          className="text-[#bfa993] hover:text-[#faeee1] hover:bg-[#2b2219] transition-all shrink-0 cursor-pointer flex items-center justify-center p-1.5 rounded-xl"
         >
-          <Plus size={13} className="md:w-[15px] md:h-[15px]" strokeWidth={2} />
+          <Plus size={18} strokeWidth={2.2} />
         </button>
 
         {/* Input */}
@@ -70,9 +70,9 @@ export const ChatInput: React.FC = () => {
           value={text}
           onChange={(e) => { setText(e.target.value); setComposerDraft(activeSessionId, e.target.value); }}
           onKeyDown={handleKeyDown}
-          placeholder={readOnly ? 'Start a new conversation to continue' : 'Message'}
+          placeholder={readOnly ? 'Start a new conversation to continue' : 'Message hob...'}
           disabled={isPreparing || isCreatingConversation || readOnly}
-          className="flex-1 bg-transparent text-[#e5e5e5] placeholder-[#73716c] text-[12.5px] md:text-[13.5px] focus:outline-none resize-none p-0 m-0 h-[20px] md:h-[22px] leading-[20px] md:leading-[22px] text-left"
+          className="flex-1 bg-transparent text-[#eee7df] placeholder-[#807669] text-[14px] md:text-[15px] focus:outline-none resize-none p-0 m-0 min-h-[24px] max-h-[140px] leading-[24px] text-left"
         />
 
         {/* Send Button */}
@@ -81,13 +81,13 @@ export const ChatInput: React.FC = () => {
             type="submit"
             aria-label="Send message"
             disabled={isLoading || isPreparing || isCreatingConversation || readOnly}
-            className="w-[24px] h-[24px] md:w-7 md:h-7 rounded-full bg-white hover:bg-neutral-200 text-black flex items-center justify-center transition-all cursor-pointer shrink-0 disabled:opacity-40 shadow-xs"
+            className="w-8 h-8 md:w-9 md:h-9 rounded-full bg-[#f6eee4] hover:bg-white text-[#191511] flex items-center justify-center transition-all cursor-pointer shrink-0 disabled:opacity-40 shadow-xs active:scale-95"
           >
-            <ArrowUp size={13} className="md:w-[15px] md:h-[15px]" strokeWidth={2.5} />
+            <ArrowUp size={16} strokeWidth={2.5} />
           </button>
         )}
       </form>
-      <p className="hob-composer-hint">Your space. Your agent. <button onClick={() => setActiveNav('idea')}>Learning stays in your hands.</button></p>
+      <p className="hob-composer-hint">Your space. Your agent. <button onClick={() => setActiveNav('idea')} className="underline underline-offset-2 hover:text-[#ff965c] transition-colors">Learning stays in your hands.</button></p>
 
       {/* iOS-Inspired Bottom Dock Mobile Navigation Bar below input field (excluding search and settings) */}
       <MobileDock />

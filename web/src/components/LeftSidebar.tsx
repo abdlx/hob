@@ -51,11 +51,11 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   const settingsItem = sidebarNavItems.find(item => item.key === 'settings')!;
 
   return (
-    <aside className="hob-sidebar hidden md:flex w-[76px] flex-col items-center justify-between py-5 select-none shrink-0 z-20 border-r border-[#25211e]" aria-label="Main navigation">
-      <button aria-label="hob home" title="hob home" onClick={() => handleNavClick('chat')}><Brand compact /></button>
+    <aside className="hob-sidebar hidden md:flex w-[82px] flex-col items-center justify-between py-6 select-none shrink-0 z-20 border-r border-[#27211a]" aria-label="Main navigation">
+      <button aria-label="hob home" title="hob home" onClick={() => handleNavClick('chat')} className="hover:opacity-90 transition-opacity"><Brand compact /></button>
 
       {/* Middle icon cluster centered vertically */}
-      <div className="flex-1 flex flex-col items-center justify-center space-y-3">
+      <div className="flex-1 flex flex-col items-center justify-center space-y-3.5">
         {middleItems.map((item) => {
           const Icon = item.icon;
           const isActive = current === item.key;
@@ -66,31 +66,31 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               title={item.label}
               aria-label={item.label}
               aria-current={isActive ? 'page' : undefined}
-              className={`hob-nav-button p-2 rounded-xl transition-colors duration-150 cursor-pointer flex items-center justify-center ${
+              className={`hob-nav-button p-2.5 rounded-2xl transition-all duration-150 cursor-pointer flex items-center justify-center ${
                 isActive
-                  ? 'bg-[#2e241e] text-[#ffad79]'
-                  : 'text-[#a19a92] hover:bg-[#211d19] hover:text-[#eee5dc]'
+                  ? 'bg-[#2f2218] text-[#ff9e63] shadow-inner border border-[#4e3623]'
+                  : 'text-[#9f9486] hover:bg-[#201a14] hover:text-[#f8eee4] border border-transparent'
               }`}
             >
-              <Icon size={18} strokeWidth={1.55} />
+              <Icon size={20} strokeWidth={1.75} />
             </button>
           );
         })}
       </div>
 
-      {/* Bottom icon: settings with Equal icon */}
+      {/* Bottom icon: settings */}
       <div className="flex flex-col items-center mb-1">
         <button
           onClick={() => handleNavClick(settingsItem.key)}
           title={settingsItem.label}
           aria-label={settingsItem.label}
-          className={`p-2 rounded-full transition-colors duration-150 cursor-pointer flex items-center justify-center text-white ${
+          className={`hob-nav-button p-2.5 rounded-2xl transition-all duration-150 cursor-pointer flex items-center justify-center ${
             current === settingsItem.key
-              ? 'bg-[#1e1e1e]'
-              : 'hover:bg-[#141414]'
+              ? 'bg-[#2f2218] text-[#ff9e63] border border-[#4e3623]'
+              : 'text-[#9f9486] hover:bg-[#201a14] hover:text-[#f8eee4] border border-transparent'
           }`}
         >
-          <Settings size={19} strokeWidth={1.8} />
+          <Settings size={20} strokeWidth={1.75} />
         </button>
       </div>
     </aside>
