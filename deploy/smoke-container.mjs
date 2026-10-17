@@ -120,8 +120,10 @@ function probeChromiumSandbox(container) {
     'done',
     'if [ -z "$chromium" ]; then chromium=$(find "${PLAYWRIGHT_BROWSERS_PATH:-/opt/hermes/tools}" -maxdepth 4 -type f -name chrome -perm -u+x 2>/dev/null | head -n 1); fi',
     'if [ -z "$chromium" ]; then echo NOT_FOUND; exit 3; fi',
-    'profile=$(mktemp -d)',
-    'if "$chromium" --headless --no-first-run --no-default-browser-check --user-data-dir="$profile" --dump-dom about:blank >/dev/null 2>/tmp/chromium-probe.err; then echo SANDBOX_OK; else echo SANDBOX_FAILED; head -n 4 /tmp/chromium-probe.err; fi',
+    'runner=""',
+    'if [ -x /command/s6-setuidgid ]; then runner="/command/s6-setuidgid hermes"; fi',
+    'profile=$($runner mktemp -d) || exit 3',
+    'if $runner "$chromium" --headless --no-first-run --no-default-browser-check --user-data-dir="$profile" --dump-dom about:blank >/dev/null 2>/tmp/chromium-probe.err; then echo SANDBOX_OK; else echo SANDBOX_FAILED; head -n 4 /tmp/chromium-probe.err; fi',
   ].join('\n');
   try {
     console.log('Blank-profile browser sandbox probe: ' + docker(['exec', container, 'sh', '-c', script], 60000));
