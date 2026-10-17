@@ -81,12 +81,17 @@ try {
       expression: 'Array.from(document.querySelectorAll("tr"), row => Array.from(row.cells, cell => cell.innerText.trim()))', returnByValue: true,
     });
     rows = result?.result?.value || [];
-    if (rows.some(row => /namespace sandbox/i.test(row[0]))) break;
+    if (rows.some(row => /^layer 1 sandbox$/i.test(row[0]))) break;
     await delay(100);
   }
   const enabled = name => rows.some(row => name.test(row[0]) && /^yes$/i.test(row[1]));
-  assert.ok(enabled(/^namespace sandbox$/i), 'Chromium namespace sandbox must be enabled.');
-  assert.ok(enabled(/^seccomp-bpf sandbox$/i), 'Chromium seccomp-BPF sandbox must be enabled.');
+  // Chromium 145 reports its first layer as "Layer 1 Sandbox: Namespace".
+  // See chrome/browser/resources/sandbox_internals/sandbox_internals.ts at
+  // the pinned Chromium revision; a missing row never counts as success.
+  const evidence = JSON.stringify(rows);
+  assert.ok(rows.some(row => /^layer 1 sandbox$/i.test(row[0]) && /^namespace$/i.test(row[1])),
+    'Chromium namespace sandbox must be enabled: ' + evidence);
+  assert.ok(enabled(/^seccomp-bpf sandbox$/i), 'Chromium seccomp-BPF sandbox must be enabled: ' + evidence);
   console.log('SANDBOX_OK');
 } catch (error) {
   console.error('SANDBOX_FAILED: ' + error.message + '\n' + stderr);
