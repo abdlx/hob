@@ -36,7 +36,7 @@ export const ChatScreen: React.FC = () => {
     <div className="hob-app flex h-[100vh] h-[100dvh] max-h-[100dvh] w-screen max-w-full overflow-hidden bg-[#FAFAFA] md:bg-[#EAE8E5] p-0 md:p-2.5 gap-0 md:gap-2.5 select-none">
       {/* Panel 1: Left Navigation Rail + Bot Directory (Desktop only) */}
       <aside
-        className="hob-panel-left hidden md:flex rounded-[26px] bg-[#FAFAFA] shadow-[0_8px_30px_rgba(0,0,0,0.045)] border border-[rgba(0,0,0,0.035)] overflow-hidden shrink-0 w-[23%] min-w-[280px] max-w-[340px] h-full"
+        className="hob-panel-left hidden md:flex rounded-[34px] bg-[#FAFAFA] shadow-[0_8px_30px_rgba(0,0,0,0.045)] border border-[rgba(0,0,0,0.035)] overflow-hidden shrink-0 w-[23%] min-w-[280px] max-w-[340px] h-full"
         aria-label="Navigation and bots"
       >
         <LeftSidebar />
@@ -49,7 +49,7 @@ export const ChatScreen: React.FC = () => {
       {/* Panel 2: Center Primary Panel (Conversation or Mobile Views) */}
       <main
         id="main-content"
-        className="hob-panel-center flex-1 flex flex-col h-full min-w-0 min-h-0 rounded-none md:rounded-[26px] bg-[#FAFAFA] shadow-none md:shadow-[0_8px_30px_rgba(0,0,0,0.045)] border-0 md:border md:border-[rgba(0,0,0,0.035)] overflow-hidden relative"
+        className="hob-panel-center flex-1 flex flex-col h-full min-w-0 min-h-0 rounded-none md:rounded-[34px] bg-[#FAFAFA] shadow-none md:shadow-[0_8px_30px_rgba(0,0,0,0.045)] border-0 md:border md:border-[rgba(0,0,0,0.035)] overflow-hidden relative"
       >
         {isPreparing && (
           <div className="px-6 pt-3">
@@ -168,7 +168,7 @@ export const ChatScreen: React.FC = () => {
         <>
           {/* Desktop floating 3rd panel */}
           <aside
-            className="hob-panel-right hidden lg:flex rounded-[26px] bg-[#FAFAFA] shadow-[0_8px_30px_rgba(0,0,0,0.045)] border border-[rgba(0,0,0,0.035)] overflow-hidden shrink-0 w-[22%] min-w-[300px] max-w-[350px] h-full"
+            className="hob-panel-right hidden lg:flex rounded-[34px] bg-[#FAFAFA] shadow-[0_8px_30px_rgba(0,0,0,0.045)] border border-[rgba(0,0,0,0.035)] overflow-hidden shrink-0 w-[22%] min-w-[300px] max-w-[350px] h-full"
             aria-label="Agent details"
           >
             <RightPanel />
