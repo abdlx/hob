@@ -159,10 +159,15 @@ def ws_target(origin, ticket):
 
 def bootstrap():
     home = Path(os.environ["HERMES_HOME"]).resolve(strict=True)
+    # A multiplexing gateway publishes ONE control socket at its launch home, not in each
+    # served profile home, so a named bot's socket lives at HERMES_GATEWAY_HOME while the
+    # requested profile is still identified by its own HERMES_HOME. A single-profile owner
+    # leaves HERMES_GATEWAY_HOME unset and keeps dialing HERMES_HOME.
+    gateway_home = Path(os.environ.get("HERMES_GATEWAY_HOME") or os.environ["HERMES_HOME"]).resolve(strict=True)
     # An empty params object satisfies both the authenticated and the plain verb tables.
-    endpoint = call(home, {"protocol": CONTROL_PROTOCOL, "verb": "identify", "id": 1, "params": {}})
+    endpoint = call(gateway_home, {"protocol": CONTROL_PROTOCOL, "verb": "identify", "id": 1, "params": {}})
     profile_id, instance_id, origin = _served_profile(endpoint, home)
-    grant = call(home, {"protocol": CONTROL_PROTOCOL, "verb": "session-ticket", "id": 2, "params": {
+    grant = call(gateway_home, {"protocol": CONTROL_PROTOCOL, "verb": "session-ticket", "id": 2, "params": {
         "profile_id": profile_id, "instance_id": instance_id, "purpose": "interactive"}})
     ticket = grant.get("ticket")
     if (not isinstance(ticket, str) or not ticket

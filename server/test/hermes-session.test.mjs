@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { test } from 'node:test';
 import { createSessionBootstrap, HermesSessionBridge } from '../hermes-session.mjs';
 
@@ -91,6 +92,10 @@ test('bootstrap passes only the selected home and no web or listener authority t
     MUSE_PASSWORD: 'private', HOB_STATE_DIR: 'private', API_SERVER_KEY: 'private', HERMES_DASHBOARD_SESSION_TOKEN: 'private', HERMES_TUI_GATEWAY_URL: 'ws://untrusted' },
     execute: async (_exe, args, options) => {
       assert.equal(args.length, 1); assert.match(options.env.HERMES_HOME, /profiles[\\/]research$/);
+      // The multiplexing gateway's single socket lives at the launch home, so the child
+      // dials HERMES_HOME while it binds the bot by the profile home above.
+      assert.match(options.env.HERMES_GATEWAY_HOME, /synthetic-home$/);
+      assert.equal(options.env.HERMES_HOME, path.join(options.env.HERMES_GATEWAY_HOME, 'profiles', 'research'));
       assert.equal(Object.values(options.env).includes('private'), false);
       assert.equal(options.env.HERMES_TUI_GATEWAY_URL, undefined);
       return { stdout: JSON.stringify(grant()) };

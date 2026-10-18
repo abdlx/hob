@@ -54,3 +54,53 @@ test('the control-socket bootstrap reports the peer uid and never the peer pid',
   const source = fileURLToPath(new URL('./hermes-session-bootstrap.py', import.meta.url));
   assert.equal(execFileSync(python, ['-c', probe, source], { encoding: 'utf8', timeout: 60000 }).trim(), 'ok');
 });
+
+// A multiplexing gateway owns ONE control socket at its launch home and serves every
+// profile from it. A named bot has no socket in its own profile directory, so the
+// bootstrap must dial HERMES_GATEWAY_HOME while binding the bot by HERMES_HOME.
+const dialProbe = `
+import importlib.util, os, sys, tempfile
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+spec = importlib.util.spec_from_file_location("hob_boot", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+root = Path(tempfile.mkdtemp()).resolve()
+home = root / "profiles" / "research"
+home.mkdir(parents=True)
+calls = []
+
+def fake_call(socket_home, request):
+    calls.append({"home": str(Path(socket_home).resolve()), "verb": request["verb"]})
+    if request["verb"] == "identify":
+        target = str(Path(os.environ["HERMES_HOME"]).resolve())
+        return {"runtime_protocol": 1, "state": "ready", "capabilities": ["session-authority-v1"],
+                "served_profiles": [{"profile_id": target, "home": target}],
+                "instance_id": "synthetic-owner", "api_origin": "http://127.0.0.1:4455"}
+    return {"ticket": "synthetic-ticket"}
+
+module.call = fake_call
+os.environ["HERMES_HOME"] = str(home)
+os.environ["HERMES_GATEWAY_HOME"] = str(root)
+grant = module.bootstrap()
+assert [call["verb"] for call in calls] == ["identify", "session-ticket"], calls
+assert all(call["home"] == str(root) for call in calls), calls
+assert grant["profile_id"] == str(home), grant
+
+calls.clear()
+del os.environ["HERMES_GATEWAY_HOME"]
+os.environ["HERMES_HOME"] = str(root)
+module.bootstrap()
+assert [call["home"] for call in calls] == [str(root), str(root)], calls
+print("ok")
+`;
+
+test('the bootstrap dials the launch home and binds the requested profile home', t => {
+  const python = interpreter();
+  if (!python) return t.skip('No Python interpreter is available for the native bootstrap.');
+  const source = fileURLToPath(new URL('./hermes-session-bootstrap.py', import.meta.url));
+  assert.equal(execFileSync(python, ['-c', dialProbe, source], { encoding: 'utf8', timeout: 60000 }).trim(), 'ok');
+});
+

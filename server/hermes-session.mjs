@@ -22,10 +22,14 @@ export function createSessionBootstrap({ env = process.env, execute = promisify(
     hermesProfile(profile);
     if (!env.HERMES_DIR || !env.HERMES_HOME) throw unavailable();
     const root = path.resolve(env.HERMES_DIR);
-    const home = profile === 'default' ? path.resolve(env.HERMES_HOME) : path.resolve(env.HERMES_HOME, 'profiles', profile);
+    // A multiplexing gateway publishes ONE control socket at its launch home and serves
+    // every profile from it, so a named bot has no socket in its own profile directory.
+    // Dial the launch home, and let the child bind the requested bot by its profile home.
+    const hermesHome = path.resolve(env.HERMES_HOME);
+    const home = profile === 'default' ? hermesHome : path.resolve(hermesHome, 'profiles', profile);
     const childEnv = Object.fromEntries(Object.entries(env).filter(([key]) =>
       !/^(?:MUSE_|HOB_|API_SERVER_|HERMES_DASHBOARD_|HERMES_TUI_GATEWAY_URL$)/i.test(key)));
-    Object.assign(childEnv, { HERMES_HOME: home, HERMES_DIR: root, PYTHONPATH: root,
+    Object.assign(childEnv, { HERMES_HOME: home, HERMES_GATEWAY_HOME: hermesHome, HERMES_DIR: root, PYTHONPATH: root,
       PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8', PYTHONDONTWRITEBYTECODE: '1', HERMES_DISABLE_LAZY_INSTALLS: '1' });
     try {
       const { stdout } = await execute(env.HERMES_PYTHON || (process.platform === 'win32' ? 'python' : 'python3'),
