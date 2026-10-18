@@ -15,6 +15,7 @@ import { WorkshopView } from './WorkshopView';
 import { HermesSettings } from './HermesSettings';
 import { HermesGoals, HermesWorkspace } from './HermesWorkspace';
 import { HermesGroups } from './HermesGroups';
+import { ActivityView } from './ActivityView';
 
 export interface GoalJob {
   id: string; name: string; enabled: boolean; configRevision?: string;
@@ -317,8 +318,8 @@ export function WorkspaceViews({ activeNav }: { activeNav: string }) {
             <GoalsView />
           ) : activeNav === 'idea' ? (
             <WorkshopView />
-          ) : activeNav === 'feed' ? (
-            <Notice>Your agent activity appears in the Activity panel. Scheduled results are available in Goals.</Notice>
+          ) : activeNav === 'activity' ? (
+            <ActivityView />
           ) : (
             <Notice>Select a conversation from Search to continue chatting.</Notice>
           )}

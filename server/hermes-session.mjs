@@ -12,7 +12,8 @@ export const SESSION_METHODS = new Set(['ping', 'runtime.describe', 'setup.statu
   'session.events.since', 'session.stats', 'prompt.submit', 'prompt.receipt', 'prompt.cancel',
   'prompt.resolve_unknown', 'approval.respond', 'clarify.respond', 'command.dispatch',
   'groups.capabilities', 'groups.list', 'groups.create', 'groups.state', 'groups.log', 'groups.send',
-  'groups.stop', 'groups.rename', 'groups.disband', 'groups.retry', 'groups.discard', 'groups.approve']);
+  'groups.stop', 'groups.rename', 'groups.disband', 'groups.retry', 'groups.discard', 'groups.approve',
+  'browser.controller.register', 'browser.controller.result', 'browser.controller.heartbeat', 'browser.controller.detach']);
 const unavailable = () => new HermesError(503,
   'Hermes session connection is unavailable. Check the conversation before resending work.', 'SESSION_UNAVAILABLE');
 

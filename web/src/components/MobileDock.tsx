@@ -23,31 +23,32 @@ export const MobileDock: React.FC<MobileDockProps> = ({
   onNavigateBots,
   onOpenActivity,
 }) => {
-  const { activeNav, setActiveNav, isRightPanelOpen, toggleRightPanel } = useChat();
+  const { activeNav, setActiveNav } = useChat();
 
   const handleDockChange = (id: string) => {
     if (id === 'bots') {
       if (onNavigateBots) onNavigateBots();
       setActiveNav('chat');
     } else if (id === 'activity') {
+      setActiveNav('activity');
       if (onOpenActivity) onOpenActivity();
-      else if (!isRightPanelOpen) toggleRightPanel();
     } else {
       setActiveNav(id);
     }
   };
 
-  const activeId = isRightPanelOpen
-    ? 'activity'
-    : currentMobileView === 'bots'
-    ? 'bots'
-    : activeNav === 'idea'
-    ? 'idea'
-    : activeNav === 'goals'
-    ? 'goals'
-    : activeNav === 'library'
-    ? 'library'
-    : 'bots';
+  const activeId =
+    activeNav === 'activity'
+      ? 'activity'
+      : currentMobileView === 'bots'
+      ? 'bots'
+      : activeNav === 'idea'
+      ? 'idea'
+      : activeNav === 'goals'
+      ? 'goals'
+      : activeNav === 'library'
+      ? 'library'
+      : 'bots';
 
   return (
     <div className="md:hidden pt-1.5 pb-1 flex justify-center items-center w-full shrink-0">

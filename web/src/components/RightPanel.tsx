@@ -796,7 +796,7 @@ export function RightPanel() {
         <MobileDock
           currentMobileView="chat"
           onNavigateBots={() => toggleRightPanel()}
-          onOpenActivity={() => {}}
+          onOpenActivity={() => toggleRightPanel()}
         />
       </div>
     </div>

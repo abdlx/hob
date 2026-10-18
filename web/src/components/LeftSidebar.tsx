@@ -2,7 +2,7 @@ import React from 'react';
 import {
   MessageSquare,
   Search,
-  FileText,
+  Compass,
   BookOpen,
   SquareCheck,
   Shapes,
@@ -22,7 +22,7 @@ const sidebarNavItems: NavItemConfig[] = [
   { key: 'chat', icon: MessageSquare, label: 'Chat' },
   { key: 'groups', icon: Users, label: 'Groups' },
   { key: 'search', icon: Search, label: 'Search' },
-  { key: 'feed', icon: FileText, label: 'Feed' },
+  { key: 'activity', icon: Compass, label: 'Activity' },
   { key: 'idea', icon: BookOpen, label: 'Workshop' },
   { key: 'goals', icon: SquareCheck, label: 'Goals' },
   { key: 'library', icon: Shapes, label: 'Library' },

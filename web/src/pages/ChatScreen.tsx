@@ -98,7 +98,9 @@ export const ChatScreen: React.FC = () => {
                     <MobileDock
                       currentMobileView="bots"
                       onNavigateBots={() => setMobileView('bots')}
-                      onOpenActivity={() => toggleRightPanel()}
+                      onOpenActivity={() => {
+                        if (isRightPanelOpen) toggleRightPanel();
+                      }}
                     />
                   </div>
                 </div>
@@ -156,7 +158,9 @@ export const ChatScreen: React.FC = () => {
                   setActiveNav('chat');
                   setMobileView('bots');
                 }}
-                onOpenActivity={() => toggleRightPanel()}
+                onOpenActivity={() => {
+                  if (isRightPanelOpen) toggleRightPanel();
+                }}
               />
             </div>
           </div>

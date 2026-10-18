@@ -306,7 +306,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
         }
         if (route === '/api/tasks' && method === 'GET') {
           const items = await sessions();
-          return json(res, 200, items.map(s => ({ id: s.key, title: s.displayName || s.derivedTitle || s.label || s.key, subtitle: s.lastMessagePreview || s.runStatus || '', timestamp: s.updatedAt ? new Date(s.updatedAt).toISOString() : '', status: s.runStatus === 'running' ? 'in_progress' : s.runStatus === 'failed' ? 'cancelled' : 'completed', group: s.updatedAt ? new Date(s.updatedAt).toLocaleDateString() : '' })));
+          return json(res, 200, items.map(s => ({ id: s.key, title: s.displayName || s.derivedTitle || s.label || s.key, subtitle: s.lastMessagePreview || s.runStatus || '', timestamp: s.updatedAt ? new Date(s.updatedAt).toISOString() : '', status: s.runStatus === 'running' ? 'in_progress' : s.runStatus === 'failed' ? 'cancelled' : 'completed', group: s.updatedAt ? new Date(s.updatedAt).toLocaleDateString() : '', agentId: s.agentId || (typeof s.key === 'string' ? s.key.split(':')[1] : undefined) || 'main' })));
         }
         if (route === '/api/security/approvals' && method === 'GET') {
           const rows = await sessions();

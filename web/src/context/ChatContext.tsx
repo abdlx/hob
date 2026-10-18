@@ -14,6 +14,7 @@ interface ChatContextValue {
   activeTab: RightPanelTab; isRightPanelOpen: boolean; isLeftDrawerOpen: boolean; isLoading: boolean;
   isBotsSidebarOpen: boolean; toggleBotsSidebar: () => void; setBotsSidebarOpen: (open: boolean) => void;
   activeNav: string; error: string | null; connected: boolean; isPreparing: boolean; isCreatingConversation: boolean;
+  activityFilter: string | null; setActivityFilter: (id: string | null) => void;
   setActiveNav: (nav: string) => void; sendMessage: (content: string) => Promise<void>;
   selectSession: (id: string) => Promise<void>; createNewSession: () => Promise<void>;
   setActiveTab: (tab: RightPanelTab) => void; toggleRightPanel: () => void; toggleLeftDrawer: () => void;
@@ -45,6 +46,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [approvals, setApprovals] = useState<SecurityApproval[]>([]);
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [activeTab, setActiveTab] = useState<RightPanelTab>('tasks');
+  const [activityFilter, setActivityFilter] = useState<string | null>(null);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(window.innerWidth >= 768);
   const [isLeftDrawerOpen, setIsLeftDrawerOpen] = useState(false);
   const [isBotsSidebarOpen, setIsBotsSidebarOpen] = useState(() => {
@@ -64,7 +66,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('mused-bots-sidebar-open', String(open));
   }, []);
   const pathNav = location.pathname.split('/')[1];
-  const activeNav = pathNav === 'ideas' ? 'idea' : ['feed', 'idea', 'goals', 'library', 'settings', 'search', 'groups'].includes(pathNav) ? pathNav : 'chat';
+  const activeNav = pathNav === 'ideas' ? 'idea' : ['activity', 'idea', 'goals', 'library', 'settings', 'search', 'groups'].includes(pathNav) ? pathNav : 'chat';
   const setActiveNav = useCallback((nav: string) => { void navigate(nav === 'idea' ? '/ideas' : `/${nav}`); }, [navigate]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -360,7 +362,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     catch (err) { if (chatApi.getProfile() === profile && viewEpochRef.current === epoch) setError(errorText(err)); throw err; }
   }, []);
 
-  return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, agents, selectAgent, tasks, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isBotsSidebarOpen, toggleBotsSidebar, setBotsSidebarOpen, isLoading, activeNav, error, connected, isPreparing, isCreatingConversation, setActiveNav, sendMessage, selectSession, createNewSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, getComposerDraft, setComposerDraft, clearError: () => { operationErrorRef.current = false; workRef.current.clearError(sessionRef.current); setError(null); } }}>{children}</ChatContext.Provider>;
+  return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, agents, selectAgent, tasks, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isBotsSidebarOpen, toggleBotsSidebar, setBotsSidebarOpen, isLoading, activeNav, error, connected, isPreparing, isCreatingConversation, activityFilter, setActivityFilter, setActiveNav, sendMessage, selectSession, createNewSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, getComposerDraft, setComposerDraft, clearError: () => { operationErrorRef.current = false; workRef.current.clearError(sessionRef.current); setError(null); } }}>{children}</ChatContext.Provider>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

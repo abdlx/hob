@@ -46,6 +46,7 @@ export interface TaskItem {
   timestamp: string;
   status: TaskStatus;
   group?: string; // e.g. "Today", "Yesterday"
+  agentId?: string; // Owning bot, when the server attributes it
 }
 
 export interface ChatSession {

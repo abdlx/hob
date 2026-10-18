@@ -27,6 +27,9 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
     isPreparing,
     setActiveNav,
     refresh,
+    activeNav,
+    activityFilter,
+    setActivityFilter,
   } = useChat();
   const runtime = useRuntime();
 
@@ -170,11 +173,13 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
             </div>
           ) : (
             filteredAgents.map((bot) => {
-              const isSelected = bot.id === (agent?.id || '');
+              const isCurrent = bot.id === (agent?.id || '');
+              const filteringActivity = activeNav === 'activity';
+              const isSelected = filteringActivity ? activityFilter === bot.id : isCurrent;
               const avatar =
                 bot.avatarUrl ||
-                (isSelected && agent?.avatarUrl ? agent.avatarUrl : '/brand/hob-mark.png');
-              const botStatus = isSelected
+                (isCurrent && agent?.avatarUrl ? agent.avatarUrl : '/brand/hob-mark.png');
+              const botStatus = isCurrent
                 ? connected
                   ? 'connected'
                   : isPreparing
@@ -182,7 +187,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
                   : 'disconnected'
                 : 'connected';
 
-              const subtitle = isSelected
+              const subtitle = isCurrent
                 ? isPreparing
                   ? 'Preparing bot...'
                   : connected
@@ -192,19 +197,24 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
                 ? bot.model
                 : bot.roleDescription || 'Available';
 
+              const select = () => {
+                if (filteringActivity) {
+                  setActivityFilter(isSelected ? null : bot.id);
+                  return;
+                }
+                void selectAgent(bot.id);
+                if (onSelectBot) onSelectBot(bot.id);
+              };
+
               return (
                 <div
                   key={bot.id}
-                  onClick={() => {
-                    void selectAgent(bot.id);
-                    if (onSelectBot) onSelectBot(bot.id);
-                  }}
+                  onClick={select}
                   role="listitem"
                   tabIndex={0}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
-                      void selectAgent(bot.id);
-                      if (onSelectBot) onSelectBot(bot.id);
+                      select();
                     }
                   }}
                   className={`group relative flex items-center gap-3 p-2.5 h-[64px] rounded-[18px] cursor-pointer transition-all duration-150 ${
@@ -236,15 +246,15 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
                       </span>
 
                       <div className="shrink-0 flex items-center gap-1">
-                        {isSelected && (
+                        {isSelected && !filteringActivity && (
                           <div className="p-1 text-[#1677FF] hover:bg-[#D5E5FA] rounded-md transition-colors">
                             <MoreHorizontal size={16} />
                           </div>
                         )}
-                        {!isSelected && (
+                        {!isCurrent && !isSelected && (
                           <span className="w-2 h-2 rounded-full bg-[#16CC8A] opacity-70" />
                         )}
-                        {runtime === 'hermes' && bot.id !== 'default' && (
+                        {runtime === 'hermes' && bot.id !== 'default' && !filteringActivity && (
                           <button
                             type="button"
                             onClick={(event) => {
@@ -266,7 +276,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
                         isSelected ? 'text-[#687588]' : 'text-[#8792A1]'
                       }`}
                     >
-                      {subtitle}
+                      {filteringActivity && isSelected ? 'Filtering activity' : subtitle}
                     </p>
                   </div>
                 </div>
