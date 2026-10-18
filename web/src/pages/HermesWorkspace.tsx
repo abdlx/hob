@@ -5,6 +5,8 @@ import { hermesWorkspaceApi, jsonWrite } from '../services/hermes-workspace';
 import { buttonClass, cardClass, ConfirmButton, EmptyState, Field, inputClass, Notice, Skeleton, StatusPill } from '../components/WorkspaceUI';
 import { errorText } from '../components/workspaceUtils';
 import { useToast } from '../context/ToastContext';
+import { DogeshAvatar } from '../components/DogeshAvatar';
+import { clearBotAvatar, readAvatarFile, setBotAvatar } from '../services/avatars';
 
 function useWorkspaceResource<T>(profile: string, operation: string, query: Record<string, string> = {}) {
   const api = useMemo(() => hermesWorkspaceApi(profile), [profile]);
@@ -119,6 +121,52 @@ export function HermesWorkshop({ profile }: { profile: string }) {
   </div>;
 }
 
+export function BotAvatar({ profile }: { profile: string }) {
+  const { agent, agents, refresh } = useChat();
+  const { toast } = useToast();
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const current = (agent?.id === profile ? agent.avatarUrl : agents.find(item => item.id === profile)?.avatarUrl) || '';
+  const upload = async (file?: File) => {
+    if (!file || busy) return;
+    setBusy(true); setError('');
+    try {
+      await setBotAvatar(profile, await readAvatarFile(file));
+      await refresh();
+      toast('Bot photo updated.');
+    } catch (cause) { setError(errorText(cause)); toast(errorText(cause), 'error'); }
+    finally { setBusy(false); if (input.current) input.current.value = ''; }
+  };
+  const remove = async () => {
+    setBusy(true); setError('');
+    try { await clearBotAvatar(profile); await refresh(); toast('Bot photo removed.'); }
+    catch (cause) { setError(errorText(cause)); toast(errorText(cause), 'error'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <section className="space-y-3">
+      <h3 className="text-sm md:text-base font-semibold text-ink">Bot photo</h3>
+      <div className="flex items-center gap-4">
+        <DogeshAvatar size={72} showEditBadge={false} avatarUrl={current || '/brand/hob-mark.png'} hideStatusDot />
+        <div className="space-y-2">
+          <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
+            onChange={event => void upload(event.target.files?.[0])} />
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={buttonClass} disabled={busy} onClick={() => input.current?.click()}>
+              {busy ? 'Saving…' : current ? 'Change photo' : 'Upload photo'}
+            </button>
+            {current && <ConfirmButton className={buttonClass} disabled={busy} tone="danger" confirmLabel="Remove"
+              message="Remove this bot's photo? Hermes will fall back to its default mark." onConfirm={() => { void remove(); }}>Remove</ConfirmButton>}
+          </div>
+        </div>
+      </div>
+      {error && <Notice error>{error}</Notice>}
+      <p className="text-xs text-muted leading-relaxed">Choose a PNG, JPEG, or WebP image up to 2 MB from this device. Hermes stores it as the bot’s native avatar.</p>
+    </section>
+  );
+}
+
 export function HermesIdentity({ profile }: { profile: string }) {
   const { data, api, error, busy, action } = useWorkspaceResource<{ content: string }>(profile, 'soul');
   const [editing, setEditing] = useState(false);
@@ -126,6 +174,7 @@ export function HermesIdentity({ profile }: { profile: string }) {
   return (
     <div className="space-y-4 pt-1">
       {error && <Notice error>{error}</Notice>}
+      <BotAvatar profile={profile} />
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm md:text-base font-semibold text-ink">Personality & instructions</h3>

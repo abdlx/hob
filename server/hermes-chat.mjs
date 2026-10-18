@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { HermesError, hermesProfile, hermesResource, hermesSessionKey, parseHermesSessionKey } from './hermes-client.mjs';
+import { avatarUrl } from './hermes-avatars.mjs';
 import { HermesRunJournal, TERMINAL_RUNS, runFingerprint } from './hermes-run-journal.mjs';
 
 function iso(value) {
@@ -22,7 +23,7 @@ function rows(value) {
   return value.data;
 }
 
-export function createHermesChatRoutes(client, bots, journal = new HermesRunJournal()) {
+export function createHermesChatRoutes(client, bots, journal = new HermesRunJournal(), { home } = {}) {
   // These are presentation caches, not approval authority. Hermes validates the
   // exact prompt ID/generation when a human responds. Run references survive
   // restart in the journal; prompt authority always comes from native status.
@@ -100,7 +101,7 @@ export function createHermesChatRoutes(client, bots, journal = new HermesRunJour
     if (!item) throw new HermesError(404, 'This bot no longer exists.', 'NOT_FOUND');
     const startup = await client.getProfileStatus(profile);
     return { id: profile, name: item.display_name || item.bot_title || (profile === 'default' ? 'Main' : profile),
-      status: startup.ready ? 'connected' : 'disconnected', avatarUrl: '', roleDescription: item.description || '',
+      status: startup.ready ? 'connected' : 'disconnected', avatarUrl: await avatarUrl(home, profile), roleDescription: item.description || '',
       model: item.model || '', agentRuntime: 'hermes' };
   };
 
@@ -121,14 +122,15 @@ export function createHermesChatRoutes(client, bots, journal = new HermesRunJour
     }
     if (url.pathname === '/api/agents' && method === 'GET') {
       const roster = await listBots();
+      const items = (roster.profiles || []).filter(item => !item.state || item.state === 'active');
       json(res, 200, {
-        agents: (roster.profiles || []).filter(item => !item.state || item.state === 'active').map(item => ({
+        agents: await Promise.all(items.map(async item => ({
           id: item.name,
           name: item.display_name || item.bot_title || (item.name === 'default' ? 'Main' : item.name),
           roleDescription: item.description || '',
           model: item.model || '',
-          avatarUrl: item.avatar || item.avatarUrl || '',
-        }))
+          avatarUrl: await avatarUrl(home, item.name),
+        })))
       }); return true;
     }
     if (url.pathname === '/api/tasks' && method === 'GET') {

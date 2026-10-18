@@ -25,6 +25,7 @@ export const ChatScreen: React.FC = () => {
     createNewSession,
     isRightPanelOpen,
     toggleRightPanel,
+    isBotsSidebarOpen,
   } = useChat();
 
   const readOnly = sessions.find((session) => session.id === activeSessionId)?.readOnly === true;
@@ -36,11 +37,13 @@ export const ChatScreen: React.FC = () => {
     <div className="hob-app flex h-[100vh] h-[100dvh] max-h-[100dvh] w-screen max-w-full overflow-hidden bg-canvas md:bg-app p-0 md:p-2.5 gap-0 md:gap-2.5 select-none">
       {/* Panel 1: Left Navigation Rail + Bot Directory (Desktop only) */}
       <aside
-        className="hob-panel-left hidden md:flex rounded-[34px] bg-canvas shadow-[0_8px_30px_rgba(0,0,0,0.045)] border border-[rgba(0,0,0,0.035)] overflow-hidden shrink-0 w-[23%] min-w-[280px] max-w-[340px] h-full"
+        className={`hob-panel-left hidden md:flex rounded-[34px] bg-canvas shadow-[0_8px_30px_rgba(0,0,0,0.045)] border border-[rgba(0,0,0,0.035)] overflow-hidden shrink-0 h-full ${
+          isBotsSidebarOpen ? 'w-[23%] min-w-[280px] max-w-[340px]' : 'w-[136px]'
+        }`}
         aria-label="Navigation and bots"
       >
         <LeftSidebar />
-        <BotsSidebar />
+        <BotsSidebar collapsed={!isBotsSidebarOpen} />
       </aside>
 
       {/* Slide-over Conversations Drawer */}

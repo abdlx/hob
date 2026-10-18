@@ -1,5 +1,6 @@
 import { HermesError, hermesProfile, hermesResource } from './hermes-client.mjs';
 import { containsStoredSecret, redactHermesSettings } from './hermes-settings.mjs';
+import { clearAvatar, readAvatar, setAvatar, streamAvatar } from './hermes-avatars.mjs';
 
 // Explicit public operations, rather than an arbitrary upstream-URL proxy.
 const MANAGEMENT = new Map([
@@ -24,7 +25,7 @@ function object(value) {
   return value;
 }
 
-export function createHermesRoutes(client, bots, { removeBot } = {}) {
+export function createHermesRoutes(client, bots, { removeBot, home } = {}) {
   return async (req, res, url, { json, body, startEvents, sendEvent }) => {
     const method = req.method;
     const path = url.pathname.slice('/api/hermes/'.length);
@@ -65,6 +66,29 @@ export function createHermesRoutes(client, bots, { removeBot } = {}) {
         throw new HermesError(400, 'Invalid bot setup confirmation.', 'INVALID_REQUEST');
       }
       return json(res, 200, await bots.finishSetup(hermesProfile(finish[1]), input));
+    }
+    const avatar = /^profiles\/([a-z][a-z0-9_-]{0,63})\/avatar(?:\/(image))?$/.exec(path);
+    if (avatar) {
+      if (!home) throw new HermesError(503, 'The native profile home is unavailable.', 'AVATAR_UNAVAILABLE');
+      const name = hermesProfile(avatar[1]);
+      if (avatar[2] === 'image') {
+        if (method !== 'GET') throw new HermesError(404, 'Unknown Hermes application endpoint.', 'NOT_FOUND');
+        const found = await readAvatar(home, name);
+        if (!found) throw new HermesError(404, 'This bot has no avatar.', 'AVATAR_NOT_FOUND');
+        return await streamAvatar(res, found);
+      }
+      if (method === 'GET') {
+        const found = await readAvatar(home, name);
+        return json(res, 200, found
+          ? { found: true, mime: found.mime, size: found.size }
+          : { found: false });
+      }
+      if (method === 'PUT' || method === 'POST') {
+        const input = object(await body(req));
+        if (Object.keys(input).some(key => key !== 'data')) throw new HermesError(400, 'Unsupported avatar option.', 'INVALID_REQUEST');
+        return json(res, 200, await setAvatar(home, name, input.data));
+      }
+      if (method === 'DELETE') return json(res, 200, await clearAvatar(home, name));
     }
     const profileMatch = /^profiles\/([a-z][a-z0-9_-]{0,63})(?:\/(soul|description|model))?$/.exec(path);
     if (profileMatch) {

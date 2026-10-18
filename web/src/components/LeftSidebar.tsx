@@ -7,7 +7,6 @@ import {
   SquareCheck,
   Shapes,
   Settings,
-  Users,
 } from 'lucide-react';
 import { useChat } from '../context/ChatContext';
 import { Brand } from './Brand';
@@ -20,7 +19,6 @@ export interface NavItemConfig {
 
 const sidebarNavItems: NavItemConfig[] = [
   { key: 'chat', icon: MessageSquare, label: 'Chat' },
-  { key: 'groups', icon: Users, label: 'Groups' },
   { key: 'search', icon: Search, label: 'Search' },
   { key: 'activity', icon: Compass, label: 'Activity' },
   { key: 'idea', icon: BookOpen, label: 'Workshop' },

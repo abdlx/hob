@@ -109,12 +109,12 @@ async function browserImage(stateDir, filename) {
 export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gateway : undefined, bots, runJournal, nativeSessions, password = process.env.MUSE_PASSWORD, accessToken = process.env.MUSE_ACCESS_TOKEN, sessionSecret = process.env.MUSE_SESSION_SECRET, publicUrl = process.env.MUSE_PUBLIC_URL, secureCookies = process.env.MUSE_SECURE_COOKIES === 'true', stateDir = process.env.OPENCLAW_STATE_DIR, staticDir = fileURLToPath(new URL('../web/dist', import.meta.url)) }) {
   if (nativeSessions && !runJournal) throw new Error('Native chat requires a durable admission journal.');
   const hermesGroups = hermes && nativeSessions ? createHermesGroups({ client: hermes, bridge: nativeSessions, bots, home: process.env.HERMES_HOME }) : null;
-  const hermesRoutes = hermes ? createHermesRoutes(hermes, bots, hermesGroups ? { removeBot: hermesGroups.removeBot } : {}) : null;
+  const hermesRoutes = hermes ? createHermesRoutes(hermes, bots, { ...(hermesGroups ? { removeBot: hermesGroups.removeBot } : {}), home: process.env.HERMES_HOME }) : null;
   const mcpOAuth = hermes ? createHermesMcpOAuth(hermes, { publicUrl }) : null;
   const hermesSetup = hermes ? createHermesSetupRoutes(hermes, { mcpOAuth }) : null;
   const hermesWorkspace = hermes ? createHermesWorkspaceRoutes({ client: hermes, bridge: nativeSessions,
     workspaceRoot: process.env.HERMES_HOME ? path.join(process.env.HERMES_HOME, 'workspaces') : undefined }) : null;
-  const hermesChat = gateway?.kind === 'hermes' ? createHermesChatRoutes(gateway, bots, runJournal) : null;
+  const hermesChat = gateway?.kind === 'hermes' ? createHermesChatRoutes(gateway, bots, runJournal, { home: process.env.HERMES_HOME }) : null;
   const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat }) : null;
   const configured = Boolean(password || accessToken);
   const secret = sessionSecret || createHash('sha256').update(`muse-session:${password || accessToken || randomBytes(32).toString('hex')}`).digest();

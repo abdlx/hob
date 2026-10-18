@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { AgentListItem, AgentProfile, ChatMessage, ChatSession, RightPanelTab, SecurityApproval, SystemStats, TaskItem } from '../types/chat';
-import { chatApi } from '../services/api';
+import type { AgentListItem, AgentProfile, ChatMessage, ChatSession, GroupSummary, RightPanelTab, SecurityApproval, SystemStats, TaskItem } from '../types/chat';
+import { chatApi, apiFetch } from '../services/api';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { requestId } from '../services/id';
 import { displayGatewayNotice } from '../services/errors';
@@ -15,6 +15,8 @@ interface ChatContextValue {
   isBotsSidebarOpen: boolean; toggleBotsSidebar: () => void; setBotsSidebarOpen: (open: boolean) => void;
   activeNav: string; error: string | null; connected: boolean; isPreparing: boolean; isCreatingConversation: boolean;
   activityFilter: string | null; setActivityFilter: (id: string | null) => void;
+  groups: GroupSummary[]; loadGroups: () => Promise<void>;
+  selectedGroupId: string; setSelectedGroupId: (id: string) => void;
   setActiveNav: (nav: string) => void; sendMessage: (content: string) => Promise<void>;
   selectSession: (id: string) => Promise<void>; createNewSession: () => Promise<void>;
   setActiveTab: (tab: RightPanelTab) => void; toggleRightPanel: () => void; toggleLeftDrawer: () => void;
@@ -47,6 +49,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [activeTab, setActiveTab] = useState<RightPanelTab>('tasks');
   const [activityFilter, setActivityFilter] = useState<string | null>(null);
+  const [groups, setGroups] = useState<GroupSummary[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState('');
+  const loadGroups = useCallback(async () => {
+    const result = await apiFetch<{ groups: GroupSummary[] }>('/api/hermes/groups', { headers: { 'X-Hob-Profile': 'default' } });
+    setGroups(Array.isArray(result.groups) ? result.groups : []);
+  }, []);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(window.innerWidth >= 768);
   const [isLeftDrawerOpen, setIsLeftDrawerOpen] = useState(false);
   const [isBotsSidebarOpen, setIsBotsSidebarOpen] = useState(() => {
@@ -362,7 +370,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     catch (err) { if (chatApi.getProfile() === profile && viewEpochRef.current === epoch) setError(errorText(err)); throw err; }
   }, []);
 
-  return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, agents, selectAgent, tasks, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isBotsSidebarOpen, toggleBotsSidebar, setBotsSidebarOpen, isLoading, activeNav, error, connected, isPreparing, isCreatingConversation, activityFilter, setActivityFilter, setActiveNav, sendMessage, selectSession, createNewSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, getComposerDraft, setComposerDraft, clearError: () => { operationErrorRef.current = false; workRef.current.clearError(sessionRef.current); setError(null); } }}>{children}</ChatContext.Provider>;
+  return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, agents, selectAgent, tasks, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isBotsSidebarOpen, toggleBotsSidebar, setBotsSidebarOpen, isLoading, activeNav, error, connected, isPreparing, isCreatingConversation, activityFilter, setActivityFilter, groups, loadGroups, selectedGroupId, setSelectedGroupId, setActiveNav, sendMessage, selectSession, createNewSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, getComposerDraft, setComposerDraft, clearError: () => { operationErrorRef.current = false; workRef.current.clearError(sessionRef.current); setError(null); } }}>{children}</ChatContext.Provider>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

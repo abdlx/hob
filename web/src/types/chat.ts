@@ -61,6 +61,20 @@ export interface ChatSession {
 
 export type RightPanelTab = 'tasks' | 'security' | 'browser' | 'goals' | 'identity';
 
+export interface GroupMember {
+  id: string;
+  profile: string;
+  name: string;
+  handle: string;
+}
+
+export interface GroupSummary {
+  id: string;
+  name: string;
+  members: GroupMember[];
+  disbanded: boolean;
+}
+
 export interface SecurityApproval {
   id: string;
   type: 'command' | 'tool' | 'configuration' | 'filesystem' | 'network' | 'credential';

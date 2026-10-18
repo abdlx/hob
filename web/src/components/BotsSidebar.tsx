@@ -1,24 +1,34 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ChevronRight,
   Plus,
   Search,
   Settings,
-  X,
   Sparkles,
   Trash2,
   MoreHorizontal,
+  Users,
+  X,
 } from 'lucide-react';
 import { useChat } from '../context/ChatContext';
 import { useRuntime } from '../context/RuntimeContext';
 import { DogeshAvatar } from './DogeshAvatar';
 import { apiFetch } from '../services/api';
+import { requestId } from '../services/id';
 import { buttonClass } from './WorkspaceUI';
+import type { GroupSummary } from '../types/chat';
 
 interface BotsSidebarProps {
   onSelectBot?: (botId: string) => void;
+  collapsed?: boolean;
 }
 
-export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
+const groupApi = <T,>(route = '', init: RequestInit = {}) =>
+  apiFetch<T>(`/api/hermes/groups${route}`, { ...init, headers: { 'X-Hob-Profile': 'default', ...(init.headers || {}) } });
+const post = (value: unknown) => ({ method: 'POST', body: JSON.stringify(value) });
+const message = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback);
+
+export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed = false }) => {
   const {
     agents,
     agent,
@@ -30,6 +40,11 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
     activeNav,
     activityFilter,
     setActivityFilter,
+    setBotsSidebarOpen,
+    groups,
+    loadGroups,
+    selectedGroupId,
+    setSelectedGroupId,
   } = useChat();
   const runtime = useRuntime();
 
@@ -42,6 +57,24 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Bot groups are managed here, beside the bots they collect.
+  const [isGroupFormOpen, setIsGroupFormOpen] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [groupMembers, setGroupMembers] = useState<string[]>([]);
+  const [groupError, setGroupError] = useState('');
+  const [isGroupBusy, setIsGroupBusy] = useState(false);
+  const [disbandTarget, setDisbandTarget] = useState<GroupSummary | null>(null);
+  const groupRequest = useRef<string | null>(null);
+
+  const manageGroups = runtime === 'hermes' && !collapsed;
+  useEffect(() => {
+    if (!manageGroups) return;
+    const report = (error: unknown) => setGroupError(message(error, 'Failed to load groups.'));
+    void loadGroups().catch(report);
+    const timer = window.setInterval(() => { void loadGroups().catch(() => {}); }, 15000);
+    return () => window.clearInterval(timer);
+  }, [manageGroups, loadGroups]);
 
   // Filter bots by search query
   const filteredAgents = useMemo(() => {
@@ -109,6 +142,72 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
     }
   };
 
+  const toggleGroupMember = (id: string) => {
+    groupRequest.current = null;
+    setGroupMembers((previous) => previous.includes(id) ? previous.filter((entry) => entry !== id) : [...previous, id]);
+  };
+
+  const createGroup = async () => {
+    const name = groupName.trim();
+    if (!name || groupMembers.length < 2 || isGroupBusy) return;
+    setIsGroupBusy(true); setGroupError('');
+    groupRequest.current ??= requestId();
+    try {
+      const result = await groupApi<{ group: GroupSummary }>('', post({ requestId: groupRequest.current, name, members: groupMembers, confirm: true }));
+      setSelectedGroupId(result.group.id);
+      setActiveNav('groups');
+      setGroupName(''); setGroupMembers([]); setIsGroupFormOpen(false); groupRequest.current = null;
+      await loadGroups();
+    } catch (err) { setGroupError(message(err, 'Failed to create group.')); }
+    finally { setIsGroupBusy(false); }
+  };
+
+  const disbandGroup = async (id: string) => {
+    setIsGroupBusy(true); setGroupError('');
+    try {
+      await groupApi(`/${encodeURIComponent(id)}/disband`, post({ confirm: true }));
+      setDisbandTarget(null);
+      if (selectedGroupId === id) setSelectedGroupId('');
+      await loadGroups();
+    } catch (err) { setGroupError(message(err, 'Failed to disband group.')); }
+    finally { setIsGroupBusy(false); }
+  };
+
+  if (collapsed) {
+    return (
+      <div
+        className="hob-bots-rail flex-1 min-w-0 min-h-0 h-full flex flex-col items-center gap-2 py-4 overflow-y-auto bg-canvas select-none"
+        aria-label="Bots"
+      >
+        <button
+          type="button"
+          onClick={() => setBotsSidebarOpen(true)}
+          title="Show bots"
+          aria-label="Show bots"
+          className="w-9 h-9 rounded-full flex items-center justify-center text-code hover:bg-neutral transition-colors cursor-pointer shrink-0"
+        >
+          <ChevronRight size={18} strokeWidth={2} />
+        </button>
+        {agents.map((bot) => {
+          const isCurrent = bot.id === (agent?.id || '');
+          return (
+            <button
+              key={bot.id}
+              type="button"
+              onClick={() => { void selectAgent(bot.id); if (onSelectBot) onSelectBot(bot.id); }}
+              title={bot.name}
+              aria-label={bot.name}
+              aria-current={isCurrent ? 'true' : undefined}
+              className={`shrink-0 rounded-full transition-transform cursor-pointer ${isCurrent ? 'ring-2 ring-accent ring-offset-2 ring-offset-canvas' : 'opacity-80 hover:opacity-100'}`}
+            >
+              <DogeshAvatar size={40} showEditBadge={false} avatarUrl={bot.avatarUrl || '/brand/hob-mark.png'} hideBorder hideStatusDot />
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <>
       <div
@@ -124,15 +223,26 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
             </span>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setIsCreateOpen(true)}
-            title="Create new bot"
-            aria-label="Create new bot"
-            className="w-8 h-8 rounded-full flex items-center justify-center text-code hover:bg-neutral transition-colors cursor-pointer"
-          >
-            <Plus size={18} strokeWidth={2} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setBotsSidebarOpen(false)}
+              title="Hide bots"
+              aria-label="Hide bots"
+              className="w-8 h-8 rounded-full hidden md:flex items-center justify-center text-code hover:bg-neutral transition-colors cursor-pointer"
+            >
+              <ChevronRight size={16} strokeWidth={2} className="rotate-180" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsCreateOpen(true)}
+              title="Create new bot"
+              aria-label="Create new bot"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-code hover:bg-neutral transition-colors cursor-pointer"
+            >
+              <Plus size={18} strokeWidth={2} />
+            </button>
+          </div>
         </div>
 
         {/* Search */}
@@ -164,6 +274,94 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
             )}
           </div>
         </div>
+
+        {/* Groups: created and managed beside the bots they collect */}
+        {manageGroups && (
+          <div className="px-3 pb-2 shrink-0">
+            <div className="flex items-center justify-between px-2 pt-1 pb-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">Groups</span>
+              <button
+                type="button"
+                onClick={() => { setGroupError(''); setIsGroupFormOpen((open) => !open); }}
+                title="New group"
+                aria-label="New group"
+                aria-expanded={isGroupFormOpen}
+                className="w-7 h-7 rounded-full flex items-center justify-center text-code hover:bg-neutral transition-colors cursor-pointer"
+              >
+                <Plus size={15} strokeWidth={2} />
+              </button>
+            </div>
+            {groupError && <p className="px-2 pb-1 text-[11px] leading-snug text-red-600" role="alert">{groupError}</p>}
+            {isGroupFormOpen && (
+              <div className="mb-1 rounded-2xl border border-hair bg-panel p-3 space-y-2">
+                <input
+                  type="text"
+                  placeholder="Group name"
+                  value={groupName}
+                  disabled={isGroupBusy}
+                  onChange={(event) => { groupRequest.current = null; setGroupName(event.target.value); }}
+                  className="w-full bg-surface text-[13px] text-ink px-3 py-2 rounded-xl border border-edge focus:outline-none focus:border-accent placeholder-faint"
+                />
+                <fieldset className="space-y-1">
+                  <legend className="text-[11px] text-muted mb-1">Choose two to six bots</legend>
+                  <div className="max-h-40 overflow-y-auto space-y-1">
+                    {agents.map((item) => (
+                      <label key={item.id} className="flex items-center gap-2 text-[12.5px] text-soft">
+                        <input
+                          type="checkbox"
+                          checked={groupMembers.includes(item.id)}
+                          disabled={isGroupBusy || (groupMembers.length >= 6 && !groupMembers.includes(item.id))}
+                          onChange={() => toggleGroupMember(item.id)}
+                        />
+                        <span className="truncate">{item.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <div className="flex gap-2">
+                  <button type="button" className={buttonClass} disabled={isGroupBusy || !groupName.trim() || groupMembers.length < 2} onClick={() => void createGroup()}>
+                    {isGroupBusy ? 'Creating…' : 'Create group'}
+                  </button>
+                  <button type="button" className={buttonClass} disabled={isGroupBusy} onClick={() => setIsGroupFormOpen(false)}>Cancel</button>
+                </div>
+              </div>
+            )}
+            {!isGroupFormOpen && groups.length === 0 && (
+              <p className="px-2 pb-1 text-[11px] text-faint">No groups yet.</p>
+            )}
+            <div className="max-h-44 overflow-y-auto space-y-0.5">
+              {groups.map((item) => {
+                const isSelected = selectedGroupId === item.id && activeNav === 'groups';
+                return (
+                  <div
+                    key={item.id}
+                    role="listitem"
+                    tabIndex={0}
+                    onClick={() => { setSelectedGroupId(item.id); setActiveNav('groups'); }}
+                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { setSelectedGroupId(item.id); setActiveNav('groups'); } }}
+                    className={`group relative flex items-center gap-2 px-2 py-1.5 rounded-[12px] cursor-pointer transition-colors ${isSelected ? 'bg-accent-soft text-code-strong' : 'text-ink hover:bg-neutral'}`}
+                  >
+                    <Users size={14} strokeWidth={1.8} className={isSelected ? 'text-accent' : 'text-muted'} />
+                    <span className="flex-1 min-w-0 truncate text-[13px] font-medium">{item.name}</span>
+                    {item.disbanded ? (
+                      <span className="shrink-0 text-[10px] uppercase tracking-wide text-faint">disbanded</span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(event) => { event.stopPropagation(); setGroupError(''); setDisbandTarget(item); }}
+                        title={`Disband ${item.name}`}
+                        aria-label={`Disband ${item.name}`}
+                        className="shrink-0 rounded-md p-1 text-faint opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 focus-visible:opacity-100 cursor-pointer"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Contacts / Bots List */}
         <div className="flex-1 min-h-0 overflow-y-auto px-3 py-1 space-y-1" role="list">
@@ -446,6 +644,51 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
               >
                 <Trash2 size={13} />
                 {isDeleting ? 'Deleting…' : 'Delete bot'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Disband Group Modal Dialog */}
+      {disbandTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
+          <div
+            className="w-full max-w-md bg-surface border border-edge rounded-[26px] p-6 space-y-4 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="disband-group-title"
+          >
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-red-50 p-2.5 text-red-600">
+                <Users size={18} />
+              </div>
+              <div>
+                <h3 id="disband-group-title" className="text-base font-semibold text-ink">
+                  Disband {disbandTarget.name}?
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed text-muted">
+                  Disbanding cancels this group’s work. Its retained history stays readable under Hermes’s retention policy.
+                </p>
+              </div>
+            </div>
+            {groupError && (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700" role="alert">
+                {groupError}
+              </div>
+            )}
+            <div className="flex items-center justify-end gap-2 border-t border-hair pt-3">
+              <button type="button" className={buttonClass} disabled={isGroupBusy} onClick={() => { setDisbandTarget(null); setGroupError(''); }}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-red-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer shadow-xs"
+                disabled={isGroupBusy}
+                onClick={() => void disbandGroup(disbandTarget.id)}
+              >
+                <Trash2 size={13} />
+                {isGroupBusy ? 'Disbanding…' : 'Disband group'}
               </button>
             </div>
           </div>
