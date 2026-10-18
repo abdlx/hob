@@ -111,18 +111,18 @@ export function HermesConfigEditor({ snapshot, schema, busy = false, onSave }: P
     finally { setSaving(false); }
   };
 
-  return <section className="settings-editor rounded-2xl border border-[#302a23] bg-[#14110e] overflow-hidden">
-    <div className="p-4 md:p-5 border-b border-[#302a23] space-y-3">
+  return <section className="settings-editor rounded-2xl border border-[rgba(25,35,50,0.08)] bg-[#FFFFFF] overflow-hidden">
+    <div className="p-4 md:p-5 border-b border-[rgba(25,35,50,0.08)] space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><h2 className="text-base md:text-lg font-semibold text-[#f0e4d4]">Hermes settings</h2><p className="mt-1 text-xs leading-relaxed text-[#958b7d]">Every native Hermes option is available here. Settings are grouped so advanced controls stay out of the way.</p></div>
+        <div><h2 className="text-base md:text-lg font-semibold text-[#17191D]">Hermes settings</h2><p className="mt-1 text-xs leading-relaxed text-[#687588]">Every native Hermes option is available here. Settings are grouped so advanced controls stay out of the way.</p></div>
         <div className="flex items-center gap-2" role="status" aria-live="polite">
-          {changed ? <span className="text-xs text-[#f5b56d]">Unsaved changes</span> : saved ? <span className="inline-flex items-center gap-1 text-xs text-emerald-300"><Check size={13} />Saved</span> : <span className="text-xs text-[#958b7d]">All settings saved</span>}
+          {changed ? <span className="text-xs text-[#B54708]">Unsaved changes</span> : saved ? <span className="inline-flex items-center gap-1 text-xs text-[#0B7A52]"><Check size={13} />Saved</span> : <span className="text-xs text-[#687588]">All settings saved</span>}
           <button className={buttonClass} disabled={!changed || saving || busy} onClick={() => { setDraft(snapshot); setSaved(false); setError(''); }}><RotateCcw size={13} />Discard</button>
           <button className={buttonClass} disabled={!changed || saving || busy} onClick={() => void save()}><Save size={13} />{saving ? 'Saving…' : 'Save changes'}</button>
         </div>
       </div>
       <div className="relative">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#887b6c]" />
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#687588]" />
         <input className={`${inputClass} pl-9`} value={search} onChange={event => setSearch(event.target.value)} placeholder="Search all Hermes settings…" aria-label="Search Hermes settings" />
       </div>
       {error && <Notice error>{error}</Notice>}
@@ -130,31 +130,31 @@ export function HermesConfigEditor({ snapshot, schema, busy = false, onSave }: P
     </div>
 
     <div className="flex min-h-[520px] flex-col md:flex-row">
-      <nav className="settings-nav flex md:w-48 shrink-0 gap-1 overflow-x-auto border-b md:border-b-0 md:border-r border-[#302a23] p-2" aria-label="Settings categories">
+      <nav className="settings-nav flex md:w-48 shrink-0 gap-1 overflow-x-auto border-b md:border-b-0 md:border-r border-[rgba(25,35,50,0.08)] p-2" aria-label="Settings categories">
         {categories.map(category => {
           const count = Object.values(schema.fields).filter(field => (field.category || 'general') === category).length;
-          return <button key={category} type="button" onClick={() => { setActiveCategory(category); setSearch(''); }} className={`flex shrink-0 items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors ${currentCategory === category && !query ? 'bg-[#3a2416] text-[#ffd0ad]' : 'text-[#aa9d8c] hover:bg-[#211a14] hover:text-[#f5e9dc]'}`}><span>{categoryLabel(category)}</span><span className="text-[10px] opacity-60">{count}</span></button>;
+          return <button key={category} type="button" onClick={() => { setActiveCategory(category); setSearch(''); }} className={`flex shrink-0 items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors ${currentCategory === category && !query ? 'bg-[#E4EEFF] text-[#1677FF]' : 'text-[#687588] hover:bg-[#F1F5FB] hover:text-[#17191D]'}`}><span>{categoryLabel(category)}</span><span className="text-[10px] opacity-60">{count}</span></button>;
         })}
       </nav>
       <div className="flex-1 space-y-3 p-3 md:p-5">
-        {query && <p className="text-xs text-[#a99b8b]">{visibleEntries.length} matching setting{visibleEntries.length === 1 ? '' : 's'}</p>}
+        {query && <p className="text-xs text-[#687588]">{visibleEntries.length} matching setting{visibleEntries.length === 1 ? '' : 's'}</p>}
         {!visibleEntries.length && <Notice>No settings match this search.</Notice>}
-        {Object.entries(grouped).map(([group, entries], index) => <details key={group} open={Boolean(query) || index === 0} className="settings-group rounded-xl border border-[#302a23] bg-[#17130f]">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-xs font-semibold text-[#e7d8c6]"><span>{categoryLabel(group)}</span><ChevronDown size={14} className="transition-transform [[open]>&]:rotate-180" /></summary>
-          <div className="grid gap-3 border-t border-[#302a23] p-3 lg:grid-cols-2">
+        {Object.entries(grouped).map(([group, entries], index) => <details key={group} open={Boolean(query) || index === 0} className="settings-group rounded-xl border border-[rgba(25,35,50,0.08)] bg-[#FFFFFF]">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-xs font-semibold text-[#17191D]"><span>{categoryLabel(group)}</span><ChevronDown size={14} className="transition-transform [[open]>&]:rotate-180" /></summary>
+          <div className="grid gap-3 border-t border-[rgba(25,35,50,0.08)] p-3 lg:grid-cols-2">
             {entries.map(([path, field]) => {
               const value = getAtPath(draft, path);
               const sensitive = sensitivePath.test(path);
               const type = field.type || 'string';
               const displayValue = sensitive ? '' : value;
-              return <label key={path} className="settings-field rounded-lg border border-[#2b241d] bg-[#14110e] p-3">
-                <span className="mb-1 block text-xs font-medium text-[#e3d7c8]">{labelFor(path, field.description)}</span>
-                <span className="mb-2 block font-mono text-[10px] text-[#817565]">{path}</span>
+              return <label key={path} className="settings-field rounded-lg border border-[rgba(25,35,50,0.08)] bg-[#FFFFFF] p-3">
+                <span className="mb-1 block text-xs font-medium text-[#17191D]">{labelFor(path, field.description)}</span>
+                <span className="mb-2 block font-mono text-[10px] text-[#687588]">{path}</span>
                 {type === 'boolean' ? <select className={inputClass} value={String(value ?? false)} onChange={event => update(path, field, event.target.value === 'true')}><option value="true">Enabled</option><option value="false">Disabled</option></select>
                   : type === 'select' ? <select className={inputClass} value={String(value ?? '')} onChange={event => update(path, field, event.target.value)}>{field.options?.map(option => <option key={String(option)} value={String(option)}>{optionLabel(option)}</option>)}</select>
                     : type === 'text' || type === 'list' ? <textarea className={`${inputClass} min-h-20`} rows={type === 'list' ? 3 : 4} value={type === 'list' ? Array.isArray(displayValue) ? displayValue.join('\n') : '' : String(displayValue ?? '')} placeholder={sensitive ? 'Stored securely; leave blank to keep it' : undefined} onChange={event => update(path, field, event.target.value)} />
                       : <input className={inputClass} type={sensitive ? 'password' : type === 'number' ? 'number' : 'text'} autoComplete={sensitive ? 'new-password' : 'off'} value={String(displayValue ?? '')} placeholder={sensitive ? 'Stored securely; leave blank to keep it' : undefined} onChange={event => update(path, field, event.target.value)} />}
-                {field.description && <span className="mt-2 block text-[11px] leading-relaxed text-[#8f8373]">{field.description}</span>}
+                {field.description && <span className="mt-2 block text-[11px] leading-relaxed text-[#687588]">{field.description}</span>}
               </label>;
             })}
           </div>

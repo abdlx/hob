@@ -59,13 +59,13 @@ function ProviderForm({ profile, provider, update }: { profile: string; provider
     } finally { pending.current = false; if (mounted.current) setBusy(false); }
   };
   const edits = schema ? memoryProviderEdits(schema.fields, draft) : {};
-  return <div className="space-y-3 border border-[#302a23] rounded-xl p-3">
-    <h3 className="text-sm text-[#dfd1bd]">{schema?.label || provider.name}</h3><p className="text-xs text-[#958b7d]">{provider.description} · {provider.status}</p>
+  return <div className="space-y-3 border border-[rgba(25,35,50,0.08)] rounded-xl p-3">
+    <h3 className="text-sm text-[#17191D]">{schema?.label || provider.name}</h3><p className="text-xs text-[#687588]">{provider.description} · {provider.status}</p>
     {error && <Notice error>{error}</Notice>}{status && <Notice>{status}</Notice>}
     {!schema && !error && <Notice>Loading provider fields…</Notice>}
     <fieldset disabled={busy || !schema} className="space-y-3">{schema?.fields.map(field => <div key={field.key}>
       <ProviderField field={field} value={Object.hasOwn(draft, field.key) ? draft[field.key] : field.value} edit={value => { revision.current++; setDecision(null); setDraft(previous => ({ ...previous, [field.key]: value })); }} />
-      {field.when && <p className="text-xs text-[#958b7d]">Hermes applies this field when {Object.entries(field.when).map(([key, value]) => `${key} = ${String(value)}`).join(', ')}.</p>}
+      {field.when && <p className="text-xs text-[#687588]">Hermes applies this field when {Object.entries(field.when).map(([key, value]) => `${key} = ${String(value)}`).join(', ')}.</p>}
     </div>)}</fieldset>
     {schema && !schema.fields.length && <Notice>No provider-specific form is available. Native configuration may be needed before selection.</Notice>}
     {setupLink(schema?.docs_url) && <a className={buttonClass} href={setupLink(schema?.docs_url)} target="_blank" rel="noreferrer noopener">Provider instructions</a>}
@@ -97,10 +97,10 @@ export function HermesMemorySettings({ profile }: { profile: string }) {
   }, [api]);
   useEffect(() => { const generation = revision; mounted.current = true; void load().catch(error => { if (mounted.current) setError(errorText(error)); }); return () => { mounted.current = false; generation.current++; }; }, [load]);
   const provider = data?.providers.find(item => item.name === selected);
-  return <section className={`${cardClass} space-y-3`}><div className="flex justify-between gap-2"><h2 className="text-sm text-[#dfd1bd]">Memory providers</h2><button className={buttonClass} disabled={busy} onClick={() => { setError(''); void load().catch(error => { if (mounted.current) setError(errorText(error)); }); }}>Refresh memory status</button></div>
+  return <section className={`${cardClass} space-y-3`}><div className="flex justify-between gap-2"><h2 className="text-sm text-[#17191D]">Memory providers</h2><button className={buttonClass} disabled={busy} onClick={() => { setError(''); void load().catch(error => { if (mounted.current) setError(errorText(error)); }); }}>Refresh memory status</button></div>
     <Notice>Built-in MEMORY.md and USER.md stay with the bot. An external provider adds its own recall and storage; it may send conversations to another service. Changing providers does not migrate or erase existing memory.</Notice>
     {error && <Notice error>{error}</Notice>}{!data && !error && <Notice>Loading memory providers…</Notice>}
-    {data && <p className="text-xs text-[#958b7d]">Selected provider: {data.active || 'Built-in only'}. Built-in files: MEMORY.md {data.builtinFiles.memory ?? 0} bytes · USER.md {data.builtinFiles.user ?? 0} bytes.</p>}
+    {data && <p className="text-xs text-[#687588]">Selected provider: {data.active || 'Built-in only'}. Built-in files: MEMORY.md {data.builtinFiles.memory ?? 0} bytes · USER.md {data.builtinFiles.user ?? 0} bytes.</p>}
     <Field label="Memory provider"><select className={inputClass} disabled={!data || busy} value={selected ?? ''} onChange={event => { revision.current++; setSelected(event.target.value); setConfirmBuiltin(false); }}><option value="">Built-in only</option>{data?.providers.map(item => <option key={item.name} value={item.name}>{item.name} · {item.status}</option>)}</select></Field>
     {selected === '' && data?.active && <button className={buttonClass} disabled={busy} onClick={() => setConfirmBuiltin(true)}>Use built-in memory only</button>}
     {confirmBuiltin && <Notice>Stop selecting the external provider for future native sessions? Existing data and credentials remain stored; active sessions may need restarting.

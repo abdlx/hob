@@ -38,17 +38,17 @@ function OpenClawDailyGoals() {
   const today = new Date().toDateString();
   const daily = jobs.filter((job) => (job.enabled && job.state?.nextRunAtMs && new Date(job.state.nextRunAtMs).toDateString() === today) || (job.state?.lastRunAtMs && new Date(job.state.lastRunAtMs).toDateString() === today));
   return <div className="space-y-3 pt-2">
-    <div className="flex justify-between items-center text-xs font-semibold uppercase tracking-wider text-[#9d907e] px-1">
+    <div className="flex justify-between items-center text-xs font-semibold uppercase tracking-wider text-[#687588] px-1">
       <span>Today's goals</span>
-      <button title="Refresh today's goals" onClick={load} className="text-[#a59784] hover:text-[#faeee1] transition-colors p-1"><RefreshCw size={15} /></button>
+      <button title="Refresh today's goals" onClick={load} className="text-[#687588] hover:text-[#17191D] transition-colors p-1"><RefreshCw size={15} /></button>
     </div>
     {error && <Notice error>{error}</Notice>}
     {loading ? <Notice>Loading scheduled tasks…</Notice> : daily.length === 0 ? <Notice>No tasks scheduled or completed today.</Notice> : daily.map((job) => {
       const upcoming = job.enabled && job.state?.nextRunAtMs && new Date(job.state.nextRunAtMs).toDateString() === today;
-      return <div key={job.id} className="rounded-2xl border border-[#2d251d] bg-[#16120e] p-3.5 space-y-1">
-        <p className="text-sm font-semibold text-[#eee4d5]">{job.name}</p>
-        <p className="text-xs text-[#8f8272]">{upcoming ? 'Next: ' : `${job.state?.lastRunStatus || 'Ran'} · `}{new Date(upcoming ? job.state!.nextRunAtMs! : job.state!.lastRunAtMs!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-        <p className="text-xs md:text-sm text-[#aea292] mt-1 line-clamp-3 leading-relaxed">{job.payload.message || job.payload.text}</p>
+      return <div key={job.id} className="rounded-2xl border border-[rgba(25,35,50,0.08)] bg-[#FFFFFF] p-3.5 space-y-1">
+        <p className="text-sm font-semibold text-[#17191D]">{job.name}</p>
+        <p className="text-xs text-[#687588]">{upcoming ? 'Next: ' : `${job.state?.lastRunStatus || 'Ran'} · `}{new Date(upcoming ? job.state!.nextRunAtMs! : job.state!.lastRunAtMs!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+        <p className="text-xs md:text-sm text-[#51606F] mt-1 line-clamp-3 leading-relaxed">{job.payload.message || job.payload.text}</p>
       </div>;
     })}
   </div>;
@@ -88,7 +88,7 @@ function GoalsView() {
   };
   return <div className="space-y-4">
     <div className="flex items-center justify-between">
-      <p className="text-xs md:text-sm text-[#9c9081]">Scheduled tasks run through your OpenClaw agent.</p>
+      <p className="text-xs md:text-sm text-[#687588]">Scheduled tasks run through your OpenClaw agent.</p>
       <div className="flex gap-2">
         <button className={buttonClass} title="Refresh goals" disabled={busy} onClick={load}><RefreshCw size={14} /></button>
         <button className={buttonClass} onClick={() => edit('new')}><Plus size={14} />New goal</button>
@@ -98,7 +98,7 @@ function GoalsView() {
     {editing && <div className={`${cardClass} space-y-3.5`}>
       <div className="flex justify-between text-sm md:text-base font-semibold">
         <span>{editing === 'new' ? 'Schedule a goal' : 'Edit goal'}</span>
-        <button title="Close editor" onClick={() => setEditing(null)} className="text-[#a09382] hover:text-white p-1"><X size={16} /></button>
+        <button title="Close editor" onClick={() => setEditing(null)} className="text-[#687588] hover:text-[#17191D] p-1"><X size={16} /></button>
       </div>
       <Field label="Name"><input className={inputClass} value={name} onChange={(event) => setName(event.target.value)} /></Field>
       <Field label="Agent instructions"><textarea rows={4} className={`${inputClass} leading-relaxed`} value={message} onChange={(event) => setMessage(event.target.value)} /></Field>
@@ -111,13 +111,13 @@ function GoalsView() {
       <div className={`${cardClass} space-y-3`} key={job.id}>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-sm md:text-base font-semibold text-[#eee4d5]">{job.name}</h3>
-            <p className="text-xs md:text-sm text-[#baa995] mt-1">{scheduleLabel(job)}</p>
-            <p className="text-xs text-[#8f8272] mt-0.5">{job.enabled ? 'Enabled' : 'Paused'}{job.state?.nextRunAtMs ? ` · Next: ${new Date(job.state.nextRunAtMs).toLocaleString()}` : ''}{job.state?.lastRunStatus ? ` · Last run: ${job.state.lastRunStatus}` : ''}</p>
+            <h3 className="text-sm md:text-base font-semibold text-[#17191D]">{job.name}</h3>
+            <p className="text-xs md:text-sm text-[#687588] mt-1">{scheduleLabel(job)}</p>
+            <p className="text-xs text-[#687588] mt-0.5">{job.enabled ? 'Enabled' : 'Paused'}{job.state?.nextRunAtMs ? ` · Next: ${new Date(job.state.nextRunAtMs).toLocaleString()}` : ''}{job.state?.lastRunStatus ? ` · Last run: ${job.state.lastRunStatus}` : ''}</p>
           </div>
           <button className={buttonClass} disabled={busy} onClick={() => edit(job)}>Edit</button>
         </div>
-        <p className="text-xs md:text-sm text-[#c5baa9] whitespace-pre-wrap leading-relaxed">{job.payload.message || job.payload.text || 'Advanced task payload'}</p>
+        <p className="text-xs md:text-sm text-[#51606F] whitespace-pre-wrap leading-relaxed">{job.payload.message || job.payload.text || 'Advanced task payload'}</p>
         {job.state?.lastError && <Notice error>{job.state.lastError}</Notice>}
         <div className="flex gap-2 flex-wrap">
           <button disabled={busy} className={buttonClass} onClick={() => action(() => apiFetch(`/api/goals/${encodeURIComponent(job.id)}/run`, jsonInit('POST', {})))}><Play size={13} />Run now</button>
@@ -151,9 +151,9 @@ function LibraryView() {
   const preview = async (file: LibraryFile) => { setSelected(file); setContent(''); setError(''); if (kind === 'media') return; setLoading(true); try { const data = await apiFetch<{ content?: string; text?: string; file?: { content?: string } }>(url(file)); setContent(data.content ?? data.text ?? data.file?.content ?? 'This file has no text preview. Use Download to open it.'); } catch (error) { setError(errorText(error)); } finally { setLoading(false); } };
   return <div className="space-y-4">
     <div className="flex justify-between items-center">
-      <div className="inline-flex rounded-xl bg-[#110e0c] border border-[#2a221b] p-1">
+      <div className="inline-flex rounded-xl bg-[#F7F7F8] border border-[rgba(25,35,50,0.08)] p-1">
         {['artifacts', 'media'].map((tab) => (
-          <button key={tab} onClick={() => { setKind(tab); setSelected(null); setLoading(true); }} className={`rounded-lg px-4 py-1.5 text-xs md:text-sm font-medium capitalize transition-colors ${kind === tab ? 'bg-[#2b2118] text-[#ff9e63]' : 'text-[#8e8272] hover:text-[#d4c6b4]'}`}>{tab}</button>
+          <button key={tab} onClick={() => { setKind(tab); setSelected(null); setLoading(true); }} className={`rounded-lg px-4 py-1.5 text-xs md:text-sm font-medium capitalize transition-colors ${kind === tab ? 'bg-[#E4EEFF] text-[#1677FF]' : 'text-[#8e8272] hover:text-[#17191D]'}`}>{tab}</button>
         ))}
       </div>
       <button onClick={load} className={buttonClass} title="Refresh library"><RefreshCw size={14} /></button>
@@ -164,7 +164,7 @@ function LibraryView() {
       <div className={`${cardClass} space-y-3.5`}>
         <div className="flex items-center justify-between">
           <button className={buttonClass} onClick={() => setSelected(null)}><ArrowLeft size={14} />Back</button>
-          <span className="text-sm font-semibold truncate px-3 text-[#eee4d5]">{selected.name}</span>
+          <span className="text-sm font-semibold truncate px-3 text-[#17191D]">{selected.name}</span>
           <a className={buttonClass} href={`${url(selected)}&download=1`} target="_blank" rel="noreferrer">Download</a>
         </div>
         {loading ? <Notice>Loading preview…</Notice> : kind === 'media' ? (
@@ -178,7 +178,7 @@ function LibraryView() {
         ) : /\.(md|markdown)$/i.test(selected.name) ? (
           <MarkdownView content={content} />
         ) : (
-          <pre className="overflow-auto text-xs md:text-sm text-[#c8bfb0] whitespace-pre-wrap select-text font-mono p-3 bg-[#0d0b09] rounded-xl border border-[#272019]">{content}</pre>
+          <pre className="overflow-auto text-xs md:text-sm text-[#253041] whitespace-pre-wrap select-text font-mono p-3 bg-[#F7F7F8] rounded-xl border border-[rgba(25,35,50,0.08)]">{content}</pre>
         )}
       </div>
     ) : loading ? (
@@ -188,10 +188,10 @@ function LibraryView() {
     ) : (
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
         {files.map((file) => (
-          <button key={`${file.sessionId}:${file.path}`} onClick={() => preview(file)} className={`${cardClass} text-left hover:border-[#73583c] hover:bg-[#191410] transition-all cursor-pointer`}>
-            <div className="text-[#c99f6f] mb-3">{kind === 'media' ? <Image size={24} /> : <FileText size={24} />}</div>
-            <p className="text-sm font-semibold truncate text-[#eee4d5]">{file.name}</p>
-            <p className="text-xs text-[#8c8070] mt-1">{file.size ? `${(file.size / 1024).toFixed(1)} KB` : file.mimeType || 'File'}{file.updatedAtMs ? ` · ${new Date(file.updatedAtMs).toLocaleDateString()}` : ''}</p>
+          <button key={`${file.sessionId}:${file.path}`} onClick={() => preview(file)} className={`${cardClass} text-left hover:border-[rgba(22,119,255,0.45)] hover:bg-[#F9FBFF] transition-all cursor-pointer`}>
+            <div className="text-[#1677FF] mb-3">{kind === 'media' ? <Image size={24} /> : <FileText size={24} />}</div>
+            <p className="text-sm font-semibold truncate text-[#17191D]">{file.name}</p>
+            <p className="text-xs text-[#687588] mt-1">{file.size ? `${(file.size / 1024).toFixed(1)} KB` : file.mimeType || 'File'}{file.updatedAtMs ? ` · ${new Date(file.updatedAtMs).toLocaleDateString()}` : ''}</p>
           </button>
         ))}
       </div>
@@ -217,7 +217,7 @@ function difference(before: unknown, after: unknown): unknown {
 function JsonField({ value, onChange, label }: { value: unknown; onChange: (value: unknown) => void; label: string }) {
   const [draft, setDraft] = useState(JSON.stringify(value ?? {}, null, 2));
   const [error, setError] = useState('');
-  return <Field label={label} hint="Apply valid JSON to update this value."><textarea className={`${inputClass} font-mono`} rows={8} value={draft} onChange={(event) => setDraft(event.target.value)} /><div className="flex gap-2"><button type="button" className={buttonClass} onClick={() => { try { onChange(JSON.parse(draft)); setError(''); } catch { setError('Enter valid JSON.'); } }}>Apply JSON</button>{error && <span className="text-[11px] text-red-300">{error}</span>}</div></Field>;
+  return <Field label={label} hint="Apply valid JSON to update this value."><textarea className={`${inputClass} font-mono`} rows={8} value={draft} onChange={(event) => setDraft(event.target.value)} /><div className="flex gap-2"><button type="button" className={buttonClass} onClick={() => { try { onChange(JSON.parse(draft)); setError(''); } catch { setError('Enter valid JSON.'); } }}>Apply JSON</button>{error && <span className="text-[11px] text-red-600">{error}</span>}</div></Field>;
 }
 function SchemaFields({ schema, value, onChange, path, hints, depth = 0 }: { schema: Schema; value: unknown; onChange: (value: unknown) => void; path: string; hints: SchemaResult['uiHints']; depth?: number }) {
   const hint = hints?.[path];
@@ -230,7 +230,7 @@ function SchemaFields({ schema, value, onChange, path, hints, depth = 0 }: { sch
     const data = object(value) ? value : {};
     if (depth > 5) return <JsonField label={label} value={value} onChange={onChange} />;
     const entries = new Set([...Object.keys(effective.properties || {}), ...Object.keys(data)]);
-    return <details open={depth === 0} className="space-y-3 rounded-xl border border-[#24201a] p-3"><summary className="text-[12px] text-[#d0c0aa] cursor-pointer">{label}</summary>{help && <p className="text-[10px] text-[#7c7469]">{help}</p>}{[...entries].map((key) => <SchemaFields key={key} schema={effective.properties?.[key] || (object(effective.additionalProperties) ? effective.additionalProperties as Schema : {})} value={data[key]} onChange={(next) => onChange(withValue(data, key, next))} path={path ? `${path}.${key}` : key} hints={hints} depth={depth + 1} />)}{effective.additionalProperties !== false && <details className="text-[11px] text-[#817767]"><summary className="cursor-pointer">Additional properties / JSON</summary><div className="mt-3"><JsonField key={JSON.stringify(data)} label={label} value={data} onChange={onChange} /></div></details>}</details>;
+    return <details open={depth === 0} className="space-y-3 rounded-xl border border-[rgba(25,35,50,0.08)] p-3"><summary className="text-[12px] text-[#17191D] cursor-pointer">{label}</summary>{help && <p className="text-[10px] text-[#687588]">{help}</p>}{[...entries].map((key) => <SchemaFields key={key} schema={effective.properties?.[key] || (object(effective.additionalProperties) ? effective.additionalProperties as Schema : {})} value={data[key]} onChange={(next) => onChange(withValue(data, key, next))} path={path ? `${path}.${key}` : key} hints={hints} depth={depth + 1} />)}{effective.additionalProperties !== false && <details className="text-[11px] text-[#687588]"><summary className="cursor-pointer">Additional properties / JSON</summary><div className="mt-3"><JsonField key={JSON.stringify(data)} label={label} value={data} onChange={onChange} /></div></details>}</details>;
   }
   if (options?.length) return <Field label={label} hint={help}><select className={inputClass} value={value === undefined ? '' : JSON.stringify(value)} onChange={(event) => onChange(event.target.value === '' ? undefined : JSON.parse(event.target.value))}><option value="">Default / unset</option>{options.map((option) => <option key={JSON.stringify(option)} value={JSON.stringify(option)}>{String(option)}</option>)}</select></Field>;
   if (effective.type === 'boolean' || typeof value === 'boolean') return <Field label={label} hint={help}><select className={inputClass} value={value === undefined ? '' : String(value)} onChange={(event) => onChange(event.target.value === '' ? undefined : event.target.value === 'true')}><option value="">Default / unset</option><option value="true">Enabled</option><option value="false">Disabled</option></select></Field>;
@@ -270,9 +270,9 @@ function OpenClawSettingsView() {
   const save = async () => { if (!snapshot || !changed) return; setBusy(true); setError(''); setStatus(''); try { await apiFetch('/api/settings', jsonInit('PATCH', { patch: changed, baseHash: snapshot.hash, replacePaths: arrayReplacementPaths(snapshot.config, draft) })); await load(); await refresh(); setStatus('Settings saved. The gateway applies changes and may restart.'); } catch (error) { setError(errorText(error)); } finally { setBusy(false); } };
   const current = sections.find((item) => item.id === section)!;
   const keys = section === 'all' ? [...new Set([...Object.keys(schema?.schema.properties || {}), ...Object.keys(draft)])] : current.keys.filter((key) => schema?.schema.properties?.[key] || key in draft);
-  return <div className="space-y-4"><div className="flex items-center justify-between gap-3"><p className="text-[12px] text-[#847b6d]">Configure your self-hosted OpenClaw gateway.</p><div className="flex gap-2"><button title="Reload settings" disabled={busy} className={buttonClass} onClick={load}><RefreshCw size={13} /></button><button disabled={busy || !changed || loading} className={buttonClass} onClick={save}><Save size={13} />{busy ? 'Saving…' : 'Save changes'}</button></div></div>{error && <Notice error>{error}</Notice>}{status && <Notice>{status}</Notice>}{snapshot?.valid === false && <Notice error>OpenClaw reported configuration issues: {JSON.stringify(snapshot.issues)}</Notice>}
-    <div className="flex gap-1.5 flex-wrap">{sections.map((item) => <button key={item.id} className={`${buttonClass} ${section === item.id ? '!border-[#846748] !bg-[#322619]' : '!bg-[#101010] !text-[#9d9283]'}`} onClick={() => setSection(item.id)}>{item.title}</button>)}</div>
-    {section === 'learning' && snapshot && <LearningSettings skills={draft.skills} onChange={(skills) => setDraft(previous => ({ ...previous, skills }))} />}<SettingsActions key={section} section={section} />{section === 'models' && <><SetupWizard /><CredentialsSettings /></>}{section === 'channels' && <SetupWizard flow="channels" />}{loading ? <Notice>Loading configuration and its schema…</Notice> : schema && snapshot && <div className={`${cardClass} space-y-5`}><h3 className="text-[13px] font-medium text-[#dfd1bd]">{current.title}</h3>{section === 'advanced' ? <JsonField key={snapshot.hash} label="Full configuration" value={draft} onChange={(value) => { if (object(value)) { setDraft(value); setError(''); } else setError('Configuration must be a JSON object.'); }} /> : keys.map((key) => <SchemaFields key={`${snapshot.hash}:${key}`} schema={schema.schema.properties?.[key] || { type: 'object' }} value={draft[key]} onChange={(value) => setDraft((previous) => withValue(previous, key, value))} path={key} hints={schema.uiHints} />)}{section !== 'advanced' && keys.length === 0 && <Notice>This gateway schema has no dedicated settings in this section. All settings remain available in All OpenClaw settings.</Notice>}{section === 'appearance' && <Field label="Interface contrast" hint="Saved in this browser."><select className={inputClass} value={contrast} onChange={(event) => { setContrast(event.target.value); localStorage.setItem('mused-contrast', event.target.value); document.documentElement.style.filter = event.target.value === 'high' ? 'contrast(1.15)' : ''; }}><option value="default">Original black & bronze</option><option value="high">Higher contrast</option></select></Field>}{section === 'notifications' && <div className="space-y-2"><p className="text-[11px] text-[#928577]">Browser notifications require permission on this device.</p><button className={buttonClass} onClick={async () => { if (!('Notification' in window)) { setError('This browser does not support notifications.'); return; } try { const permission = await Notification.requestPermission(); localStorage.setItem('mused-notifications', permission === 'granted' ? 'enabled' : 'disabled'); setStatus('Browser notifications: ' + permission); } catch (error) { setError(errorText(error)); } }}>Enable browser notifications</button></div>}<p className="text-[10px] text-[#6e665b]">Stored secrets are masked. Unchanged credentials are preserved. Changes are checked against the current configuration revision.</p></div>}
+  return <div className="space-y-4"><div className="flex items-center justify-between gap-3"><p className="text-[12px] text-[#687588]">Configure your self-hosted OpenClaw gateway.</p><div className="flex gap-2"><button title="Reload settings" disabled={busy} className={buttonClass} onClick={load}><RefreshCw size={13} /></button><button disabled={busy || !changed || loading} className={buttonClass} onClick={save}><Save size={13} />{busy ? 'Saving…' : 'Save changes'}</button></div></div>{error && <Notice error>{error}</Notice>}{status && <Notice>{status}</Notice>}{snapshot?.valid === false && <Notice error>OpenClaw reported configuration issues: {JSON.stringify(snapshot.issues)}</Notice>}
+    <div className="flex gap-1.5 flex-wrap">{sections.map((item) => <button key={item.id} className={`${buttonClass} ${section === item.id ? '!border-[#1677FF] !bg-[#E4EEFF]' : '!bg-[#FFFFFF] !text-[#687588]'}`} onClick={() => setSection(item.id)}>{item.title}</button>)}</div>
+    {section === 'learning' && snapshot && <LearningSettings skills={draft.skills} onChange={(skills) => setDraft(previous => ({ ...previous, skills }))} />}<SettingsActions key={section} section={section} />{section === 'models' && <><SetupWizard /><CredentialsSettings /></>}{section === 'channels' && <SetupWizard flow="channels" />}{loading ? <Notice>Loading configuration and its schema…</Notice> : schema && snapshot && <div className={`${cardClass} space-y-5`}><h3 className="text-[13px] font-medium text-[#17191D]">{current.title}</h3>{section === 'advanced' ? <JsonField key={snapshot.hash} label="Full configuration" value={draft} onChange={(value) => { if (object(value)) { setDraft(value); setError(''); } else setError('Configuration must be a JSON object.'); }} /> : keys.map((key) => <SchemaFields key={`${snapshot.hash}:${key}`} schema={schema.schema.properties?.[key] || { type: 'object' }} value={draft[key]} onChange={(value) => setDraft((previous) => withValue(previous, key, value))} path={key} hints={schema.uiHints} />)}{section !== 'advanced' && keys.length === 0 && <Notice>This gateway schema has no dedicated settings in this section. All settings remain available in All OpenClaw settings.</Notice>}{section === 'appearance' && <Field label="Interface contrast" hint="Saved in this browser."><select className={inputClass} value={contrast} onChange={(event) => { setContrast(event.target.value); localStorage.setItem('mused-contrast', event.target.value); document.documentElement.style.filter = event.target.value === 'high' ? 'contrast(1.15)' : ''; }}><option value="default">Original black & bronze</option><option value="high">Higher contrast</option></select></Field>}{section === 'notifications' && <div className="space-y-2"><p className="text-[11px] text-[#687588]">Browser notifications require permission on this device.</p><button className={buttonClass} onClick={async () => { if (!('Notification' in window)) { setError('This browser does not support notifications.'); return; } try { const permission = await Notification.requestPermission(); localStorage.setItem('mused-notifications', permission === 'granted' ? 'enabled' : 'disabled'); setStatus('Browser notifications: ' + permission); } catch (error) { setError(errorText(error)); } }}>Enable browser notifications</button></div>}<p className="text-[10px] text-[#6e665b]">Stored secrets are masked. Unchanged credentials are preserved. Changes are checked against the current configuration revision.</p></div>}
   </div>;
 }
 

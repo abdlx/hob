@@ -116,6 +116,7 @@ export class HermesSessionBridge extends EventEmitter {
                   const item = entry.pending.get(frame.id);
                   entry.pending.delete(frame.id); clearTimeout(item.timer);
                   if (frame.error) {
+                    console.log('[RAW_FRAME_ERROR]', JSON.stringify(frame.error));
                     const reason = typeof frame.error.message === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(frame.error.message)
                       ? frame.error.message : 'request_failed';
                     item.reject(new HermesError(409, `Hermes session request refused (${reason}).`, reason));
