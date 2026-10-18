@@ -52,7 +52,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
 
   return (
     <aside
-      className="hob-sidebar flex w-[76px] flex-col items-center justify-between py-6 select-none shrink-0 z-20 border-r border-[rgba(25,35,50,0.07)] bg-[#FAFAFA] h-full"
+      className="hob-sidebar flex w-[76px] flex-col items-center justify-between py-6 select-none shrink-0 z-20 border-r border-line bg-canvas h-full"
       aria-label="Main navigation"
     >
       <button
@@ -78,8 +78,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               aria-current={isActive ? 'page' : undefined}
               className={`p-2.5 rounded-[14px] transition-all duration-150 cursor-pointer flex items-center justify-center ${
                 isActive
-                  ? 'bg-[#1677FF] text-[#FFFFFF] shadow-xs'
-                  : 'text-[#253041] hover:bg-black/[0.04] hover:text-[#17191D]'
+                  ? 'bg-accent text-white shadow-xs'
+                  : 'text-code hover:bg-black/[0.04] hover:text-ink'
               }`}
             >
               <Icon size={20} strokeWidth={1.8} />
@@ -96,8 +96,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
           aria-label={settingsItem.label}
           className={`p-2.5 rounded-[14px] transition-all duration-150 cursor-pointer flex items-center justify-center ${
             current === settingsItem.key
-              ? 'bg-[#1677FF] text-[#FFFFFF] shadow-xs'
-              : 'text-[#253041] hover:bg-black/[0.04] hover:text-[#17191D]'
+              ? 'bg-accent text-white shadow-xs'
+              : 'text-code hover:bg-black/[0.04] hover:text-ink'
           }`}
         >
           <Settings size={20} strokeWidth={1.8} />

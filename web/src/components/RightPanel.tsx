@@ -25,7 +25,7 @@ import { DogeshAvatar } from './DogeshAvatar';
 import { MarkdownView } from './MarkdownView';
 import { DailyGoals } from '../pages/WorkspaceViews';
 import { HermesBrowser, HermesIdentity } from '../pages/HermesWorkspace';
-import { buttonClass, Field, inputClass, Notice } from './WorkspaceUI';
+import { buttonClass, Field, inputClass, Notice, Skeleton } from './WorkspaceUI';
 import { errorText } from './workspaceUtils';
 import { MobileDock } from './MobileDock';
 import type { RightPanelTab } from '../types/chat';
@@ -119,12 +119,12 @@ function OpenClawBrowserPanel() {
   return (
     <div className="space-y-3.5 pt-2">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-[#687588]">Browser</span>
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted">Browser</span>
         <button
           disabled={busy}
           title="Refresh browser tabs"
           onClick={load}
-          className="text-[#687588] hover:text-[#17191D] transition-colors p-1"
+          className="text-muted hover:text-ink transition-colors p-1"
         >
           <RefreshCw size={15} />
         </button>
@@ -157,7 +157,7 @@ function OpenClawBrowserPanel() {
         Navigate selected tab
       </button>
       {loading ? (
-        <Notice>Loading browser tabs…</Notice>
+        <div className="space-y-3"><Skeleton className="h-14 w-full" /><Skeleton className="h-14 w-full" /></div>
       ) : tabs.length === 0 ? (
         <Notice>No open tabs. Start the browser and open an address.</Notice>
       ) : (
@@ -165,7 +165,7 @@ function OpenClawBrowserPanel() {
           <div
             key={tab.targetId}
             className={`flex gap-2 rounded-xl border p-3 transition-colors ${
-              selected === tab.targetId ? 'border-[#1677FF] bg-[#E4EEFF]/40' : 'border-[rgba(25,35,50,0.08)] bg-white'
+              selected === tab.targetId ? 'border-accent bg-accent-soft/40' : 'border-hair bg-surface'
             }`}
           >
             <button
@@ -177,16 +177,16 @@ function OpenClawBrowserPanel() {
                 setScreenshot('');
               }}
             >
-              <p className="text-xs md:text-sm font-medium text-[#17191D] truncate">
+              <p className="text-xs md:text-sm font-medium text-ink truncate">
                 {tab.title || 'Untitled tab'}
               </p>
-              <p className="text-xs text-[#687588] truncate mt-0.5">{tab.url || tab.targetId}</p>
+              <p className="text-xs text-muted truncate mt-0.5">{tab.url || tab.targetId}</p>
             </button>
             <button
               title="Close browser tab"
               disabled={busy}
               onClick={() => action('close', tab.targetId)}
-              className="text-[#8792A1] hover:text-[#17191D] p-1"
+              className="text-faint hover:text-ink p-1"
             >
               <X size={15} />
             </button>
@@ -212,11 +212,11 @@ function OpenClawBrowserPanel() {
         <img
           src={screenshot}
           alt="Current agent browser screenshot"
-          className="w-full rounded-2xl border border-[rgba(25,35,50,0.08)]"
+          className="w-full rounded-2xl border border-hair"
         />
       )}
       {snapshot && (
-        <pre className="select-text whitespace-pre-wrap break-words max-h-[400px] overflow-auto text-xs leading-relaxed text-[#17191D] p-3.5 bg-white rounded-xl border border-[rgba(25,35,50,0.08)] font-mono">
+        <pre className="select-text whitespace-pre-wrap break-words max-h-[400px] overflow-auto text-xs leading-relaxed text-ink p-3.5 bg-surface rounded-xl border border-hair font-mono">
           {snapshot}
         </pre>
       )}
@@ -345,7 +345,7 @@ function OpenClawIdentityPanel() {
             >
               <ArrowLeft size={14} /> Back
             </button>
-            <span className="text-sm font-semibold text-[#17191D] font-mono">{selected}</span>
+            <span className="text-sm font-semibold text-ink font-mono">{selected}</span>
             {editing ? (
               <button disabled={busy} className={buttonClass} onClick={saveFile}>
                 <Save size={14} />Save
@@ -357,7 +357,7 @@ function OpenClawIdentityPanel() {
             )}
           </div>
           {busy ? (
-            <Notice>Loading agent file…</Notice>
+            <Skeleton className="h-40 w-full" />
           ) : file && editing ? (
             <>
               <textarea
@@ -379,7 +379,7 @@ function OpenClawIdentityPanel() {
           ) : file?.file.missing ? (
             <Notice>{selected} has not been created yet. Click Edit to create it.</Notice>
           ) : file ? (
-            <div className="p-3.5 bg-white border border-[rgba(25,35,50,0.08)] rounded-2xl">
+            <div className="p-3.5 bg-surface border border-hair rounded-2xl">
               <MarkdownView content={file.file.content} />
             </div>
           ) : null}
@@ -387,7 +387,7 @@ function OpenClawIdentityPanel() {
       ) : (
         <>
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-[#687588]">Agent identity</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted">Agent identity</span>
             <button
               className={buttonClass}
               onClick={() => {
@@ -402,7 +402,7 @@ function OpenClawIdentityPanel() {
             </button>
           </div>
           {identityEditing && (
-            <div className="space-y-3.5 rounded-2xl p-4 border border-[rgba(25,35,50,0.08)] bg-white">
+            <div className="space-y-3.5 rounded-2xl p-4 border border-hair bg-surface">
               <Field label="Name">
                 <input className={inputClass} value={name} onChange={(event) => setName(event.target.value)} />
               </Field>
@@ -433,7 +433,7 @@ function OpenClawIdentityPanel() {
             </div>
           )}
           {agent?.roleDescription && (
-            <p className="text-xs md:text-sm text-[#687588] px-1 leading-relaxed">{agent.roleDescription}</p>
+            <p className="text-xs md:text-sm text-muted px-1 leading-relaxed">{agent.roleDescription}</p>
           )}
           {[
             { name: 'SOUL.md', title: 'Soul', description: 'Personality, values, and behavior' },
@@ -442,12 +442,12 @@ function OpenClawIdentityPanel() {
             <button
               key={item.name}
               onClick={() => open(item.name)}
-              className="w-full rounded-2xl border border-[rgba(25,35,50,0.08)] bg-white text-left p-4 hover:border-[#1677FF]/40 hover:bg-[#F9FBFF] transition-all cursor-pointer space-y-1 shadow-xs"
+              className="w-full rounded-2xl border border-hair bg-surface text-left p-4 hover:border-accent/40 hover:bg-hover transition-all cursor-pointer space-y-1 shadow-xs"
             >
-              <FileText size={20} className="text-[#1677FF] mb-2" />
-              <p className="text-sm font-semibold text-[#17191D]">{item.title}</p>
-              <p className="text-xs text-[#687588] mt-0.5 leading-relaxed">{item.description}</p>
-              <p className="text-xs text-[#8792A1] mt-1 font-mono">{item.name}</p>
+              <FileText size={20} className="text-accent mb-2" />
+              <p className="text-sm font-semibold text-ink">{item.title}</p>
+              <p className="text-xs text-muted mt-0.5 leading-relaxed">{item.description}</p>
+              <p className="text-xs text-faint mt-1 font-mono">{item.name}</p>
             </button>
           ))}
         </>
@@ -459,14 +459,14 @@ function OpenClawIdentityPanel() {
 function BrowserPanel() {
   const { agent } = useChat();
   const runtime = useRuntime();
-  if (!agent) return <Notice>Loading browser…</Notice>;
+  if (!agent) return <div className="space-y-3"><Skeleton className="h-9 w-full" /><Skeleton className="h-40 w-full" /></div>;
   return runtime === 'hermes' ? <HermesBrowser key={agent.id} profile={agent.id} /> : <OpenClawBrowserPanel />;
 }
 
 function IdentityPanel() {
   const { agent } = useChat();
   const runtime = useRuntime();
-  if (!agent) return <Notice>Loading identity…</Notice>;
+  if (!agent) return <div className="space-y-3"><Skeleton className="h-9 w-full" /><Skeleton className="h-40 w-full" /></div>;
   return runtime === 'hermes' ? <HermesIdentity key={agent.id} profile={agent.id} /> : <OpenClawIdentityPanel />;
 }
 
@@ -541,22 +541,22 @@ export function RightPanel() {
   const hasLiveTasks = tasks && tasks.length > 0;
 
   return (
-    <div className="hob-agent-panel w-full h-full min-h-0 bg-[#FAFAFA] flex flex-col select-none overflow-hidden relative">
+    <div className="hob-agent-panel w-full h-full min-h-0 bg-canvas flex flex-col select-none overflow-hidden relative">
       {/* Mobile top bar with back button */}
-      <div className="lg:hidden flex items-center justify-between px-4 py-3 border-b border-[rgba(25,35,50,0.07)] shrink-0 bg-[#FAFAFA]">
+      <div className="lg:hidden flex items-center justify-between px-4 py-3 border-b border-line shrink-0 bg-canvas">
         <button
           onClick={toggleRightPanel}
-          className="flex items-center gap-1 text-[14px] font-medium text-[#1677FF] hover:text-[#0D6CE5] p-1 -ml-1 cursor-pointer transition-colors"
+          className="flex items-center gap-1 text-[14px] font-medium text-accent hover:text-accent-strong p-1 -ml-1 cursor-pointer transition-colors"
           title="Back to chat"
           aria-label="Back to chat"
         >
           <ChevronLeft size={20} strokeWidth={2.4} />
           <span>Back</span>
         </button>
-        <span className="text-[15px] font-semibold text-[#17191D]">Bot Activity</span>
+        <span className="text-[15px] font-semibold text-ink">Bot Activity</span>
         <button
           onClick={toggleRightPanel}
-          className="w-8 h-8 rounded-full flex items-center justify-center text-[#687588] hover:text-[#17191D] hover:bg-black/5 transition-colors cursor-pointer"
+          className="w-8 h-8 rounded-full flex items-center justify-center text-muted hover:text-ink hover:bg-black/5 transition-colors cursor-pointer"
           title="Close"
           aria-label="Close"
         >
@@ -568,7 +568,7 @@ export function RightPanel() {
       <button
         onClick={toggleRightPanel}
         title="Close panel"
-        className="hidden lg:block absolute top-4 right-4 p-2 rounded-full text-[#687588] hover:text-[#17191D] hover:bg-black/5 transition-colors cursor-pointer z-10"
+        className="hidden lg:block absolute top-4 right-4 p-2 rounded-full text-muted hover:text-ink hover:bg-black/5 transition-colors cursor-pointer z-10"
       >
         <X size={18} strokeWidth={2} />
       </button>
@@ -584,27 +584,27 @@ export function RightPanel() {
           avatarUrl={agent?.avatarUrl}
           onEditClick={() => setActiveTab('identity')}
           status={connected ? 'connected' : 'disconnected'}
-          ringColor="ring-[#FAFAFA]"
+          ringColor="ring-canvas"
         />
 
-        <h2 className="mt-3 text-[17px] font-semibold text-[#17191D] tracking-tight">
+        <h2 className="mt-3 text-[17px] font-semibold text-ink tracking-tight">
           {agent?.name || 'Main'}
         </h2>
 
         <div className="flex items-center gap-1.5 mt-1">
           <span
             className={`w-2 h-2 rounded-full inline-block ${
-              connected ? 'bg-[#16CC8A]' : 'bg-[#8792A1]'
+              connected ? 'bg-ok-dot' : 'bg-faint'
             }`}
           />
-          <span className="text-[13px] font-medium text-[#17191D] capitalize">
+          <span className="text-[13px] font-medium text-ink capitalize">
             {connected ? 'Connected' : 'Disconnected'}
           </span>
         </div>
 
         {/* 5-Tab Selector: Noticeably rounder pill container and pill highlight */}
         <div
-          className="w-full mt-5 mb-5 bg-[#F7F7F7] border border-[#E8E8E8] rounded-full p-[5px] h-[66px] flex items-center justify-between"
+          className="w-full mt-5 mb-5 bg-panel border border-line rounded-full p-[5px] h-[66px] flex items-center justify-between"
           role="tablist"
           aria-label="Agent panel"
         >
@@ -619,18 +619,18 @@ export function RightPanel() {
                 onClick={() => setActiveTab(id as RightPanelTab)}
                 className={`flex-1 h-full rounded-full flex flex-col items-center justify-center transition-all cursor-pointer py-1 ${
                   isActive
-                    ? 'bg-[#E4EEFF] text-[#1677FF]'
-                    : 'text-[#263345] hover:text-[#17191D] hover:bg-black/[0.02]'
+                    ? 'bg-accent-soft text-accent'
+                    : 'text-code hover:text-ink hover:bg-black/[0.02]'
                 }`}
               >
                 <Icon
                   size={17}
                   strokeWidth={isActive ? 2.2 : 1.8}
-                  className={isActive ? 'text-[#1677FF]' : 'text-[#263345]'}
+                  className={isActive ? 'text-accent' : 'text-code'}
                 />
                 <span
                   className={`text-[11px] font-medium mt-1 leading-none ${
-                    isActive ? 'text-[#1677FF]' : 'text-[#687588]'
+                    isActive ? 'text-accent' : 'text-muted'
                   }`}
                 >
                   {label}
@@ -647,9 +647,9 @@ export function RightPanel() {
         {activeTab === 'tasks' && (
           <div>
             {/* About Section */}
-            <div className="mb-5 pb-5 border-b border-[rgba(25,35,50,0.07)]">
-              <h3 className="text-[14px] font-semibold text-[#17191D] mb-1.5">About</h3>
-              <p className="text-[13px] text-[#687588] leading-relaxed">
+            <div className="mb-5 pb-5 border-b border-line">
+              <h3 className="text-[14px] font-semibold text-ink mb-1.5">About</h3>
+              <p className="text-[13px] text-muted leading-relaxed">
                 {agent?.roleDescription ||
                   'General purpose assistant with full tool access and autonomous capabilities.'}
               </p>
@@ -658,10 +658,10 @@ export function RightPanel() {
             {/* Activity Section */}
             <div>
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-[14px] font-semibold text-[#17191D]">Activity</h3>
+                <h3 className="text-[14px] font-semibold text-ink">Activity</h3>
                 <button
                   type="button"
-                  className="text-[12px] font-medium text-[#1677FF] hover:underline cursor-pointer"
+                  className="text-[12px] font-medium text-accent hover:underline cursor-pointer"
                 >
                   View all
                 </button>
@@ -675,12 +675,12 @@ export function RightPanel() {
                       className="h-[36px] flex items-center justify-between gap-2.5 px-1 py-1 rounded-lg hover:bg-black/[0.02] transition-colors"
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="w-6 h-6 rounded-md bg-[#F1F1F1] text-[#253041] flex items-center justify-center shrink-0">
+                        <div className="w-6 h-6 rounded-md bg-sunken text-code flex items-center justify-center shrink-0">
                           <Compass size={13} strokeWidth={2} />
                         </div>
-                        <span className="text-[13px] text-[#17191D] truncate">{task.title}</span>
+                        <span className="text-[13px] text-ink truncate">{task.title}</span>
                       </div>
-                      <span className="text-[12px] text-[#8792A1] shrink-0">
+                      <span className="text-[12px] text-faint shrink-0">
                         {Number.isNaN(Date.parse(task.timestamp))
                           ? task.timestamp
                           : new Date(task.timestamp).toLocaleTimeString([], {
@@ -695,7 +695,7 @@ export function RightPanel() {
                 <div className="space-y-4">
                   {defaultActivityGroups.map((group) => (
                     <div key={group.group} className="space-y-1.5">
-                      <h4 className="text-[12px] font-medium text-[#687588]">{group.group}</h4>
+                      <h4 className="text-[12px] font-medium text-muted">{group.group}</h4>
                       {group.items.map((item) => {
                         const Icon = item.icon;
                         return (
@@ -704,12 +704,12 @@ export function RightPanel() {
                             className="h-[36px] flex items-center justify-between gap-2.5 px-1 py-1 rounded-lg hover:bg-black/[0.02] transition-colors"
                           >
                             <div className="flex items-center gap-2.5 min-w-0">
-                              <div className="w-6 h-6 rounded-md bg-[#F1F1F1] text-[#253041] flex items-center justify-center shrink-0">
+                              <div className="w-6 h-6 rounded-md bg-sunken text-code flex items-center justify-center shrink-0">
                                 <Icon size={13} strokeWidth={2} />
                               </div>
-                              <span className="text-[13px] text-[#17191D] truncate">{item.title}</span>
+                              <span className="text-[13px] text-ink truncate">{item.title}</span>
                             </div>
-                            <span className="text-[12px] text-[#8792A1] shrink-0">{item.time}</span>
+                            <span className="text-[12px] text-faint shrink-0">{item.time}</span>
                           </div>
                         );
                       })}
@@ -724,7 +724,7 @@ export function RightPanel() {
         {/* Skills Tab (Approvals & Permissions) */}
         {activeTab === 'security' && (
           <div className="space-y-3.5 pt-1">
-            <span className="text-xs font-semibold uppercase tracking-wider text-[#687588] px-1">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted px-1">
               Approvals & Skills
             </span>
             {error && <Notice error>{error}</Notice>}
@@ -732,10 +732,10 @@ export function RightPanel() {
             {approvals.map((approval) => (
               <div
                 key={approval.id}
-                className="p-4 bg-white border border-[rgba(25,35,50,0.08)] rounded-2xl space-y-3 text-xs md:text-sm shadow-xs"
+                className="p-4 bg-surface border border-hair rounded-2xl space-y-3 text-xs md:text-sm shadow-xs"
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-semibold text-[#17191D] uppercase text-xs px-2.5 py-1 rounded-lg bg-[#F0F2F5]">
+                  <span className="font-semibold text-ink uppercase text-xs px-2.5 py-1 rounded-lg bg-code-soft">
                     {approval.type}
                   </span>
                   <span
@@ -750,9 +750,9 @@ export function RightPanel() {
                     {approval.status}
                   </span>
                 </div>
-                <p className="text-[#253041] text-xs md:text-sm leading-relaxed">{approval.description}</p>
+                <p className="text-code text-xs md:text-sm leading-relaxed">{approval.description}</p>
                 {approval.commandSnippet && (
-                  <pre className="p-3 bg-[#F0F2F5] rounded-xl text-xs text-[#17191D] overflow-x-auto border border-[rgba(25,35,50,0.08)] font-mono select-text">
+                  <pre className="p-3 bg-code-soft rounded-xl text-xs text-ink overflow-x-auto border border-hair font-mono select-text">
                     {approval.commandSnippet}
                   </pre>
                 )}
@@ -761,7 +761,7 @@ export function RightPanel() {
                     <button
                       disabled={approvalBusy !== null}
                       onClick={() => decide(approval.id, 'approved')}
-                      className="flex-1 py-2 px-3 rounded-xl bg-[#1677FF] hover:bg-[#0D6CE5] text-white font-medium text-xs md:text-sm flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-40 transition-colors shadow-xs"
+                      className="flex-1 py-2 px-3 rounded-xl bg-accent hover:bg-accent-strong text-white font-medium text-xs md:text-sm flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-40 transition-colors shadow-xs"
                     >
                       <Check size={14} />
                       <span>Approve</span>
@@ -769,7 +769,7 @@ export function RightPanel() {
                     <button
                       disabled={approvalBusy !== null}
                       onClick={() => decide(approval.id, 'rejected')}
-                      className="flex-1 py-2 px-3 rounded-xl bg-[#F0F0F0] hover:bg-[#E5E5E5] text-[#17191D] font-medium text-xs md:text-sm cursor-pointer disabled:opacity-40 transition-colors"
+                      className="flex-1 py-2 px-3 rounded-xl bg-neutral hover:bg-neutral-strong text-ink font-medium text-xs md:text-sm cursor-pointer disabled:opacity-40 transition-colors"
                     >
                       Deny
                     </button>

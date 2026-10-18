@@ -70,7 +70,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
       >
         {/* Floating Pill Prompt Box with Plus, Input, Mic, and Send inside */}
         <div
-          className="w-full min-h-[48px] sm:min-h-[52px] rounded-full bg-white/95 backdrop-blur-md border border-[rgba(0,0,0,0.08)] pl-2 sm:pl-2.5 pr-1.5 sm:pr-2 py-1 sm:py-1.5 flex items-center gap-1.5 sm:gap-2 shadow-[0_4px_16px_rgba(0,0,0,0.06)] hover:shadow-[0_6px_20px_rgba(0,0,0,0.08)] transition-all outline-none focus:outline-none focus-within:outline-none ring-0 focus:ring-0 focus-within:ring-0"
+          className="w-full min-h-[48px] sm:min-h-[52px] rounded-full bg-surface/95 backdrop-blur-md border border-[rgba(0,0,0,0.08)] pl-2 sm:pl-2.5 pr-1.5 sm:pr-2 py-1 sm:py-1.5 flex items-center gap-1.5 sm:gap-2 shadow-[0_4px_16px_rgba(0,0,0,0.06)] hover:shadow-[0_6px_20px_rgba(0,0,0,0.08)] transition-all outline-none focus:outline-none focus-within:outline-none ring-0 focus:ring-0 focus-within:ring-0"
         >
           {/* Plus / Attachment button inside prompt box */}
           <button
@@ -78,7 +78,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
             title="Add context / Open library"
             aria-label="Add context"
             onClick={() => setActiveNav('library')}
-            className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-transparent hover:bg-[#F5F5F5] text-[#253041] transition-colors shrink-0 cursor-pointer flex items-center justify-center outline-none focus:outline-none"
+            className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-transparent hover:bg-sunken text-code transition-colors shrink-0 cursor-pointer flex items-center justify-center outline-none focus:outline-none"
           >
             <Plus size={18} strokeWidth={2.2} />
           </button>
@@ -102,7 +102,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
                 : `Message ${agent?.name || 'Main'}...`
             }
             disabled={isLoading || isPreparing || isCreatingConversation || readOnly}
-            className="flex-1 bg-transparent text-[#17191D] placeholder-[#8792A1] text-[14px] md:text-[15px] outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 border-none shadow-none resize-none p-0 m-0 min-h-[24px] max-h-[140px] leading-[24px] text-left"
+            className="flex-1 bg-transparent text-ink placeholder-faint text-[14px] md:text-[15px] outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 border-none shadow-none resize-none p-0 m-0 min-h-[24px] max-h-[140px] leading-[24px] text-left"
           />
 
           {/* Right Controls inside prompt box: Mic and Send */}
@@ -112,7 +112,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
               type="button"
               title="Voice input"
               aria-label="Voice input"
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-transparent hover:bg-[#F5F5F5] text-[#253041] transition-colors shrink-0 cursor-pointer flex items-center justify-center"
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-transparent hover:bg-sunken text-code transition-colors shrink-0 cursor-pointer flex items-center justify-center"
             >
               <Mic size={17} strokeWidth={1.8} />
             </button>
@@ -122,7 +122,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
               type="submit"
               aria-label="Send message"
               disabled={isLoading || isPreparing || isCreatingConversation || readOnly || !text.trim()}
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#1677FF] hover:bg-[#0D6CE5] text-[#FFFFFF] flex items-center justify-center transition-all cursor-pointer shrink-0 disabled:opacity-40 disabled:hover:bg-[#1677FF] shadow-xs active:scale-95"
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-accent hover:bg-accent-strong text-white flex items-center justify-center transition-all cursor-pointer shrink-0 disabled:opacity-40 disabled:hover:bg-accent shadow-xs active:scale-95"
             >
               <ArrowUp size={17} strokeWidth={2.4} />
             </button>

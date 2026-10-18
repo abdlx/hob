@@ -9,8 +9,8 @@ export function Brand({ compact = false, className = '' }: { compact?: boolean; 
         className="object-contain"
       />
       {!compact && (
-        <span className="font-bold text-[22px] tracking-tight text-[#17191D]">
-          hob<span className="text-[#1677FF]">.</span>
+        <span className="font-bold text-[22px] tracking-tight text-ink">
+          hob<span className="text-accent">.</span>
         </span>
       )}
     </span>

@@ -34,8 +34,8 @@ export const DogeshAvatar: React.FC<DogeshAvatarProps> = ({
       <div
         className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center ${
           hideBorder
-            ? 'bg-[#E3E8EF] border-0 shadow-none'
-            : 'bg-white border border-[rgba(25,35,50,0.06)] shadow-xs'
+            ? 'bg-idle-soft border-0 shadow-none'
+            : 'bg-surface border border-line shadow-xs'
         }`}
       >
         <img
@@ -51,7 +51,7 @@ export const DogeshAvatar: React.FC<DogeshAvatarProps> = ({
           type="button"
           onClick={onEditClick}
           title="Edit agent profile"
-          className="absolute bottom-0 right-0 w-[24px] h-[24px] rounded-full bg-white hover:bg-[#F5F5F5] border border-[#E0E0E0] flex items-center justify-center text-[#253041] transition-colors cursor-pointer shadow-xs"
+          className="absolute bottom-0 right-0 w-[24px] h-[24px] rounded-full bg-surface hover:bg-sunken border border-line flex items-center justify-center text-code transition-colors cursor-pointer shadow-xs"
         >
           <Pencil size={12} strokeWidth={2.2} />
         </button>
@@ -64,10 +64,10 @@ export const DogeshAvatar: React.FC<DogeshAvatarProps> = ({
             size >= 60 ? 'w-3.5 h-3.5' : 'w-2.5 h-2.5'
           } ${
             status === 'connected'
-              ? 'bg-[#16CC8A]'
+              ? 'bg-ok-dot'
               : status === 'busy'
               ? 'bg-amber-400'
-              : 'bg-[#8792A1]'
+              : 'bg-faint'
           }`}
           title={`Status: ${status}`}
         />

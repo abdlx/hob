@@ -112,14 +112,14 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
   return (
     <>
       <div
-        className="hob-bots-sidebar flex-1 min-w-0 min-h-0 h-full flex flex-col bg-[#FAFAFA] select-none"
+        className="hob-bots-sidebar flex-1 min-w-0 min-h-0 h-full flex flex-col bg-canvas select-none"
         aria-label="Bots directory"
       >
         {/* Header: Bots, badge, + button */}
         <div className="px-5 pt-6 pb-2.5 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
-            <h2 className="text-[17px] font-semibold text-[#17191D] tracking-tight">Bots</h2>
-            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#687588]">
+            <h2 className="text-[17px] font-semibold text-ink tracking-tight">Bots</h2>
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-neutral text-muted">
               {agents.length}
             </span>
           </div>
@@ -129,7 +129,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
             onClick={() => setIsCreateOpen(true)}
             title="Create new bot"
             aria-label="Create new bot"
-            className="w-8 h-8 rounded-full flex items-center justify-center text-[#253041] hover:bg-[#F0F0F0] transition-colors cursor-pointer"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-code hover:bg-neutral transition-colors cursor-pointer"
           >
             <Plus size={18} strokeWidth={2} />
           </button>
@@ -140,25 +140,25 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
           <div className="relative flex items-center">
             <Search
               size={15}
-              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8792A1] pointer-events-none"
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-faint pointer-events-none"
             />
             <input
               type="text"
               placeholder="Search bots..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full h-10 bg-[#F0F0F0] text-[13px] text-[#17191D] pl-9 pr-12 rounded-full border border-transparent focus:outline-none placeholder-[#8792A1] transition-all"
+              className="w-full h-10 bg-neutral text-[13px] text-ink pl-9 pr-12 rounded-full border border-transparent focus:outline-none placeholder-faint transition-all"
             />
             {search ? (
               <button
                 type="button"
                 onClick={() => setSearch('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8792A1] hover:text-[#17191D] p-1 cursor-pointer"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-faint hover:text-ink p-1 cursor-pointer"
               >
                 <X size={13} />
               </button>
             ) : (
-              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[11px] font-medium text-[#8792A1] pointer-events-none select-none">
+              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[11px] font-medium text-faint pointer-events-none select-none">
                 ⌘ K
               </span>
             )}
@@ -168,7 +168,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
         {/* Contacts / Bots List */}
         <div className="flex-1 min-h-0 overflow-y-auto px-3 py-1 space-y-1" role="list">
           {filteredAgents.length === 0 ? (
-            <div className="text-center py-8 px-4 text-[#8792A1]">
+            <div className="text-center py-8 px-4 text-faint">
               <p className="text-xs">No bots match "{search}".</p>
             </div>
           ) : (
@@ -219,8 +219,8 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
                   }}
                   className={`group relative flex items-center gap-3 p-2.5 h-[64px] rounded-[18px] cursor-pointer transition-all duration-150 ${
                     isSelected
-                      ? 'bg-[#E5EEFB] text-[#17202E]'
-                      : 'bg-transparent hover:bg-[#F0F0F0] text-[#17191D]'
+                      ? 'bg-accent-soft text-code-strong'
+                      : 'bg-transparent hover:bg-neutral text-ink'
                   }`}
                 >
                   {/* Avatar with status indicator */}
@@ -230,7 +230,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
                       showEditBadge={false}
                       avatarUrl={avatar}
                       status={botStatus}
-                      ringColor={isSelected ? 'ring-[#E5EEFB]' : 'ring-[#FAFAFA]'}
+                      ringColor={isSelected ? 'ring-accent-soft' : 'ring-canvas'}
                     />
                   </div>
 
@@ -239,7 +239,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
                     <div className="flex items-center justify-between gap-1">
                       <span
                         className={`text-[14.5px] font-semibold truncate ${
-                          isSelected ? 'text-[#17202E]' : 'text-[#17191D]'
+                          isSelected ? 'text-code-strong' : 'text-ink'
                         }`}
                       >
                         {bot.name}
@@ -247,12 +247,12 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
 
                       <div className="shrink-0 flex items-center gap-1">
                         {isSelected && !filteringActivity && (
-                          <div className="p-1 text-[#1677FF] hover:bg-[#D5E5FA] rounded-md transition-colors">
+                          <div className="p-1 text-accent hover:bg-accent-line rounded-md transition-colors">
                             <MoreHorizontal size={16} />
                           </div>
                         )}
                         {!isCurrent && !isSelected && (
-                          <span className="w-2 h-2 rounded-full bg-[#16CC8A] opacity-70" />
+                          <span className="w-2 h-2 rounded-full bg-ok-dot opacity-70" />
                         )}
                         {runtime === 'hermes' && bot.id !== 'default' && !filteringActivity && (
                           <button
@@ -262,7 +262,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
                               setDeleteError(null);
                               setDeleteTarget(bot.id);
                             }}
-                            className="rounded-md p-1 text-[#8792A1] opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 focus-visible:opacity-100 cursor-pointer"
+                            className="rounded-md p-1 text-faint opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 focus-visible:opacity-100 cursor-pointer"
                             aria-label={`Delete ${bot.name}`}
                             title={`Delete ${bot.name}`}
                           >
@@ -273,7 +273,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
                     </div>
                     <p
                       className={`text-[12px] truncate mt-0.5 ${
-                        isSelected ? 'text-[#687588]' : 'text-[#8792A1]'
+                        isSelected ? 'text-muted' : 'text-faint'
                       }`}
                     >
                       {filteringActivity && isSelected ? 'Filtering activity' : subtitle}
@@ -286,11 +286,11 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
         </div>
 
         {/* Footer: + New Bot and Manage in Settings */}
-        <div className="hidden md:block p-4 pt-2 border-t border-[rgba(25,35,50,0.06)] bg-[#FAFAFA] space-y-2.5 shrink-0">
+        <div className="hidden md:block p-4 pt-2 border-t border-line bg-canvas space-y-2.5 shrink-0">
           <button
             type="button"
             onClick={() => setIsCreateOpen(true)}
-            className="w-full h-[46px] rounded-full bg-[#F1F1F1] hover:bg-[#E8E8E8] text-[#17191D] text-[13.5px] font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-[0.98]"
+            className="w-full h-[46px] rounded-full bg-sunken hover:bg-neutral-strong text-ink text-[13.5px] font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-[0.98]"
           >
             <Plus size={16} strokeWidth={2.2} />
             <span>New Bot</span>
@@ -299,7 +299,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
           <button
             type="button"
             onClick={() => setActiveNav('settings')}
-            className="w-full flex items-center justify-center gap-1.5 py-1 text-[#687588] hover:text-[#17191D] text-[12.5px] font-medium transition-colors cursor-pointer"
+            className="w-full flex items-center justify-center gap-1.5 py-1 text-muted hover:text-ink text-[12.5px] font-medium transition-colors cursor-pointer"
           >
             <Settings size={13} strokeWidth={1.8} />
             <span>Manage in Settings</span>
@@ -311,27 +311,27 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
           <div
-            className="w-full max-w-md bg-white border border-[rgba(25,35,50,0.1)] rounded-[26px] shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150"
+            className="w-full max-w-md bg-surface border border-edge rounded-[26px] shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150"
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-title"
           >
-            <div className="flex items-center justify-between pb-3 border-b border-[rgba(25,35,50,0.08)]">
+            <div className="flex items-center justify-between pb-3 border-b border-hair">
               <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-full bg-[#E5EEFB] flex items-center justify-center text-[#1677FF]">
+                <div className="w-8 h-8 rounded-full bg-accent-soft flex items-center justify-center text-accent">
                   <Sparkles size={16} />
                 </div>
                 <div>
-                  <h3 id="modal-title" className="text-base font-semibold text-[#17191D]">
+                  <h3 id="modal-title" className="text-base font-semibold text-ink">
                     Create New Bot
                   </h3>
-                  <p className="text-xs text-[#687588]">Add a contact with its own personality</p>
+                  <p className="text-xs text-muted">Add a contact with its own personality</p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setIsCreateOpen(false)}
-                className="p-1.5 rounded-full text-[#8792A1] hover:text-[#17191D] hover:bg-[#F0F0F0] transition-colors cursor-pointer"
+                className="p-1.5 rounded-full text-faint hover:text-ink hover:bg-neutral transition-colors cursor-pointer"
               >
                 <X size={18} />
               </button>
@@ -345,8 +345,8 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
 
             <form onSubmit={handleCreateBot} className="space-y-4">
               <div>
-                <label className="block text-xs md:text-sm font-medium text-[#17191D] mb-1.5">
-                  Bot Name <span className="text-[#1677FF]">*</span>
+                <label className="block text-xs md:text-sm font-medium text-ink mb-1.5">
+                  Bot Name <span className="text-accent">*</span>
                 </label>
                 <input
                   type="text"
@@ -356,15 +356,15 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
                   disabled={isSubmitting}
                   autoFocus
                   required
-                  className="w-full bg-[#F7F7F7] text-sm text-[#17191D] px-3.5 py-2.5 rounded-xl border border-[rgba(25,35,50,0.1)] focus:outline-none focus:border-[#1677FF] placeholder-[#8792A1]"
+                  className="w-full bg-panel text-sm text-ink px-3.5 py-2.5 rounded-xl border border-edge focus:outline-none focus:border-accent placeholder-faint"
                 />
-                <p className="text-[11px] text-[#687588] mt-1">
+                <p className="text-[11px] text-muted mt-1">
                   Lowercase letters, digits, underscores or hyphens; start with a letter.
                 </p>
               </div>
 
               <div>
-                <label className="block text-xs md:text-sm font-medium text-[#17191D] mb-1.5">
+                <label className="block text-xs md:text-sm font-medium text-ink mb-1.5">
                   Personality & Instructions (optional)
                 </label>
                 <textarea
@@ -373,23 +373,23 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
                   value={newBotSoul}
                   onChange={(e) => setNewBotSoul(e.target.value)}
                   disabled={isSubmitting}
-                  className="w-full bg-[#F7F7F7] text-sm text-[#17191D] px-3.5 py-2.5 rounded-xl border border-[rgba(25,35,50,0.1)] focus:outline-none focus:border-[#1677FF] placeholder-[#8792A1]"
+                  className="w-full bg-panel text-sm text-ink px-3.5 py-2.5 rounded-xl border border-edge focus:outline-none focus:border-accent placeholder-faint"
                 />
               </div>
 
-              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-[rgba(25,35,50,0.08)]">
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-hair">
                 <button
                   type="button"
                   onClick={() => setIsCreateOpen(false)}
                   disabled={isSubmitting}
-                  className="px-4 py-2 rounded-xl text-xs md:text-sm font-medium text-[#687588] hover:text-[#17191D] hover:bg-[#F0F0F0] transition-colors cursor-pointer"
+                  className="px-4 py-2 rounded-xl text-xs md:text-sm font-medium text-muted hover:text-ink hover:bg-neutral transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting || !newBotName.trim()}
-                  className="px-4 py-2 rounded-xl text-xs md:text-sm font-semibold bg-[#1677FF] hover:bg-[#0D6CE5] text-white transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
+                  className="px-4 py-2 rounded-xl text-xs md:text-sm font-semibold bg-accent hover:bg-accent-strong text-white transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
                 >
                   {isSubmitting ? 'Creating...' : 'Create Bot'}
                 </button>
@@ -403,7 +403,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
           <div
-            className="w-full max-w-md bg-white border border-[rgba(25,35,50,0.1)] rounded-[26px] p-6 space-y-4 shadow-2xl"
+            className="w-full max-w-md bg-surface border border-edge rounded-[26px] p-6 space-y-4 shadow-2xl"
             role="dialog"
             aria-modal="true"
             aria-labelledby="delete-bot-title"
@@ -413,10 +413,10 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
                 <Trash2 size={18} />
               </div>
               <div>
-                <h3 id="delete-bot-title" className="text-base font-semibold text-[#17191D]">
+                <h3 id="delete-bot-title" className="text-base font-semibold text-ink">
                   Delete {agents.find((b) => b.id === deleteTarget)?.name || deleteTarget}?
                 </h3>
-                <p className="mt-1 text-xs leading-relaxed text-[#687588]">
+                <p className="mt-1 text-xs leading-relaxed text-muted">
                   This removes the bot profile from Hermes. Its private workspace, conversations, credentials, and memory will no longer be available through Hob.
                 </p>
               </div>
@@ -426,7 +426,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
                 {deleteError}
               </div>
             )}
-            <div className="flex items-center justify-end gap-2 border-t border-[rgba(25,35,50,0.08)] pt-3">
+            <div className="flex items-center justify-end gap-2 border-t border-hair pt-3">
               <button
                 type="button"
                 className={buttonClass}

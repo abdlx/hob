@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch, chatApi } from '../services/api';
 import { hermesConfigChanges, hermesModelSelectionResult } from '../services/hermes-settings';
 import type { HermesConfig } from '../services/hermes-settings';
-import { buttonClass, cardClass, Field, inputClass, Notice } from '../components/WorkspaceUI';
+import { buttonClass, cardClass, Field, inputClass, Notice, Skeleton } from '../components/WorkspaceUI';
 import { errorText } from '../components/workspaceUtils';
+import { useToast } from '../context/ToastContext';
 import { HermesModelPicker } from '../components/HermesModelPicker';
 import { HermesAccountsSettings, HermesChannelsSettings, HermesToolsSettings } from '../components/HermesIntegrations';
 import { HermesMcpSettings } from '../components/HermesMcpSettings';
@@ -16,6 +17,7 @@ interface Profile { name: string; display_name?: string; description?: string; m
 interface Credential { is_set: boolean; description?: string; category?: string }
 
 export function HermesSettings() {
+  const { toast } = useToast();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profile, setProfile] = useState(() => chatApi.getProfile());
   const [snapshot, setSnapshot] = useState<HermesConfig | null>(null);
@@ -36,7 +38,6 @@ export function HermesSettings() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [status, setStatus] = useState('');
   const loadSequence = useRef(0);
   const invalidateLoads = useCallback(() => { loadSequence.current++; }, []);
   const scoped = useCallback((path: string) => `/api/hermes/${path}?profile=${encodeURIComponent(profile)}`, [profile]);
@@ -64,14 +65,14 @@ export function HermesSettings() {
   }, [scoped]);
   useEffect(() => { const timer = window.setTimeout(load, 0); return () => { window.clearTimeout(timer); invalidateLoads(); }; }, [load, invalidateLoads]);
   async function action(work: () => Promise<unknown>, message: string) {
-    setBusy(true); setError(''); setStatus('');
-    try { await work(); await load(); setStatus(message); }
+    setBusy(true); setError('');
+    try { await work(); await load(); toast(message); }
     catch (error) { await load(); setError(errorText(error)); }
     finally { setBusy(false); }
   }
   const submit = (path: string, value: unknown, method = 'PUT') => apiFetch(scoped(path), { method, body: JSON.stringify(value) });
   async function selectModel(confirmExpensive = false) {
-    setBusy(true); setError(''); setStatus('');
+    setBusy(true); setError('');
     try {
       let selectedProvider = provider.trim();
       if (baseUrl.trim() && ['custom', 'local'].includes(selectedProvider.toLowerCase())) {
@@ -88,18 +89,18 @@ export function HermesSettings() {
       if (result.saved === false && result.confirmation) { setModelConfirmation(result.confirmation); return; }
       setModelConfirmation('');
       await load();
-      setStatus('Model selection saved. Start a new conversation to use the updated setup.');
+      toast('Model selection saved. Start a new conversation to use the updated setup.');
     } catch (error) { setError(errorText(error)); }
     finally { setBusy(false); }
   }
 
   return <div className="space-y-5">
-    <div className="flex items-center justify-between gap-3"><p className="text-xs md:text-sm text-[#687588]">Configure Hermes and your independent bots.</p><button className={buttonClass} disabled={busy || loading} onClick={load}>Refresh</button></div>
-    {error && <Notice error>{error}</Notice>}{status && <Notice>{status}</Notice>}
-    <Field label="Bot"><select className={inputClass} disabled={busy || loading} value={profile} onChange={event => { loadSequence.current++; setProfile(event.target.value); setSnapshot(null); setSecret(''); setProvider(''); setModel(''); setBaseUrl(''); setEndpointName(''); setEndpointSecret(''); setModelConfirmation(''); setStatus(''); }}>
+    <div className="flex items-center justify-between gap-3"><p className="text-xs md:text-sm text-muted">Configure Hermes and your independent bots.</p><button className={buttonClass} disabled={busy || loading} onClick={load}>Refresh</button></div>
+    {error && <Notice error>{error}</Notice>}
+    <Field label="Bot"><select className={inputClass} disabled={busy || loading} value={profile} onChange={event => { loadSequence.current++; setProfile(event.target.value); setSnapshot(null); setSecret(''); setProvider(''); setModel(''); setBaseUrl(''); setEndpointName(''); setEndpointSecret(''); setModelConfirmation(''); }}>
       <option value="default">Main</option>{profiles.filter(item => item.name !== 'default' && (!item.state || item.state === 'active')).map(item => <option key={item.name} value={item.name}>{item.display_name || item.name}</option>)}
     </select></Field>
-    <section className={`${cardClass} space-y-3.5`}><h2 className="text-base md:text-lg font-semibold text-[#17191D]">Connect a model</h2>
+    <section className={`${cardClass} space-y-3.5`}><h2 className="text-base md:text-lg font-semibold text-ink">Connect a model</h2>
       <HermesModelPicker key={profile} profile={profile} provider={provider} model={model} busy={busy}
         chooseProvider={(value, keyEnv) => { setProvider(value); setModel(''); setBaseUrl(''); setEndpointName(''); setEndpointSecret(''); setModelConfirmation(''); setSecret(''); setKey(keyEnv || ''); }}
         chooseModel={value => { setModel(value); setModelConfirmation(''); }} />
@@ -120,7 +121,7 @@ export function HermesSettings() {
     <HermesMemorySettings key={`memory:${profile}`} profile={profile} />
     <HermesLearningSettings key={`learning:${profile}`} profile={profile} />
     <HermesChannelsSettings key={`channels:${profile}`} profile={profile} />
-    <section className={`${cardClass} space-y-3`}><h2 className="text-sm text-[#17191D]">Create a bot</h2>
+    <section className={`${cardClass} space-y-3`}><h2 className="text-sm text-ink">Create a bot</h2>
       <Field label="Name" hint="Use lowercase letters, digits, underscores or hyphens; start with a letter."><input className={inputClass} value={newName} disabled={busy} onChange={event => setNewName(event.target.value)} /></Field>
       <Field label="Personality and instructions"><textarea className={inputClass} rows={4} value={soul} disabled={busy} onChange={event => setSoul(event.target.value)} /></Field>
       <Notice>New bots have their own state. Creating one does not copy another bot’s private memories or channel credentials.</Notice>
@@ -130,13 +131,13 @@ export function HermesSettings() {
         <button className={buttonClass} disabled={busy} onClick={() => action(() => apiFetch(`/api/hermes/profiles/${encodeURIComponent(item.name)}/finish-setup`, { method: 'POST', body: JSON.stringify({ confirmExisting: true }) }), `Setup finished for ${item.name}.`)}>Confirm profile and finish setup: {item.name}</button>
       </div>)}
     </section>
-    {loading ? <Notice>Loading Hermes settings…</Notice> : snapshot && schema ? <HermesConfigEditor key={`${profile}:${configRevision}`} snapshot={snapshot} schema={schema} busy={busy} onSave={async next => {
+    {loading ? <Skeleton className="h-64 w-full" /> : snapshot && schema ? <HermesConfigEditor key={`${profile}:${configRevision}`} snapshot={snapshot} schema={schema} busy={busy} onSave={async next => {
       const changes = hermesConfigChanges(snapshot, next);
       if (!Object.keys(changes).length) return;
       await action(() => submit('config', { config: changes }), 'Settings saved. Some Hermes settings take effect on a new session or after a runtime restart.');
     }} /> : null}
     <details className={`${cardClass} group`}>
-      <summary className="cursor-pointer list-none text-sm font-medium text-[#17191D]">Advanced: raw Hermes JSON</summary>
+      <summary className="cursor-pointer list-none text-sm font-medium text-ink">Advanced: raw Hermes JSON</summary>
       <div className="mt-3 space-y-3">
         <Notice>Use this only for fields that need manual editing. Stored credential placeholders are preserved; use the credential form to replace a key. A removed JSON field is not a reset.</Notice>
         <textarea aria-label="Hermes configuration JSON" className={`${inputClass} font-mono`} rows={16} value={configText} disabled={busy || loading || !snapshot} onChange={event => setConfigText(event.target.value)} />

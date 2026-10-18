@@ -26,7 +26,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
       {/* ========================================================
           DESKTOP HEADER LAYOUT (hidden on mobile, flex on md+)
          ======================================================== */}
-      <div className="hidden md:flex items-center gap-3 py-1.5 px-3.5 rounded-full bg-white/90 backdrop-blur-md border border-[rgba(0,0,0,0.06)] shadow-[0_2px_10px_rgba(0,0,0,0.04)] pointer-events-auto">
+      <div className="hidden md:flex items-center gap-3 py-1.5 px-3.5 rounded-full bg-surface/90 backdrop-blur-md border border-[rgba(0,0,0,0.06)] shadow-[0_2px_10px_rgba(0,0,0,0.04)] pointer-events-auto">
         <DogeshAvatar
           size={38}
           showEditBadge={false}
@@ -42,19 +42,19 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
             title="Switch bot"
             aria-label="Switch bot"
           >
-            <h1 className="text-[15px] font-semibold text-[#17191D] tracking-tight leading-tight group-hover:text-[#1677FF] transition-colors">
+            <h1 className="text-[15px] font-semibold text-ink tracking-tight leading-tight group-hover:text-accent transition-colors">
               {agent?.name || 'Main'}
             </h1>
-            <ChevronDown size={13} className="text-[#687588] group-hover:text-[#1677FF] transition-colors" />
+            <ChevronDown size={13} className="text-muted group-hover:text-accent transition-colors" />
           </button>
 
           <div className="flex items-center gap-1.5 mt-0.5">
             <span
               className={`w-1.5 h-1.5 rounded-full inline-block ${
-                connected && !isPreparing ? 'bg-[#16CC8A]' : 'bg-[#8792A1]'
+                connected && !isPreparing ? 'bg-ok-dot' : 'bg-faint'
               }`}
             />
-            <span className="text-[11px] font-medium text-[#687588]">
+            <span className="text-[11px] font-medium text-muted">
               {isPreparing ? 'Preparing' : connected ? 'Connected' : 'Offline'}
             </span>
           </div>
@@ -65,7 +65,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
         {/* ... More button */}
         <button
           onClick={toggleLeftDrawer}
-          className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-md border border-[rgba(0,0,0,0.06)] shadow-[0_2px_10px_rgba(0,0,0,0.04)] hover:bg-white text-[#253041] flex items-center justify-center transition-all cursor-pointer active:scale-95"
+          className="w-10 h-10 rounded-full bg-surface/90 backdrop-blur-md border border-[rgba(0,0,0,0.06)] shadow-[0_2px_10px_rgba(0,0,0,0.04)] hover:bg-surface text-code flex items-center justify-center transition-all cursor-pointer active:scale-95"
           aria-label="Conversations"
           title="Conversations"
         >
@@ -77,8 +77,8 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
           onClick={toggleRightPanel}
           className={`w-10 h-10 rounded-full backdrop-blur-md border border-[rgba(0,0,0,0.06)] shadow-[0_2px_10px_rgba(0,0,0,0.04)] flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
             isRightPanelOpen
-              ? 'bg-[#E5EEFB] text-[#1677FF] border-[#BBD5F8]'
-              : 'bg-white/90 hover:bg-white text-[#253041]'
+              ? 'bg-accent-soft text-accent border-accent-line'
+              : 'bg-surface/90 hover:bg-surface text-code'
           }`}
           aria-label={isRightPanelOpen ? 'Close agent panel' : 'Open agent panel'}
           aria-expanded={isRightPanelOpen}
@@ -90,7 +90,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
         {/* Chevron down button */}
         <button
           onClick={toggleBotsSidebar}
-          className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-md border border-[rgba(0,0,0,0.06)] shadow-[0_2px_10px_rgba(0,0,0,0.04)] hover:bg-white text-[#253041] flex items-center justify-center transition-all cursor-pointer active:scale-95"
+          className="w-10 h-10 rounded-full bg-surface/90 backdrop-blur-md border border-[rgba(0,0,0,0.06)] shadow-[0_2px_10px_rgba(0,0,0,0.04)] hover:bg-surface text-code flex items-center justify-center transition-all cursor-pointer active:scale-95"
           aria-label="Toggle bots"
           title="Toggle bots"
         >
@@ -105,7 +105,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
       <div className="md:hidden flex items-center pointer-events-auto">
         <button
           onClick={onBackToBots}
-          className="flex items-center justify-center w-10 h-10 rounded-full bg-white/95 backdrop-blur-md shadow-[0_4px_14px_rgba(0,0,0,0.06)] border border-[rgba(0,0,0,0.06)] text-[#17191D] hover:bg-white active:scale-95 transition-all cursor-pointer"
+          className="flex items-center justify-center w-10 h-10 rounded-full bg-surface/95 backdrop-blur-md shadow-[0_4px_14px_rgba(0,0,0,0.06)] border border-[rgba(0,0,0,0.06)] text-ink hover:bg-surface active:scale-95 transition-all cursor-pointer"
           aria-label="Back to bots"
           title="Back to bots"
         >
@@ -133,11 +133,11 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
         </div>
 
         {/* Nametag sits underneath (z-10), moved down by 2px (-mt-[12px] instead of -mt-3.5) */}
-        <div className="relative z-10 -mt-[12px] px-4 py-1 rounded-full bg-white/95 backdrop-blur-md border border-[rgba(0,0,0,0.08)] text-[13px] font-semibold text-[#17202E] shadow-[0_4px_14px_rgba(0,0,0,0.06)] flex items-center gap-1.5 group-hover:bg-[#F0F5FF] transition-all">
+        <div className="relative z-10 -mt-[12px] px-4 py-1 rounded-full bg-surface/95 backdrop-blur-md border border-[rgba(0,0,0,0.08)] text-[13px] font-semibold text-code-strong shadow-[0_4px_14px_rgba(0,0,0,0.06)] flex items-center gap-1.5 group-hover:bg-hover transition-all">
           <span>{agent?.name || 'Main'}</span>
           <span
             className={`w-2 h-2 rounded-full inline-block ${
-              connected && !isPreparing ? 'bg-[#16CC8A]' : 'bg-[#8792A1]'
+              connected && !isPreparing ? 'bg-ok-dot' : 'bg-faint'
             }`}
           />
         </div>
@@ -147,7 +147,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
       <div className="md:hidden flex items-center gap-1 pointer-events-auto">
         <button
           onClick={toggleLeftDrawer}
-          className="w-10 h-10 rounded-full bg-white/95 backdrop-blur-md shadow-[0_4px_14px_rgba(0,0,0,0.06)] border border-[rgba(0,0,0,0.06)] text-[#253041] hover:bg-white flex items-center justify-center active:scale-95 transition-all cursor-pointer"
+          className="w-10 h-10 rounded-full bg-surface/95 backdrop-blur-md shadow-[0_4px_14px_rgba(0,0,0,0.06)] border border-[rgba(0,0,0,0.06)] text-code hover:bg-surface flex items-center justify-center active:scale-95 transition-all cursor-pointer"
           aria-label="Conversations"
           title="Conversations"
         >

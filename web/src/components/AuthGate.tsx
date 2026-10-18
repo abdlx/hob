@@ -52,19 +52,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (state?.authenticated || isPreview) return children;
 
   return (
-    <div className="hob-auth h-full w-full flex items-center justify-center px-6 bg-[#EAE8E5]">
-      <div className="hob-auth-card w-full max-w-sm rounded-[32px] bg-white border border-[rgba(25,35,50,0.08)] shadow-[0_12px_40px_rgba(0,0,0,0.055)] p-8 space-y-6">
+    <div className="hob-auth h-full w-full flex items-center justify-center px-6 bg-app">
+      <div className="hob-auth-card w-full max-w-sm rounded-[32px] bg-surface border border-hair shadow-[0_12px_40px_rgba(0,0,0,0.055)] p-8 space-y-6">
         <Brand />
         <div>
-          <h1 className="text-2xl font-semibold text-[#17191D] tracking-tight">A little more life.</h1>
-          <p className="mt-2 text-xs leading-relaxed text-[#687588]">
+          <h1 className="text-2xl font-semibold text-ink tracking-tight">A little more life.</h1>
+          <p className="mt-2 text-xs leading-relaxed text-muted">
             Your helpful household spirit. Powered by Hermes, on your server.
           </p>
         </div>
-        {!state && !error && <p className="text-xs text-[#8792A1]" role="status">Connecting…</p>}
+        {!state && !error && <p className="text-xs text-faint" role="status">Connecting…</p>}
         {state?.configured && (
           <form onSubmit={login} className="space-y-3.5">
-            <label className="block text-xs font-medium text-[#17191D]" htmlFor="password">
+            <label className="block text-xs font-medium text-ink" htmlFor="password">
               Server password
             </label>
             <input
@@ -74,18 +74,18 @@ export function AuthGate({ children }: { children: ReactNode }) {
               required
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="w-full bg-[#F7F7F7] border border-[rgba(25,35,50,0.1)] rounded-xl p-3 text-sm text-[#17191D] focus:outline-none focus:border-[#1677FF]"
+              className="w-full bg-panel border border-edge rounded-xl p-3 text-sm text-ink focus:outline-none focus:border-accent"
             />
             <button
               disabled={busy}
-              className="w-full rounded-full bg-[#1677FF] hover:bg-[#0D6CE5] text-white py-2.5 text-xs font-semibold disabled:opacity-50 transition-colors shadow-xs cursor-pointer"
+              className="w-full rounded-full bg-accent hover:bg-accent-strong text-white py-2.5 text-xs font-semibold disabled:opacity-50 transition-colors shadow-xs cursor-pointer"
             >
               {busy ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
         )}
         {state && !state.configured && (
-          <p className="text-xs leading-relaxed text-[#687588]">
+          <p className="text-xs leading-relaxed text-muted">
             Set MUSE_PASSWORD on your server and restart hob to finish securing this installation.
           </p>
         )}
@@ -93,7 +93,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         {!state && error && (
           <button
             onClick={() => void check()}
-            className="flex items-center gap-2 text-xs text-[#1677FF] hover:underline cursor-pointer"
+            className="flex items-center gap-2 text-xs text-accent hover:underline cursor-pointer"
           >
             <RefreshCw size={13} />
             Retry connection

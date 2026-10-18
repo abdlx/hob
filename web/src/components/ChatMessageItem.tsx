@@ -32,15 +32,15 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
     return (
       <div className="flex flex-col items-end w-full mb-4 select-text">
         <div
-          className="max-w-[75%] rounded-[22px] rounded-tr-[6px] bg-[#FFFFFF] text-[14.5px] text-[#17191D] leading-relaxed px-5 py-3.5 shadow-[0_3px_10px_rgba(0,0,0,0.05)] border border-black/[0.035]"
+          className="max-w-[75%] rounded-[22px] rounded-tr-[6px] bg-surface text-[14.5px] text-ink leading-relaxed px-4 py-2.5 shadow-[0_3px_10px_rgba(0,0,0,0.05)] border border-black/[0.035]"
         >
           {renderedContent}
         </div>
 
         {/* Timestamp beneath bubble with blue double checkmarks */}
-        <div className="flex items-center gap-1 mt-1.5 mr-2 text-[11px] text-[#7B8798]">
+        <div className="flex items-center gap-1 mt-1.5 mr-2 text-[11px] text-faint">
           <span>{timeString}</span>
-          <CheckCheck size={14} className="text-[#1677FF] stroke-[2.5]" />
+          <CheckCheck size={14} className="text-accent stroke-[2.5]" />
         </div>
       </div>
     );
@@ -49,16 +49,16 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
   return (
     <div className="flex flex-col items-start w-full mb-4 select-text">
       {/* Incoming Bubble without bot avatar */}
-      <div className="max-w-[82%] rounded-[22px] rounded-tl-[6px] bg-[#F0F0F0] text-[14.5px] text-[#253041] leading-relaxed px-5 py-3.5">
+      <div className="max-w-[82%] rounded-[22px] rounded-tl-[6px] bg-neutral text-[14.5px] text-code leading-relaxed px-4 py-2.5">
         {renderedContent}
         {message.status === 'streaming' && (
-          <span className="inline-block w-2 h-4 ml-1.5 bg-[#1677FF] animate-pulse align-middle rounded-xs" />
+          <span className="inline-block w-2 h-4 ml-1.5 bg-accent animate-pulse align-middle rounded-xs" />
         )}
       </div>
 
       {/* Timestamp beneath bubble */}
       {timeString && (
-        <div className="mt-1.5 ml-2 text-[11px] text-[#7B8798]">
+        <div className="mt-1.5 ml-2 text-[11px] text-faint">
           {timeString}
         </div>
       )}

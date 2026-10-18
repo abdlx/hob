@@ -1,6 +1,58 @@
 @import url('/fonts/inter.css');
 @import "tailwindcss";
 
+/*
+ * Semantic design tokens. These power Tailwind utilities such as
+ * `text-ink`, `bg-surface`, `border-hair` so the palette lives in one place
+ * instead of being re-typed as hex literals across components.
+ */
+@theme {
+  /* Text */
+  --color-ink: #17191D;
+  --color-muted: #687588;
+  --color-soft: #51606F;
+  --color-faint: #8792A1;
+  --color-code: #253041;
+
+  /* Surfaces */
+  --color-surface: #FFFFFF;
+  --color-canvas: #FAFAFA;
+  --color-panel: #F7F7F8;
+  --color-sunken: #F5F5F5;
+  --color-hover: #F1F5FB;
+  --color-idle-soft: #EEF1F4;
+
+  /* Accent */
+  --color-accent: #1677FF;
+  --color-accent-strong: #0D6CE5;
+  --color-accent-soft: #E4EEFF;
+  --color-accent-line: #BBD5F8;
+
+  /* Chat chrome */
+  --color-app: #EAE8E5;
+  --color-neutral: #F0F0F0;
+  --color-neutral-strong: #E5E5E5;
+  --color-code-strong: #17202E;
+  --color-code-soft: #F0F2F5;
+
+  /* Status */
+  --color-ok: #0B7A52;
+  --color-ok-soft: #DDF6EC;
+  --color-ok-dot: #16CC8A;
+  --color-run: #9A6400;
+  --color-run-soft: #FFF3D6;
+  --color-warn: #B54708;
+  --color-warn-soft: #FDE9DF;
+  --color-bad: #B42318;
+  --color-bad-soft: #FDE3E3;
+
+  /* Borders */
+  --color-hair: rgba(25, 35, 50, 0.08);
+  --color-line: rgba(25, 35, 50, 0.06);
+  --color-edge: rgba(25, 35, 50, 0.1);
+  --color-edge-strong: rgba(25, 35, 50, 0.18);
+}
+
 :root {
   color-scheme: light;
   --font-inter: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;

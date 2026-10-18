@@ -29,15 +29,15 @@ function InlineApprovalPrompt() {
 
   return (
     <div
-      className="hob-chat-prompt my-3 max-w-[88%] rounded-2xl bg-white border border-[rgba(25,35,50,0.08)] shadow-sm p-4 text-sm"
+      className="hob-chat-prompt my-3 max-w-[88%] rounded-2xl bg-surface border border-hair shadow-sm p-4 text-sm"
       role="dialog"
       aria-label="Permission request"
     >
       <div className="flex items-start gap-3">
-        <ShieldAlert size={18} className="mt-0.5 shrink-0 text-[#1677FF]" />
+        <ShieldAlert size={18} className="mt-0.5 shrink-0 text-accent" />
         <div className="min-w-0 flex-1">
-          <p className="font-semibold text-[#17191D]">Permission needed</p>
-          <p className="mt-1 leading-relaxed text-[#687588]">
+          <p className="font-semibold text-ink">Permission needed</p>
+          <p className="mt-1 leading-relaxed text-muted">
             The agent is waiting for your approval before continuing.
           </p>
         </div>
@@ -49,25 +49,25 @@ function InlineApprovalPrompt() {
       )}
       <div className="mt-3 space-y-3">
         {pending.map((approval) => (
-          <div key={approval.id} className="rounded-xl bg-[#F8F9FA] border border-[rgba(25,35,50,0.06)] p-3">
+          <div key={approval.id} className="rounded-xl bg-panel border border-line p-3">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#687588]">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
                 {approval.type}
               </span>
               <span className="text-[10px] font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
                 Pending
               </span>
             </div>
-            <p className="mt-2 text-xs leading-relaxed text-[#17191D]">{approval.description}</p>
+            <p className="mt-2 text-xs leading-relaxed text-ink">{approval.description}</p>
             {approval.commandSnippet && (
-              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[#F0F2F5] p-2.5 font-mono text-[11px] text-[#17191D]">
+              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-code-soft p-2.5 font-mono text-[11px] text-ink">
                 {approval.commandSnippet}
               </pre>
             )}
             <div className="mt-3 flex gap-2">
               <button
                 type="button"
-                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#1677FF] hover:bg-[#0D6CE5] px-3 py-2 text-xs font-semibold text-white transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
+                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-accent hover:bg-accent-strong px-3 py-2 text-xs font-semibold text-white transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
                 disabled={busyId !== null}
                 onClick={() => void decide(approval, 'approved')}
               >
@@ -76,7 +76,7 @@ function InlineApprovalPrompt() {
               </button>
               <button
                 type="button"
-                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#F0F0F0] hover:bg-[#E5E5E5] px-3 py-2 text-xs font-medium text-[#17191D] transition-colors disabled:opacity-50 cursor-pointer"
+                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-neutral hover:bg-neutral-strong px-3 py-2 text-xs font-medium text-ink transition-colors disabled:opacity-50 cursor-pointer"
                 disabled={busyId !== null}
                 onClick={() => void decide(approval, 'rejected')}
               >
@@ -141,24 +141,24 @@ export function ChatMessageList() {
         {/* Date separator at top of conversation */}
         {visibleMessages.length > 0 && (
           <div className="flex items-center justify-center my-4">
-            <span className="text-[12px] font-medium text-[#687588]">Today</span>
+            <span className="text-[12px] font-medium text-muted">Today</span>
           </div>
         )}
 
         {visibleMessages.length === 0 && (
           <section className="hob-welcome py-8 px-4 text-center max-w-xl mx-auto" aria-label="Welcome to hob">
             <div className="hob-welcome-mark flex justify-center mb-5">
-              <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center shadow-xs border border-[rgba(25,35,50,0.06)] p-3">
+              <div className="w-20 h-20 rounded-full bg-surface flex items-center justify-center shadow-xs border border-line p-3">
                 <img src="/brand/hob-mark.png" alt="hob" className="w-full h-full object-contain" />
               </div>
             </div>
-            <p className="hob-eyebrow flex items-center justify-center gap-1.5 text-[11px] font-semibold tracking-wider text-[#687588] mb-3">
-              <MoonStar size={14} className="text-[#1677FF]" /> A LITTLE HELP. A LITTLE MORE LIFE.
+            <p className="hob-eyebrow flex items-center justify-center gap-1.5 text-[11px] font-semibold tracking-wider text-muted mb-3">
+              <MoonStar size={14} className="text-accent" /> A LITTLE HELP. A LITTLE MORE LIFE.
             </p>
-            <h1 className="text-3xl md:text-4xl font-semibold text-[#17191D] tracking-tight leading-tight">
-              Leave the little things<br />to <span className="text-[#1677FF]">hob.</span>
+            <h1 className="text-3xl md:text-4xl font-semibold text-ink tracking-tight leading-tight">
+              Leave the little things<br />to <span className="text-accent">hob.</span>
             </h1>
-            <p className="hob-welcome-copy text-[#687588] text-[15px] leading-relaxed my-4">
+            <p className="hob-welcome-copy text-muted text-[15px] leading-relaxed my-4">
               A thoughtful companion for your everyday.<br className="hidden sm:block" /> Give it a task. Make space for everything else.
             </p>
             <div className="hob-shortcuts grid grid-cols-1 sm:grid-cols-3 gap-3.5 mt-6 text-left">
@@ -167,17 +167,17 @@ export function ChatMessageList() {
                   key={title}
                   onClick={action}
                   disabled={isPreparing}
-                  className="p-4 rounded-2xl bg-white border border-[rgba(25,35,50,0.08)] hover:border-[#1677FF]/40 hover:shadow-xs transition-all cursor-pointer flex flex-col justify-between min-h-[130px]"
+                  className="p-4 rounded-2xl bg-surface border border-hair hover:border-accent/40 hover:shadow-xs transition-all cursor-pointer flex flex-col justify-between min-h-[130px]"
                 >
-                  <span className="flex justify-between items-center text-[#1677FF] mb-3">
+                  <span className="flex justify-between items-center text-accent mb-3">
                     <Icon size={20} strokeWidth={1.8} />
-                    <ArrowUpRight size={16} className="text-[#8792A1]" />
+                    <ArrowUpRight size={16} className="text-faint" />
                   </span>
                   <div>
-                    <strong className="block text-[13.5px] font-semibold text-[#17191D] mb-0.5">
+                    <strong className="block text-[13.5px] font-semibold text-ink mb-0.5">
                       {title}
                     </strong>
-                    <span className="text-[12px] text-[#687588] leading-snug block">
+                    <span className="text-[12px] text-muted leading-snug block">
                       {description}
                     </span>
                   </div>
@@ -198,8 +198,8 @@ export function ChatMessageList() {
         )}
 
         {isLoading && visibleMessages.at(-1)?.role === 'user' && (
-          <div className="flex items-center gap-2.5 text-[13px] text-[#687588] my-3 ml-2" role="status">
-            <span className="w-2 h-2 rounded-full bg-[#1677FF] animate-pulse" />
+          <div className="flex items-center gap-2.5 text-[13px] text-muted my-3 ml-2" role="status">
+            <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
             <span>{agent?.name || 'hob'} is thinking...</span>
           </div>
         )}

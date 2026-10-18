@@ -9,7 +9,7 @@ interface HLogoProps {
 export const HLogo: React.FC<HLogoProps> = ({
   size = 32,
   className = '',
-  color = '#17191D',
+  color = 'var(--color-ink)',
 }) => {
   return (
     <svg
