@@ -85,7 +85,7 @@ export function HermesSettings() {
       }
       const result = hermesModelSelectionResult(await submit('model', { scope: 'main', provider: selectedProvider, model: model.trim(),
         ...(baseUrl.trim() ? { base_url: baseUrl.trim() } : {}), ...(confirmExpensive ? { confirm_expensive_model: true } : {}) }, 'POST'));
-      if (!result.saved) { setModelConfirmation(result.confirmation); return; }
+      if (result.saved === false && result.confirmation) { setModelConfirmation(result.confirmation); return; }
       setModelConfirmation('');
       await load();
       setStatus('Model selection saved. Start a new conversation to use the updated setup.');

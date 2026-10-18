@@ -1,5 +1,5 @@
 export type HermesConfig = Record<string, unknown>;
-export type HermesModelSelection = { saved: true } | { saved: false; confirmation: string };
+export type HermesModelSelection = { saved: true; confirmation?: string } | { saved: false; confirmation: string };
 
 export function hermesModelSelectionResult(value: unknown): HermesModelSelection {
   if (value && typeof value === 'object') {
