@@ -1,6 +1,14 @@
+import { HLogo } from './HLogo';
+
 export function Brand({ compact = false, className = '' }: { compact?: boolean; className?: string }) {
-  return <span className={`hob-brand ${className}`} aria-label="hob">
-    <img src="/brand/hob-mark.png" alt="" width={compact ? "42" : "38"} height={compact ? "42" : "38"} />
-    {!compact && <span>hob<span className="hob-brand-dot">.</span></span>}
-  </span>;
+  return (
+    <span className={`hob-brand inline-flex items-center gap-2 select-none ${className}`} aria-label="hob">
+      <HLogo size={compact ? 32 : 28} />
+      {!compact && (
+        <span className="font-bold text-[22px] tracking-tight text-[#17191D]">
+          hob<span className="text-[#1677FF]">.</span>
+        </span>
+      )}
+    </span>
+  );
 }

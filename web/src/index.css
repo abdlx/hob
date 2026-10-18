@@ -2,8 +2,18 @@
 @import "tailwindcss";
 
 :root {
-  color-scheme: dark;
-  --font-inter: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color-scheme: light;
+  --font-inter: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --hob-bg: #EAE8E5;
+  --hob-panel: #FAFAFA;
+  --hob-text-primary: #17191D;
+  --hob-text-secondary: #687588;
+  --hob-text-muted: #8792A1;
+  --hob-accent: #1677FF;
+  --hob-success: #16CC8A;
+  --hob-border: rgba(25, 35, 50, 0.07);
+  --hob-bubble-incoming: #F0F0F0;
+  --hob-bubble-outgoing: #FFFFFF;
 }
 
 * {
@@ -16,7 +26,7 @@ html {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background-color: #000000;
+  background-color: var(--hob-bg);
 }
 
 body, #root {
@@ -25,17 +35,19 @@ body, #root {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background-color: #000000;
-  color: #e5e5e5;
+  background-color: var(--hob-bg);
+  color: var(--hob-text-primary);
   font-family: var(--font-inter);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
-/* Custom subtle scrollbars matching AMOLED black */
+/* Subtle, refined scrollbars */
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -43,103 +55,131 @@ body, #root {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1c1c1c;
+  background: rgba(0, 0, 0, 0.12);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #2a2a2a;
+  background: rgba(0, 0, 0, 0.22);
 }
 
-:root {
-  --hob-amber: #f0a36b;
-  --hob-accent: #8eb8ff;
-  --hob-success: #8ed6af;
-  --hob-warning: #f2c27b;
-  --hob-danger: #f08b8b;
-  --hob-surface: #0d131d;
-  --hob-panel: #131c28;
-  --hob-border: #28384a;
-  --hob-text: #e7edf5;
-  --hob-muted: #9aa9ba;
+button, input, textarea, select, a {
+  -webkit-tap-highlight-color: transparent;
 }
-html, body, #root { background: var(--hob-surface); font-size: 15px; }
-button, input, textarea, select, a { -webkit-tap-highlight-color: transparent; }
-button { cursor: pointer; }
-button:disabled { cursor: not-allowed; }
-:focus-visible { outline: 2px solid var(--hob-amber); outline-offset: 4px; }
-.hob-app { background: var(--hob-surface); }
-.hob-main { background: radial-gradient(ellipse at 48% 30%, #1c304633, transparent 65%), var(--hob-surface); }
-.hob-sidebar { background: #0b1119; }
-.hob-brand { display: inline-flex; align-items: center; gap: 10px; color: #f6eee6; font-weight: 700; font-size: 28px; letter-spacing: -1.2px; }
-.hob-brand img { object-fit: contain; }
-.hob-brand-dot { color: var(--hob-amber); }
-.hob-nav-button { width: 46px; height: 46px; }
-.hob-chat-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 28px; min-height: 72px; border-bottom: 1px solid #28384a80; }
-.hob-chat-header > .hob-brand { display: none; }
-.hob-header-button { display: inline-flex; align-items: center; gap: 9px; color: #c4b6a8; font-size: 13.5px; font-weight: 500; border-radius: 12px; padding: 8px 12px; transition: all 150ms ease; }
-.hob-header-button:hover { color: #f8eee4; background: #29231d; }
-.hob-connection { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: #b0a395; }
-.hob-connection > span { width: 7px; height: 7px; border-radius: 50%; background: #9d8a70; }
-.hob-connection > span[data-connected="true"] { background: #a7bd93; box-shadow: 0 0 12px #a7bd9340; }
-.hob-welcome { padding: 36px 20px 48px; animation: hob-enter 350ms ease-out; }
-.hob-welcome-mark { margin-bottom: 24px; }
-.hob-welcome-mark img { width: 96px; height: 96px; object-fit: contain; }
-.hob-eyebrow { display: flex; gap: 8px; align-items: center; font-size: 12px; font-weight: 600; letter-spacing: 2px; color: #c0a183; margin-bottom: 20px; }
-.hob-welcome h1 { font-size: clamp(38px, 4.5vw, 60px); font-weight: 500; letter-spacing: -2.4px; line-height: 1.12; color: #f4ede6; }
-.hob-welcome h1 span { color: var(--hob-amber); }
-.hob-welcome-copy { color: #b3a595; font-size: 16px; line-height: 1.75; margin: 20px 0 36px; }
-.hob-shortcuts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.hob-shortcut { display: flex; flex-direction: column; text-align: left; min-height: 154px; padding: 22px; border: 1px solid #382f25; border-radius: 18px; background: #1c1712; transition: border-color 160ms, background 160ms, transform 160ms; }
-.hob-shortcut:hover { background: #261f18; border-color: #845a38; transform: translateY(-2px); }
-.hob-shortcut > span:first-child { color: #cfa578; margin-bottom: 24px; }
-.hob-shortcut strong { color: #f2ebe3; font-size: 14.5px; font-weight: 600; margin-bottom: 6px; letter-spacing: -0.2px; }
-.hob-shortcut > span:last-child { color: #a69888; font-size: 13px; line-height: 1.55; }
-.hob-composer-form { background: #1f1a15; border: 1px solid #433529; box-shadow: 0 12px 36px #00000025; }
-.hob-composer-form:focus-within { border-color: #c98251; box-shadow: 0 12px 40px #00000035, 0 0 0 1px #c9825140; }
-.hob-composer-hint { font-size: 12px; color: #9c8e7f; text-align: center; margin: 14px 0 0; }
-.hob-composer-hint button { color: #cbb49e; text-underline-offset: 3px; }
-.hob-composer-hint button:hover { color: var(--hob-amber); }
-.hob-agent-panel { border-color: #2d251e; }
-.hob-thinking { display: flex; gap: 10px; align-items: center; color: #cbb49c; font-size: 13.5px; margin: 20px 0; }
-.hob-thinking > span { background: var(--hob-amber); width: 7px; height: 7px; border-radius: 50%; animation: hob-pulse 1.5s infinite; }
-.hob-auth { background: radial-gradient(ellipse at 50% 35%, #38261c, #141210 70%); }
-.hob-auth-card { background: #1b1713; border-color: #47372a; box-shadow: 0 28px 100px #0006; }
-.hob-auth-card .hob-brand { margin-bottom: 15px; }
-.hob-auth-card button[type="submit"], .hob-auth-card form > button { background: #c87742; }
-.settings-editor { box-shadow: 0 18px 48px #00000024; }
-.settings-nav { background: #101923; }
-.settings-nav::-webkit-scrollbar { width: 3px; height: 3px; }
-.settings-field:focus-within { border-color: #3b444f; box-shadow: none; }
-.settings-group > summary::-webkit-details-marker { display: none; }
-.settings-group[open] > summary svg { transform: rotate(180deg); }
 
-/* The workspace uses a quiet monochrome treatment. Keep interaction states
-   readable without the orange rings, colored status glows, or layered shadows
-   that made the previous UI feel noisy. */
-.hob-app, .hob-auth { filter: grayscale(1); }
-.hob-app *, .hob-auth * { text-shadow: none !important; }
-.hob-app .shadow-sm,
-.hob-app .shadow-md,
-.hob-app .shadow-lg,
-.hob-app .shadow-xl,
-.hob-app .shadow-2xl,
-.hob-app .shadow-inner { box-shadow: none !important; }
-.hob-composer-form,
-.hob-composer-form:focus-within { box-shadow: none !important; }
-.hob-composer-form { border-color: #343b45 !important; }
-.hob-composer-form:focus-within { border-color: #343b45 !important; }
-.hob-composer-form textarea:focus,
-.hob-composer-form textarea:focus-visible { outline: none !important; box-shadow: none !important; }
-.hob-app input:focus,
-.hob-app textarea:focus,
-.hob-app select:focus { box-shadow: none !important; }
-.hob-app input:focus-visible,
-.hob-app textarea:focus-visible,
-.hob-app select:focus-visible { outline: 1px solid #727b87; outline-offset: 1px; }
-@keyframes hob-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes hob-pulse { 50% { opacity: .35; } }
-@media (max-width: 1100px) { .hob-shortcuts { grid-template-columns: 1fr; } .hob-shortcut { min-height: auto; display: grid; grid-template-columns: 24px 1fr; column-gap: 14px; padding: 16px 18px; } .hob-shortcut > span:first-child { grid-row: 1 / 3; margin: 0; } .hob-shortcut > span:first-child > svg:last-child { display: none; } .hob-shortcut strong { margin-bottom: 4px; } }
-@media (max-width: 767px) { .hob-chat-header { min-height: 64px; padding: 12px 14px; } .hob-brand { font-size: 24px; gap: 6px; } .hob-brand img { width: 30px; height: 30px; } .hob-connection { font-size: 0; gap: 0; } .hob-welcome { padding: 24px 10px; } .hob-welcome-mark { margin-bottom: 20px; } .hob-welcome-mark img { width: 76px; height: 76px; } .hob-eyebrow { font-size: 10px; letter-spacing: 1.6px; } .hob-welcome h1 { letter-spacing: -1.5px; } .hob-welcome-copy { font-size: 14px; margin: 16px 0 24px; } .hob-composer-hint { display: none; } .hob-shortcuts { gap: 10px; } }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
-@media (max-width: 767px) { .hob-chat-header > .hob-brand { display: inline-flex; } }
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+:focus-visible {
+  outline: 2px solid var(--hob-accent);
+  outline-offset: 2px;
+}
+
+/* Layout Classes */
+.hob-app {
+  background: var(--hob-bg);
+}
+
+.hob-floating-panel {
+  background: var(--hob-panel);
+  border-radius: 34px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.055);
+  border: 1px solid rgba(0, 0, 0, 0.035);
+  overflow: hidden;
+}
+
+.hob-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px;
+  min-height: 82px;
+  background: var(--hob-panel);
+  border-bottom: 1px solid var(--hob-border);
+}
+
+.hob-connection {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--hob-text-secondary);
+}
+
+.hob-connection > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #8792A1;
+}
+
+.hob-connection > span[data-connected="true"] {
+  background: var(--hob-success);
+}
+
+/* Composer */
+.hob-composer-form {
+  background: #FFFFFF;
+  border: 1px solid #E6E6E6;
+  border-radius: 9999px;
+}
+
+.hob-composer-form:focus-within {
+  border-color: #1677FF;
+}
+
+/* Markdown styling inside bubbles */
+.hob-markdown-view {
+  color: inherit;
+}
+
+.hob-markdown-view p {
+  margin: 0.35rem 0;
+}
+
+.hob-markdown-view p:first-child {
+  margin-top: 0;
+}
+
+.hob-markdown-view p:last-child {
+  margin-bottom: 0;
+}
+
+.hob-markdown-view pre {
+  background: #FFFFFF;
+  border: 1px solid rgba(25, 35, 50, 0.08);
+  border-radius: 14px;
+  padding: 12px;
+  margin: 8px 0;
+  overflow-x: auto;
+}
+
+.hob-markdown-view code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px;
+}
+
+/* Animations */
+@keyframes hob-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes hob-pulse {
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -11,8 +11,8 @@ function Clarification({ question, busy, answer }: { question: Question; busy: b
   const [selected, setSelected] = useState<string[]>([]);
   const submit = () => answer(question.multiSelect
     ? JSON.stringify([...selected, ...(text.trim() ? [text] : [])]) : text);
-  return <div className="space-y-3 rounded-2xl bg-[#1a2027] p-4">
-    <p className="text-sm font-medium text-[#eef1f4]">{question.question}</p>
+  return <div className="space-y-3 rounded-2xl bg-white border border-[rgba(25,35,50,0.08)] p-4 shadow-sm">
+    <p className="text-sm font-medium text-[#17191D]">{question.question}</p>
     {question.choices.length > 0 && <div className="flex flex-wrap gap-2">{question.choices.map((choice, index) =>
       <button key={index} className={buttonClass} aria-pressed={question.multiSelect ? selected.includes(choice) : text === choice} disabled={busy} onClick={() => {
         if (question.multiSelect) setSelected(previous => previous.includes(choice) ? previous.filter(item => item !== choice) : [...previous, choice]);
@@ -60,9 +60,9 @@ export function HermesRunPanel({ sessionId, inline = false }: { sessionId: strin
   if (inline && !error && !hasInlinePrompt) return null;
   const active = run && ['queued', 'running', 'waiting_for_approval', 'stopping'].includes(run.status);
   const unknown = run && ['unknown', 'admitting', 'unavailable'].includes(run.status);
-  return <div className={inline ? 'hob-chat-prompt my-3 max-w-[88%] rounded-2xl bg-[#171d24] p-1 text-xs md:text-sm' : 'px-5 py-2.5 space-y-2.5 text-xs md:text-sm'}>
+  return <div className={inline ? 'hob-chat-prompt my-3 max-w-[88%] rounded-2xl bg-white border border-[rgba(25,35,50,0.08)] shadow-sm p-3 text-xs md:text-sm' : 'px-5 py-2.5 space-y-2.5 text-xs md:text-sm'}>
     {error && <Notice error>{error}</Notice>}
-    {run && !inline && <div className="flex items-center justify-between gap-3 text-[#c0b3a1]">
+    {run && !inline && <div className="flex items-center justify-between gap-3 text-[#687588]">
       <span className="font-medium capitalize">Run: {run.status.replaceAll('_', ' ')}</span>
       <div className="flex gap-2"><button className={buttonClass} disabled={busy} onClick={() => load()}>Refresh status</button>
         {active && <button className={buttonClass} disabled={busy || run.status === 'stopping'} onClick={() => control('abort', { expectedRunId: run.runId })}>Stop run</button>}</div>

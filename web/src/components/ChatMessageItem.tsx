@@ -1,46 +1,82 @@
 import React from 'react';
+import { CheckCheck } from 'lucide-react';
 import type { ChatMessage } from '../types/chat';
 import { displayGatewayNotice } from '../services/errors';
 import { MarkdownView } from './MarkdownView';
+import { DogeshAvatar } from './DogeshAvatar';
+import { useChat } from '../context/ChatContext';
 
 interface ChatMessageItemProps {
   message: ChatMessage;
 }
 
+function formatMessageTime(timestamp?: string): string {
+  if (!timestamp) return '';
+  const parsed = Date.parse(timestamp);
+  if (!Number.isNaN(parsed)) {
+    return new Date(parsed).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+  return timestamp;
+}
+
 export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => {
   const isUser = message.role === 'user';
+  const { agent } = useChat();
 
-  // A reply placeholder is intentionally kept in browser state while Hermes
-  // streams. The thinking indicator represents that state; an empty assistant
-  // bubble should never be rendered.
   if (!message.content.trim()) return null;
 
-  const renderedContent = <MarkdownView content={isUser ? message.content : displayGatewayNotice(message.content)} />;
+  const renderedContent = (
+    <MarkdownView content={isUser ? message.content : displayGatewayNotice(message.content)} />
+  );
+
+  const timeString = formatMessageTime(message.timestamp);
 
   if (isUser) {
     return (
-      <div className="flex justify-end mb-3 mt-1 w-full">
+      <div className="flex flex-col items-end w-full mb-4 select-text">
         <div
-          className="max-w-[80%] rounded-2xl rounded-br-xs text-[14px] md:text-[15px] text-[#f0f2f5] select-text leading-relaxed font-normal px-4 py-2.5"
-          style={{
-            backgroundColor: '#3c4652',
-          }}
+          className="max-w-[75%] rounded-[22px] rounded-tr-[6px] bg-[#FFFFFF] text-[14.5px] text-[#17191D] leading-relaxed px-5 py-3.5 shadow-[0_3px_10px_rgba(0,0,0,0.05)] border border-black/[0.035]"
         >
           {renderedContent}
+        </div>
+
+        {/* Timestamp beneath bubble with blue double checkmarks */}
+        <div className="flex items-center gap-1 mt-1.5 mr-2 text-[11px] text-[#7B8798]">
+          <span>{timeString}</span>
+          <CheckCheck size={14} className="text-[#1677FF] stroke-[2.5]" />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex justify-start mb-3 mt-1 w-full">
-      <div className="max-w-[88%] bg-[#171b21] rounded-2xl rounded-bl-xs px-4 md:px-5 py-3 md:py-3.5 select-text">
-        {renderedContent}
-        {message.status === 'streaming' && (
-          <span className="inline-block w-2.5 h-4 ml-1.5 bg-[#c0a07e] animate-pulse align-middle rounded-xs" />
+    <div className="flex items-start gap-3 w-full mb-4 select-text">
+      {/* Bot Avatar on the left */}
+      <div className="shrink-0 mt-0.5">
+        <DogeshAvatar
+          size={36}
+          showEditBadge={false}
+          avatarUrl={agent?.avatarUrl}
+          ringColor="ring-[#FAFAFA]"
+        />
+      </div>
+
+      <div className="flex flex-col items-start max-w-[82%] min-w-0">
+        {/* Incoming Bubble */}
+        <div className="w-full rounded-[22px] rounded-tl-[6px] bg-[#F0F0F0] text-[14.5px] text-[#253041] leading-relaxed px-5 py-3.5">
+          {renderedContent}
+          {message.status === 'streaming' && (
+            <span className="inline-block w-2 h-4 ml-1.5 bg-[#1677FF] animate-pulse align-middle rounded-xs" />
+          )}
+        </div>
+
+        {/* Timestamp beneath bubble */}
+        {timeString && (
+          <div className="mt-1.5 ml-2 text-[11px] text-[#7B8798]">
+            {timeString}
+          </div>
         )}
       </div>
     </div>
   );
 };
-
