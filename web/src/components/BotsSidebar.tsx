@@ -144,7 +144,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
               placeholder="Search bots..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full h-10 bg-[#F0F0F0] text-[13px] text-[#17191D] pl-9 pr-12 rounded-full border border-transparent focus:border-[#1677FF]/40 focus:outline-none placeholder-[#8792A1] transition-all"
+              className="w-full h-10 bg-[#F0F0F0] text-[13px] text-[#17191D] pl-9 pr-12 rounded-full border border-transparent focus:outline-none placeholder-[#8792A1] transition-all"
             />
             {search ? (
               <button

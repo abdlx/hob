@@ -82,6 +82,24 @@ button:disabled {
   outline-offset: 2px;
 }
 
+input,
+textarea,
+select,
+.hob-composer,
+.hob-composer * {
+  outline: none !important;
+  outline-offset: 0 !important;
+}
+
+input:focus,
+input:focus-visible,
+textarea:focus,
+textarea:focus-visible {
+  outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+}
+
 /* Layout Classes */
 .hob-app {
   background: var(--hob-bg);
@@ -138,7 +156,9 @@ button:disabled {
 }
 
 .hob-composer-form:focus-within {
-  border-color: #1677FF;
+  border-color: #E6E6E6;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 /* Markdown styling inside bubbles */

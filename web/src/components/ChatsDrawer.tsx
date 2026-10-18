@@ -69,7 +69,7 @@ export const ChatsDrawer: React.FC = () => {
               placeholder="Search chats..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-[#F0F0F0] text-sm text-[#17191D] pl-9.5 pr-4 py-2 rounded-full border border-transparent focus:outline-none focus:border-[#1677FF]/40 placeholder-[#8792A1]"
+              className="w-full bg-[#F0F0F0] text-sm text-[#17191D] pl-9.5 pr-4 py-2 rounded-full border border-transparent focus:outline-none placeholder-[#8792A1]"
             />
           </div>
         </div>
