@@ -63,14 +63,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
   };
 
   return (
-    <div className="hob-composer w-full px-3 md:px-6 pb-3 md:pb-6 pt-1.5 md:pt-2 bg-[#FAFAFA] shrink-0">
+    <div className="hob-composer w-full px-3 sm:px-4 md:px-6 pb-2.5 md:pb-6 pt-1 bg-transparent shrink-0 flex flex-col items-center gap-2 select-none">
       <form
         onSubmit={handleSubmit}
-        className="w-full flex items-center"
+        className="w-full max-w-[840px] flex items-center justify-center"
       >
-        {/* Unified Pill Prompt Box with Plus, Input, Mic, and Send inside */}
+        {/* Floating Pill Prompt Box with Plus, Input, Mic, and Send inside */}
         <div
-          className="w-full min-h-[52px] rounded-full bg-[#FFFFFF] border border-[#E6E6E6] pl-2.5 pr-2 py-1.5 flex items-center gap-2 shadow-xs transition-colors focus-within:border-[#1677FF]"
+          className="w-full min-h-[48px] sm:min-h-[52px] rounded-full bg-white/95 backdrop-blur-md border border-[rgba(0,0,0,0.08)] pl-2 sm:pl-2.5 pr-1.5 sm:pr-2 py-1 sm:py-1.5 flex items-center gap-1.5 sm:gap-2 shadow-[0_4px_16px_rgba(0,0,0,0.06)] hover:shadow-[0_6px_20px_rgba(0,0,0,0.08)] transition-all focus-within:border-[#1677FF] focus-within:shadow-[0_6px_20px_rgba(22,119,255,0.12)]"
         >
           {/* Plus / Attachment button inside prompt box */}
           <button
@@ -78,9 +78,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
             title="Add context / Open library"
             aria-label="Add context"
             onClick={() => setActiveNav('library')}
-            className="w-9 h-9 rounded-full bg-transparent hover:bg-[#F5F5F5] text-[#253041] transition-colors shrink-0 cursor-pointer flex items-center justify-center"
+            className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-transparent hover:bg-[#F5F5F5] text-[#253041] transition-colors shrink-0 cursor-pointer flex items-center justify-center"
           >
-            <Plus size={19} strokeWidth={2.2} />
+            <Plus size={18} strokeWidth={2.2} />
           </button>
 
           {/* Text Input */}
@@ -106,15 +106,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
           />
 
           {/* Right Controls inside prompt box: Mic and Send */}
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
             {/* Voice Microphone Button */}
             <button
               type="button"
               title="Voice input"
               aria-label="Voice input"
-              className="w-9 h-9 rounded-full bg-transparent hover:bg-[#F5F5F5] text-[#253041] transition-colors shrink-0 cursor-pointer flex items-center justify-center"
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-transparent hover:bg-[#F5F5F5] text-[#253041] transition-colors shrink-0 cursor-pointer flex items-center justify-center"
             >
-              <Mic size={18} strokeWidth={1.8} />
+              <Mic size={17} strokeWidth={1.8} />
             </button>
 
             {/* Send Button */}
@@ -122,15 +122,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
               type="submit"
               aria-label="Send message"
               disabled={isLoading || isPreparing || isCreatingConversation || readOnly || !text.trim()}
-              className="w-9 h-9 rounded-full bg-[#1677FF] hover:bg-[#0D6CE5] text-[#FFFFFF] flex items-center justify-center transition-all cursor-pointer shrink-0 disabled:opacity-40 disabled:hover:bg-[#1677FF] shadow-xs active:scale-95"
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#1677FF] hover:bg-[#0D6CE5] text-[#FFFFFF] flex items-center justify-center transition-all cursor-pointer shrink-0 disabled:opacity-40 disabled:hover:bg-[#1677FF] shadow-xs active:scale-95"
             >
-              <ArrowUp size={18} strokeWidth={2.4} />
+              <ArrowUp size={17} strokeWidth={2.4} />
             </button>
           </div>
         </div>
       </form>
 
-      {/* iOS-Inspired Bottom Dock Mobile Navigation Bar below input field on small screens */}
+      {/* iOS-Inspired Floating Bottom Dock Mobile Navigation Bar below input field on small screens */}
       <MobileDock currentMobileView="chat" onNavigateBots={onNavigateBots} />
     </div>
   );

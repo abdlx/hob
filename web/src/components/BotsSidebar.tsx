@@ -109,7 +109,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
   return (
     <>
       <div
-        className="hob-bots-sidebar flex-1 min-w-0 h-full flex flex-col bg-[#FAFAFA] select-none"
+        className="hob-bots-sidebar flex-1 min-w-0 min-h-0 h-full flex flex-col bg-[#FAFAFA] select-none"
         aria-label="Bots directory"
       >
         {/* Header: Bots, badge, + button */}

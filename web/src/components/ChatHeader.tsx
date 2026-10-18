@@ -19,17 +19,17 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
   } = useChat();
 
   return (
-    <header className="hob-chat-header flex items-center justify-between px-4 md:px-6 h-[82px] min-h-[82px] border-b border-[rgba(25,35,50,0.07)] bg-[#FAFAFA] select-none shrink-0 relative">
+    <header className="hob-chat-header flex items-center justify-between px-3.5 sm:px-4 md:px-6 h-[66px] min-h-[66px] sm:h-[72px] sm:min-h-[72px] bg-transparent select-none shrink-0 relative z-10">
       {/* ========================================================
           DESKTOP HEADER LAYOUT (hidden on mobile, flex on md+)
          ======================================================== */}
-      <div className="hidden md:flex items-center gap-3">
+      <div className="hidden md:flex items-center gap-3 py-1.5 px-3.5 rounded-full bg-white/90 backdrop-blur-md border border-[rgba(0,0,0,0.06)] shadow-[0_2px_10px_rgba(0,0,0,0.04)]">
         <DogeshAvatar
-          size={40}
+          size={38}
           showEditBadge={false}
           avatarUrl={agent?.avatarUrl}
           status={connected && !isPreparing ? 'connected' : 'disconnected'}
-          ringColor="ring-[#FAFAFA]"
+          ringColor="ring-white"
         />
 
         <div className="flex flex-col">
@@ -39,19 +39,19 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
             title="Switch bot"
             aria-label="Switch bot"
           >
-            <h1 className="text-[16px] font-semibold text-[#17191D] tracking-tight leading-tight group-hover:text-[#1677FF] transition-colors">
+            <h1 className="text-[15px] font-semibold text-[#17191D] tracking-tight leading-tight group-hover:text-[#1677FF] transition-colors">
               {agent?.name || 'Main'}
             </h1>
-            <ChevronDown size={14} className="text-[#687588] group-hover:text-[#1677FF] transition-colors" />
+            <ChevronDown size={13} className="text-[#687588] group-hover:text-[#1677FF] transition-colors" />
           </button>
 
           <div className="flex items-center gap-1.5 mt-0.5">
             <span
-              className={`w-2 h-2 rounded-full inline-block ${
+              className={`w-1.5 h-1.5 rounded-full inline-block ${
                 connected && !isPreparing ? 'bg-[#16CC8A]' : 'bg-[#8792A1]'
               }`}
             />
-            <span className="text-[12px] font-medium text-[#687588]">
+            <span className="text-[11px] font-medium text-[#687588]">
               {isPreparing ? 'Preparing' : connected ? 'Connected' : 'Offline'}
             </span>
           </div>
@@ -62,7 +62,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
         {/* ... More button */}
         <button
           onClick={toggleLeftDrawer}
-          className="w-10 h-10 rounded-full bg-[#F0F0F0] hover:bg-[#E5E5E5] text-[#253041] flex items-center justify-center transition-colors cursor-pointer"
+          className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-md border border-[rgba(0,0,0,0.06)] shadow-[0_2px_10px_rgba(0,0,0,0.04)] hover:bg-white text-[#253041] flex items-center justify-center transition-all cursor-pointer active:scale-95"
           aria-label="Conversations"
           title="Conversations"
         >
@@ -72,10 +72,10 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
         {/* Panel toggle button */}
         <button
           onClick={toggleRightPanel}
-          className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+          className={`w-10 h-10 rounded-full backdrop-blur-md border border-[rgba(0,0,0,0.06)] shadow-[0_2px_10px_rgba(0,0,0,0.04)] flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
             isRightPanelOpen
-              ? 'bg-[#E5EEFB] text-[#1677FF]'
-              : 'bg-[#F0F0F0] hover:bg-[#E5E5E5] text-[#253041]'
+              ? 'bg-[#E5EEFB] text-[#1677FF] border-[#BBD5F8]'
+              : 'bg-white/90 hover:bg-white text-[#253041]'
           }`}
           aria-label={isRightPanelOpen ? 'Close agent panel' : 'Open agent panel'}
           aria-expanded={isRightPanelOpen}
@@ -87,7 +87,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
         {/* Chevron down button */}
         <button
           onClick={toggleBotsSidebar}
-          className="w-10 h-10 rounded-full bg-[#F0F0F0] hover:bg-[#E5E5E5] text-[#253041] flex items-center justify-center transition-colors cursor-pointer"
+          className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-md border border-[rgba(0,0,0,0.06)] shadow-[0_2px_10px_rgba(0,0,0,0.04)] hover:bg-white text-[#253041] flex items-center justify-center transition-all cursor-pointer active:scale-95"
           aria-label="Toggle bots"
           title="Toggle bots"
         >
@@ -98,19 +98,19 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
       {/* ========================================================
           MOBILE HEADER LAYOUT (flex on mobile, hidden on md+)
          ======================================================== */}
-      {/* Left: Back button to return to bots list */}
+      {/* Left: Floating back button to return to bots list */}
       <div className="md:hidden flex items-center">
         <button
           onClick={onBackToBots}
-          className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-black/5 text-[#17191D] transition-colors cursor-pointer"
+          className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/90 backdrop-blur-md shadow-[0_2px_8px_rgba(0,0,0,0.06)] border border-[rgba(0,0,0,0.06)] text-[#17191D] hover:bg-white active:scale-95 transition-all cursor-pointer"
           aria-label="Back to bots"
           title="Back to bots"
         >
-          <ChevronLeft size={24} strokeWidth={2.4} />
+          <ChevronLeft size={22} strokeWidth={2.4} />
         </button>
       </div>
 
-      {/* Middle: Oversized avatar + nametag whose top edge is slightly under avatar */}
+      {/* Middle: Floating oversized avatar + nametag whose top edge is slightly under avatar */}
       <div
         onClick={toggleRightPanel}
         className="md:hidden absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 flex flex-col items-center cursor-pointer group"
@@ -118,16 +118,16 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
         tabIndex={0}
         aria-label="Open agent details and activity"
       >
-        <div className="relative">
+        <div className="relative shadow-sm rounded-full">
           <DogeshAvatar
-            size={52}
+            size={48}
             showEditBadge={false}
             avatarUrl={agent?.avatarUrl}
             status={connected && !isPreparing ? 'connected' : 'disconnected'}
-            ringColor="ring-[#FAFAFA]"
+            ringColor="ring-white"
           />
         </div>
-        <div className="-mt-2.5 z-10 px-3 py-0.5 rounded-full bg-[#E5EEFB] border border-[#BBD5F8] text-[11px] font-semibold text-[#17202E] shadow-xs flex items-center gap-1 group-hover:bg-[#D5E5FA] transition-colors">
+        <div className="-mt-2 z-10 px-2.5 py-0.5 rounded-full bg-white/95 backdrop-blur-md border border-[rgba(0,0,0,0.08)] text-[11px] font-semibold text-[#17202E] shadow-[0_2px_8px_rgba(0,0,0,0.06)] flex items-center gap-1 group-hover:bg-[#F0F5FF] transition-all">
           <span>{agent?.name || 'Main'}</span>
           <span
             className={`w-1.5 h-1.5 rounded-full inline-block ${
@@ -137,11 +137,11 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
         </div>
       </div>
 
-      {/* Right: More button */}
+      {/* Right: Floating more button */}
       <div className="md:hidden flex items-center gap-1">
         <button
           onClick={toggleLeftDrawer}
-          className="w-10 h-10 rounded-full bg-[#F0F0F0] hover:bg-[#E5E5E5] text-[#253041] flex items-center justify-center transition-colors cursor-pointer"
+          className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/90 backdrop-blur-md shadow-[0_2px_8px_rgba(0,0,0,0.06)] border border-[rgba(0,0,0,0.06)] text-[#253041] hover:bg-white flex items-center justify-center active:scale-95 transition-all cursor-pointer"
           aria-label="Conversations"
           title="Conversations"
         >

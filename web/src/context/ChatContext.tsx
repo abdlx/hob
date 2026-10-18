@@ -88,6 +88,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
+    const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1';
+    if (isPreview) return;
     const selectedProfile = chatApi.getProfile();
     const api = chatApi.forProfile(selectedProfile), epoch = viewEpochRef.current, sequence = ++refreshSequenceRef.current;
     const results = await Promise.allSettled([api.getSessions(), api.getAgentProfile(), api.getTasks(), api.getSecurityApprovals(), api.getSystemStats(), api.getAgents()]);
@@ -108,6 +110,44 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
     async function initialize() {
+      const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1';
+      if (isPreview) {
+        setIsPreparing(false);
+        setConnected(true);
+        setError(null);
+        const mainBot: AgentProfile = { id: 'main', name: 'Main', model: 'gpt-4o', status: 'connected', roleDescription: 'Helpful personal assistant', avatarUrl: '' };
+        setAgent(mainBot);
+        setAgents([
+          { id: 'main', name: 'Main', model: 'OpenAI GPT-4o', roleDescription: 'Helpful personal assistant' },
+          { id: 'scout', name: 'Scout', model: 'Claude 3.5 Sonnet', roleDescription: 'Research & exploration bot' },
+          { id: 'hermes', name: 'Hermes', model: 'Hermes 3 Llama', roleDescription: 'Local tool executor' },
+          { id: 'atlas', name: 'Atlas', model: 'DeepSeek V3', roleDescription: 'Code and workflows' },
+        ]);
+        const sampleSession: ChatSession = { id: 'preview-session-1', agentId: 'main', title: 'Conversation with Main', createdAt: 'Today' };
+        setSessions([sampleSession]);
+        setActiveSessionId('preview-session-1');
+        setMessages([
+          {
+            id: 'm1',
+            role: 'assistant',
+            content: "Hello! I'm Main, your personal assistant. What would you like to work on today?",
+            timestamp: '11:20 AM',
+          },
+          {
+            id: 'm2',
+            role: 'user',
+            content: 'Could you give me an overview of our project architecture?',
+            timestamp: '11:21 AM',
+          },
+          {
+            id: 'm3',
+            role: 'assistant',
+            content: "Everything is running smoothly! All responsive screen layouts, floating controls, and navigation bars are configured edge-to-edge.",
+            timestamp: '11:22 AM',
+          },
+        ]);
+        return;
+      }
       const selectedProfile = chatApi.getProfile();
       const api = chatApi.forProfile(selectedProfile), epoch = viewEpochRef.current;
       try {
@@ -185,6 +225,23 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [setActiveNav, isPreparing]);
 
   const selectAgent = useCallback(async (id: string, options: { stayOnPage?: boolean } = {}) => {
+    const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1';
+    if (isPreview) {
+      const found = agents.find((a) => a.id === id) || { id, name: id.charAt(0).toUpperCase() + id.slice(1), model: 'OpenAI GPT-4o' };
+      setAgent({ id: found.id, name: found.name, model: found.model || 'gpt-4o', status: 'connected', avatarUrl: found.avatarUrl || '' });
+      setActiveSessionId(`preview-${id}`);
+      setSessions([{ id: `preview-${id}`, agentId: id, title: `Chat with ${found.name}`, createdAt: 'Just now' }]);
+      setMessages([
+        {
+          id: `welcome-${id}`,
+          role: 'assistant',
+          content: `Hi! I'm ${found.name}. What can we build or research today?`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        },
+      ]);
+      if (!options.stayOnPage) setActiveNav('chat');
+      return;
+    }
     if (profileLoadingRef.current || isPreparing || id === chatApi.getProfile()) return;
     profileLoadingRef.current = true;
     const epoch = ++viewEpochRef.current, api = chatApi.forProfile(id);
@@ -216,9 +273,32 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       profileLoadingRef.current = false;
       if (viewEpochRef.current === epoch) { setIsPreparing(false); setIsCreatingConversation(creatingRef.current.has(id)); }
     }
-  }, [isPreparing, refresh, setActiveNav]);
+  }, [isPreparing, refresh, setActiveNav, agents]);
 
   const sendMessage = useCallback(async (content: string) => {
+    const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1';
+    if (isPreview) {
+      const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const userMessage: ChatMessage = {
+        id: `preview-user-${Date.now()}`,
+        role: 'user',
+        content,
+        timestamp: time,
+      };
+      setMessages((prev) => [...prev, userMessage]);
+      setTimeout(() => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `preview-ai-${Date.now()}`,
+            role: 'assistant',
+            content: `Understood! Working on "${content}".`,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          },
+        ]);
+      }, 250);
+      return;
+    }
     const profile = chatApi.getProfile(), api = chatApi.forProfile(profile), epoch = viewEpochRef.current;
     if (!content.trim() || workRef.current.busy(sessionRef.current) || creatingRef.current.has(profile) || isPreparing) return;
     if (sessions.find(session => session.id === sessionRef.current)?.readOnly) {

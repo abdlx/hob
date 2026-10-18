@@ -540,7 +540,7 @@ export function RightPanel() {
   const hasLiveTasks = tasks && tasks.length > 0;
 
   return (
-    <div className="hob-agent-panel w-full h-full bg-[#FAFAFA] flex flex-col select-none overflow-y-auto relative p-4 sm:p-5 lg:p-[26px]">
+    <div className="hob-agent-panel w-full h-full min-h-0 bg-[#FAFAFA] flex flex-col select-none overflow-y-auto relative p-4 sm:p-5 lg:p-[26px]">
       {/* Mobile top bar with back button */}
       <div className="lg:hidden flex items-center justify-between pb-3 mb-3 border-b border-[rgba(25,35,50,0.07)] shrink-0">
         <button

@@ -32,7 +32,7 @@ export const ChatScreen: React.FC = () => {
   const [mobileView, setMobileView] = useState<'bots' | 'chat'>('bots');
 
   return (
-    <div className="hob-app flex h-screen w-screen overflow-hidden bg-[#FAFAFA] md:bg-[#EAE8E5] p-0 md:p-5 lg:p-[28px] gap-0 md:gap-4 lg:gap-5 select-none">
+    <div className="hob-app flex h-[100dvh] h-screen w-screen max-w-full overflow-hidden bg-[#FAFAFA] md:bg-[#EAE8E5] p-0 md:p-5 lg:p-[28px] gap-0 md:gap-4 lg:gap-5 select-none">
       {/* Panel 1: Left Navigation Rail + Bot Directory (Desktop only) */}
       <aside
         className="hob-panel-left hidden md:flex rounded-[34px] bg-[#FAFAFA] shadow-[0_12px_40px_rgba(0,0,0,0.055)] border border-[rgba(0,0,0,0.035)] overflow-hidden shrink-0 w-[23%] min-w-[300px] max-w-[360px] h-full"
@@ -48,7 +48,7 @@ export const ChatScreen: React.FC = () => {
       {/* Panel 2: Center Primary Panel (Conversation or Mobile Views) */}
       <main
         id="main-content"
-        className="hob-panel-center flex-1 flex flex-col h-full min-w-0 rounded-none md:rounded-[34px] bg-[#FAFAFA] shadow-none md:shadow-[0_12px_40px_rgba(0,0,0,0.055)] border-0 md:border md:border-[rgba(0,0,0,0.035)] overflow-hidden relative"
+        className="hob-panel-center flex-1 flex flex-col h-full min-w-0 min-h-0 rounded-none md:rounded-[34px] bg-[#FAFAFA] shadow-none md:shadow-[0_12px_40px_rgba(0,0,0,0.055)] border-0 md:border md:border-[rgba(0,0,0,0.035)] overflow-hidden relative"
       >
         {isPreparing && (
           <div className="px-6 pt-3">
@@ -87,11 +87,13 @@ export const ChatScreen: React.FC = () => {
             {/* ========================================================
                 MOBILE VIEW: Bots directory first, then Chat on select
                ======================================================== */}
-            <div className="md:hidden flex-1 flex flex-col h-full overflow-hidden">
+            <div className="md:hidden flex-1 flex flex-col h-full min-h-0 overflow-hidden">
               {mobileView === 'bots' ? (
-                <div className="flex-1 flex flex-col h-full overflow-hidden">
-                  <BotsSidebar onSelectBot={() => setMobileView('chat')} />
-                  <div className="shrink-0 p-2 border-t border-[rgba(25,35,50,0.06)] bg-[#FAFAFA]">
+                <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
+                  <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                    <BotsSidebar onSelectBot={() => setMobileView('chat')} />
+                  </div>
+                  <div className="shrink-0 pt-1 pb-2 bg-transparent flex justify-center">
                     <MobileDock
                       currentMobileView="bots"
                       onNavigateBots={() => setMobileView('bots')}
@@ -100,7 +102,7 @@ export const ChatScreen: React.FC = () => {
                   </div>
                 </div>
               ) : (
-                <div className="flex-1 flex flex-col h-full overflow-hidden">
+                <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
                   <ChatHeader onBackToBots={() => setMobileView('bots')} />
                   {readOnly && (
                     <div className="px-6 py-2">
@@ -124,7 +126,7 @@ export const ChatScreen: React.FC = () => {
             {/* ========================================================
                 DESKTOP VIEW: Center conversation panel always active
                ======================================================== */}
-            <div className="hidden md:flex flex-1 flex-col h-full overflow-hidden">
+            <div className="hidden md:flex flex-1 flex-col h-full min-h-0 overflow-hidden">
               <ChatHeader onBackToBots={() => setMobileView('bots')} />
               {readOnly && (
                 <div className="px-6 py-2">
@@ -144,7 +146,7 @@ export const ChatScreen: React.FC = () => {
             </div>
           </>
         ) : (
-          <div className="flex-1 overflow-y-auto flex flex-col h-full">
+          <div className="flex-1 min-h-0 overflow-y-auto flex flex-col h-full">
             <WorkspaceViews activeNav={activeNav} />
             <div className="shrink-0 p-2 md:hidden">
               <MobileDock
