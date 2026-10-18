@@ -19,7 +19,10 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
   } = useChat();
 
   return (
-    <header className="hob-chat-header flex items-center justify-between px-3.5 sm:px-4 md:px-6 h-[78px] min-h-[78px] sm:h-[84px] sm:min-h-[84px] bg-transparent select-none shrink-0 relative z-10">
+    <header
+      className="hob-chat-header flex items-center justify-between px-3.5 sm:px-4 md:px-6 h-[78px] min-h-[78px] sm:h-[84px] sm:min-h-[84px] bg-transparent select-none shrink-0 relative z-20 border-none border-b-0"
+      style={{ background: 'transparent', backgroundColor: 'transparent', border: 'none', borderBottom: 'none', boxShadow: 'none' }}
+    >
       {/* ========================================================
           DESKTOP HEADER LAYOUT (hidden on mobile, flex on md+)
          ======================================================== */}
@@ -113,24 +116,24 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
       {/* Middle: Floating oversized avatar overlapping on top of nametag */}
       <div
         onClick={toggleRightPanel}
-        className="md:hidden absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 flex flex-col items-center cursor-pointer group"
+        className="md:hidden absolute left-1/2 -translate-x-1/2 top-[19px] flex flex-col items-center cursor-pointer group z-20"
         role="button"
         tabIndex={0}
         aria-label="Open agent details and activity"
       >
-        {/* Avatar is in FRONT (z-20) and OVERLAPS the top edge of nametag */}
-        <div className="relative z-20 shadow-[0_4px_16px_rgba(0,0,0,0.08)] rounded-full ring-2 ring-white">
+        {/* Avatar is in FRONT (z-20) and top edge lines up with left & right buttons; external circle and status dot removed */}
+        <div className="relative z-20">
           <DogeshAvatar
             size={62}
             showEditBadge={false}
             avatarUrl={agent?.avatarUrl}
-            status={connected && !isPreparing ? 'connected' : 'disconnected'}
-            ringColor="ring-white"
+            hideBorder={true}
+            hideStatusDot={true}
           />
         </div>
 
-        {/* Nametag sits underneath (z-10), tucked under the bottom curve of the avatar */}
-        <div className="relative z-10 -mt-3.5 px-4 py-1 rounded-full bg-white/95 backdrop-blur-md border border-[rgba(0,0,0,0.08)] text-[13px] font-semibold text-[#17202E] shadow-[0_4px_14px_rgba(0,0,0,0.06)] flex items-center gap-1.5 group-hover:bg-[#F0F5FF] transition-all">
+        {/* Nametag sits underneath (z-10), moved down by 2px (-mt-[12px] instead of -mt-3.5) */}
+        <div className="relative z-10 -mt-[12px] px-4 py-1 rounded-full bg-white/95 backdrop-blur-md border border-[rgba(0,0,0,0.08)] text-[13px] font-semibold text-[#17202E] shadow-[0_4px_14px_rgba(0,0,0,0.06)] flex items-center gap-1.5 group-hover:bg-[#F0F5FF] transition-all">
           <span>{agent?.name || 'Main'}</span>
           <span
             className={`w-2 h-2 rounded-full inline-block ${

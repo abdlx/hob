@@ -9,6 +9,8 @@ interface DogeshAvatarProps {
   status?: 'connected' | 'idle' | 'busy' | 'disconnected';
   className?: string;
   ringColor?: string;
+  hideBorder?: boolean;
+  hideStatusDot?: boolean;
 }
 
 export const DogeshAvatar: React.FC<DogeshAvatarProps> = ({
@@ -19,6 +21,8 @@ export const DogeshAvatar: React.FC<DogeshAvatarProps> = ({
   status,
   className = '',
   ringColor = 'ring-white',
+  hideBorder = false,
+  hideStatusDot = false,
 }) => {
   const isDefault = !avatarUrl || avatarUrl === '/brand/hob-mark.png' || avatarUrl.includes('hob-mark');
 
@@ -28,7 +32,11 @@ export const DogeshAvatar: React.FC<DogeshAvatarProps> = ({
       style={{ width: size, height: size }}
     >
       <div
-        className="w-full h-full rounded-full overflow-hidden bg-white border border-[rgba(25,35,50,0.06)] flex items-center justify-center shadow-xs"
+        className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center ${
+          hideBorder
+            ? 'bg-[#E3E8EF] border-0 shadow-none'
+            : 'bg-white border border-[rgba(25,35,50,0.06)] shadow-xs'
+        }`}
       >
         <img
           src={isDefault ? '/brand/hob-mark.png' : avatarUrl}
@@ -50,7 +58,7 @@ export const DogeshAvatar: React.FC<DogeshAvatarProps> = ({
       )}
 
       {/* Status dot badge when not in edit mode */}
-      {!showEditBadge && status && (
+      {!showEditBadge && !hideStatusDot && status && (
         <span
           className={`absolute bottom-0 right-0 rounded-full ring-2 ${ringColor} ${
             size >= 60 ? 'w-3.5 h-3.5' : 'w-2.5 h-2.5'

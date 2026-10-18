@@ -104,7 +104,10 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   background: transparent !important;
+  background-color: transparent !important;
   border-bottom: none !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
 .hob-connection {

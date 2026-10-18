@@ -75,6 +75,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const setComposerDraft = useCallback((id: string, text: string) => workRef.current.setDraft(id, text), []);
 
   const reconcileMessages = useCallback(async () => {
+    const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1';
+    if (isPreview) return;
     const id = sessionRef.current;
     if (!id || workRef.current.busy(id)) return;
     const profile = chatApi.getProfile(), epoch = viewEpochRef.current, version = workRef.current.version(id);
