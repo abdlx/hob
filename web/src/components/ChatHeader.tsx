@@ -19,7 +19,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
   } = useChat();
 
   return (
-    <header className="hob-chat-header flex items-center justify-between px-3.5 sm:px-4 md:px-6 h-[66px] min-h-[66px] sm:h-[72px] sm:min-h-[72px] bg-transparent select-none shrink-0 relative z-10">
+    <header className="hob-chat-header flex items-center justify-between px-3.5 sm:px-4 md:px-6 h-[78px] min-h-[78px] sm:h-[84px] sm:min-h-[84px] bg-transparent select-none shrink-0 relative z-10">
       {/* ========================================================
           DESKTOP HEADER LAYOUT (hidden on mobile, flex on md+)
          ======================================================== */}
@@ -102,7 +102,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
       <div className="md:hidden flex items-center">
         <button
           onClick={onBackToBots}
-          className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/90 backdrop-blur-md shadow-[0_2px_8px_rgba(0,0,0,0.06)] border border-[rgba(0,0,0,0.06)] text-[#17191D] hover:bg-white active:scale-95 transition-all cursor-pointer"
+          className="flex items-center justify-center w-10 h-10 rounded-full bg-white/95 backdrop-blur-md shadow-[0_4px_14px_rgba(0,0,0,0.06)] border border-[rgba(0,0,0,0.06)] text-[#17191D] hover:bg-white active:scale-95 transition-all cursor-pointer"
           aria-label="Back to bots"
           title="Back to bots"
         >
@@ -110,7 +110,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
         </button>
       </div>
 
-      {/* Middle: Floating oversized avatar + nametag whose top edge is slightly under avatar */}
+      {/* Middle: Floating oversized avatar overlapping on top of nametag */}
       <div
         onClick={toggleRightPanel}
         className="md:hidden absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 flex flex-col items-center cursor-pointer group"
@@ -118,19 +118,22 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
         tabIndex={0}
         aria-label="Open agent details and activity"
       >
-        <div className="relative shadow-sm rounded-full">
+        {/* Avatar is in FRONT (z-20) and OVERLAPS the top edge of nametag */}
+        <div className="relative z-20 shadow-[0_4px_16px_rgba(0,0,0,0.08)] rounded-full ring-2 ring-white">
           <DogeshAvatar
-            size={48}
+            size={62}
             showEditBadge={false}
             avatarUrl={agent?.avatarUrl}
             status={connected && !isPreparing ? 'connected' : 'disconnected'}
             ringColor="ring-white"
           />
         </div>
-        <div className="-mt-2 z-10 px-2.5 py-0.5 rounded-full bg-white/95 backdrop-blur-md border border-[rgba(0,0,0,0.08)] text-[11px] font-semibold text-[#17202E] shadow-[0_2px_8px_rgba(0,0,0,0.06)] flex items-center gap-1 group-hover:bg-[#F0F5FF] transition-all">
+
+        {/* Nametag sits underneath (z-10), tucked under the bottom curve of the avatar */}
+        <div className="relative z-10 -mt-3.5 px-4 py-1 rounded-full bg-white/95 backdrop-blur-md border border-[rgba(0,0,0,0.08)] text-[13px] font-semibold text-[#17202E] shadow-[0_4px_14px_rgba(0,0,0,0.06)] flex items-center gap-1.5 group-hover:bg-[#F0F5FF] transition-all">
           <span>{agent?.name || 'Main'}</span>
           <span
-            className={`w-1.5 h-1.5 rounded-full inline-block ${
+            className={`w-2 h-2 rounded-full inline-block ${
               connected && !isPreparing ? 'bg-[#16CC8A]' : 'bg-[#8792A1]'
             }`}
           />
@@ -141,7 +144,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
       <div className="md:hidden flex items-center gap-1">
         <button
           onClick={toggleLeftDrawer}
-          className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/90 backdrop-blur-md shadow-[0_2px_8px_rgba(0,0,0,0.06)] border border-[rgba(0,0,0,0.06)] text-[#253041] hover:bg-white flex items-center justify-center active:scale-95 transition-all cursor-pointer"
+          className="w-10 h-10 rounded-full bg-white/95 backdrop-blur-md shadow-[0_4px_14px_rgba(0,0,0,0.06)] border border-[rgba(0,0,0,0.06)] text-[#253041] hover:bg-white flex items-center justify-center active:scale-95 transition-all cursor-pointer"
           aria-label="Conversations"
           title="Conversations"
         >

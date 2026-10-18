@@ -99,10 +99,8 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 24px;
-  min-height: 82px;
-  background: var(--hob-panel);
-  border-bottom: 1px solid var(--hob-border);
+  background: transparent !important;
+  border-bottom: none !important;
 }
 
 .hob-connection {
