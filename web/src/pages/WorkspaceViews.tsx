@@ -339,6 +339,8 @@ export function WorkspaceViews({ activeNav }: { activeNav: string }) {
   const { setActiveNav, agent } = useChat();
   const runtime = useRuntime();
   const title = activeNav === 'idea' ? 'Workshop' : activeNav.charAt(0).toUpperCase() + activeNav.slice(1);
+  // A group conversation is a chat: it owns the whole pane, not the workspace scroller.
+  if (activeNav === 'groups' && runtime === 'hermes') return <HermesGroups />;
   return (
     <>
       <header className="h-[64px] border-b border-line px-6 flex items-center gap-3.5 shrink-0 bg-canvas">
@@ -350,7 +352,7 @@ export function WorkspaceViews({ activeNav }: { activeNav: string }) {
       <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 md:p-8">
         <div className="mx-auto max-w-[960px]">
           {activeNav === 'groups' ? (
-            runtime === 'hermes' ? <HermesGroups /> : <Notice>Groups require the Hermes runtime.</Notice>
+            <Notice>Groups require the Hermes runtime.</Notice>
           ) : activeNav === 'settings' ? (
             <SettingsView />
           ) : !agent ? (

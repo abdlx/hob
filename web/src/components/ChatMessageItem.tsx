@@ -48,6 +48,10 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
 
   return (
     <div className="flex flex-col items-start w-full mb-4 select-text">
+      {/* Who is answering matters when several members share one conversation. */}
+      {message.sender && (
+        <span className="mb-1 ml-2 text-[12px] font-semibold text-muted">{message.sender}</span>
+      )}
       {/* Incoming Bubble without bot avatar */}
       <div className="max-w-[82%] rounded-[22px] rounded-tl-[6px] bg-neutral text-[14.5px] text-code leading-relaxed px-4 py-2.5">
         {renderedContent}

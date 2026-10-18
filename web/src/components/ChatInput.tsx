@@ -1,11 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useChat } from '../context/ChatContext';
-import {
-  Plus,
-  ArrowUp,
-  Mic,
-} from 'lucide-react';
-import { MobileDock } from './MobileDock';
+import { ChatComposer } from './ChatComposer';
 
 interface ChatInputProps {
   onNavigateBots?: () => void;
@@ -27,111 +22,34 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
 
   const readOnly = sessions.find((session) => session.id === activeSessionId)?.readOnly === true;
   const [text, setText] = useState(() => getComposerDraft(activeSessionId));
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const disabled = isLoading || isPreparing || isCreatingConversation || readOnly;
 
-  useEffect(() => {
-    if (textareaRef.current) {
-      if (!text) {
-        textareaRef.current.style.height = '';
-        return;
-      }
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(
-        textareaRef.current.scrollHeight,
-        140
-      )}px`;
-    }
-  }, [text]);
-
-  const handleSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!text.trim() || isLoading || isPreparing || isCreatingConversation || readOnly) return;
+  const submit = () => {
     const current = text.trim();
+    if (!current || disabled) return;
     setText('');
     setComposerDraft(activeSessionId, '');
-    if (textareaRef.current) {
-      textareaRef.current.style.height = '';
-    }
-    await sendMessage(current);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      handleSubmit();
-    }
+    void sendMessage(current);
   };
 
   return (
-    <div className="hob-composer w-full px-3 sm:px-4 md:px-6 pb-2.5 md:pb-6 pt-1 bg-transparent shrink-0 flex flex-col items-center gap-2 select-none">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-[840px] flex items-center justify-center"
-      >
-        {/* Floating Pill Prompt Box with Plus, Input, Mic, and Send inside */}
-        <div
-          className="w-full min-h-[48px] sm:min-h-[52px] rounded-full bg-surface/95 backdrop-blur-md border border-[rgba(0,0,0,0.08)] pl-2 sm:pl-2.5 pr-1.5 sm:pr-2 py-1 sm:py-1.5 flex items-center gap-1.5 sm:gap-2 shadow-[0_4px_16px_rgba(0,0,0,0.06)] hover:shadow-[0_6px_20px_rgba(0,0,0,0.08)] transition-all outline-none focus:outline-none focus-within:outline-none ring-0 focus:ring-0 focus-within:ring-0"
-        >
-          {/* Plus / Attachment button inside prompt box */}
-          <button
-            type="button"
-            title="Add context / Open library"
-            aria-label="Add context"
-            onClick={() => setActiveNav('library')}
-            className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-transparent hover:bg-sunken text-code transition-colors shrink-0 cursor-pointer flex items-center justify-center outline-none focus:outline-none"
-          >
-            <Plus size={18} strokeWidth={2.2} />
-          </button>
-
-          {/* Text Input */}
-          <textarea
-            aria-label="Message"
-            ref={textareaRef}
-            rows={1}
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              setComposerDraft(activeSessionId, e.target.value);
-            }}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              readOnly
-                ? 'Start a new conversation to continue'
-                : isLoading
-                ? 'Respond to the prompt above…'
-                : `Message ${agent?.name || 'Main'}...`
-            }
-            disabled={isLoading || isPreparing || isCreatingConversation || readOnly}
-            className="flex-1 bg-transparent text-ink placeholder-faint text-[14px] md:text-[15px] outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 border-none shadow-none resize-none p-0 m-0 min-h-[24px] max-h-[140px] leading-[24px] text-left"
-          />
-
-          {/* Right Controls inside prompt box: Mic and Send */}
-          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-            {/* Voice Microphone Button */}
-            <button
-              type="button"
-              title="Voice input"
-              aria-label="Voice input"
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-transparent hover:bg-sunken text-code transition-colors shrink-0 cursor-pointer flex items-center justify-center"
-            >
-              <Mic size={17} strokeWidth={1.8} />
-            </button>
-
-            {/* Send Button */}
-            <button
-              type="submit"
-              aria-label="Send message"
-              disabled={isLoading || isPreparing || isCreatingConversation || readOnly || !text.trim()}
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-accent hover:bg-accent-strong text-white flex items-center justify-center transition-all cursor-pointer shrink-0 disabled:opacity-40 disabled:hover:bg-accent shadow-xs active:scale-95"
-            >
-              <ArrowUp size={17} strokeWidth={2.4} />
-            </button>
-          </div>
-        </div>
-      </form>
-
-      {/* iOS-Inspired Floating Bottom Dock Mobile Navigation Bar below input field on small screens */}
-      <MobileDock currentMobileView="chat" onNavigateBots={onNavigateBots} />
-    </div>
+    <ChatComposer
+      value={text}
+      onChange={(value) => {
+        setText(value);
+        setComposerDraft(activeSessionId, value);
+      }}
+      onSubmit={submit}
+      disabled={disabled}
+      placeholder={
+        readOnly
+          ? 'Start a new conversation to continue'
+          : isLoading
+          ? 'Respond to the prompt above…'
+          : `Message ${agent?.name || 'Main'}...`
+      }
+      onAddContext={() => setActiveNav('library')}
+      onNavigateBots={onNavigateBots}
+    />
   );
 };
