@@ -6,7 +6,6 @@ import { HermesRunPanel } from './HermesRunPanel';
 import { useRuntime } from '../context/RuntimeContext';
 import { errorText } from './workspaceUtils';
 import type { SecurityApproval } from '../types/chat';
-import { HLogo } from './HLogo';
 
 function InlineApprovalPrompt() {
   const { approvals, resolveApproval } = useChat();
@@ -149,8 +148,8 @@ export function ChatMessageList() {
         {visibleMessages.length === 0 && (
           <section className="hob-welcome py-8 px-4 text-center max-w-xl mx-auto" aria-label="Welcome to hob">
             <div className="hob-welcome-mark flex justify-center mb-5">
-              <div className="w-20 h-20 rounded-full bg-[#DDE3EA] flex items-center justify-center shadow-xs">
-                <HLogo size={40} color="#17191D" />
+              <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center shadow-xs border border-[rgba(25,35,50,0.06)] p-3">
+                <img src="/brand/hob-mark.png" alt="hob" className="w-full h-full object-contain" />
               </div>
             </div>
             <p className="hob-eyebrow flex items-center justify-center gap-1.5 text-[11px] font-semibold tracking-wider text-[#687588] mb-3">

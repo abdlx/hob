@@ -301,7 +301,7 @@ export function WorkspaceViews({ activeNav }: { activeNav: string }) {
         </button>
         <h1 className="text-base md:text-lg font-semibold text-[#17191D]">{title}</h1>
       </header>
-      <div className="flex-1 overflow-y-auto p-6 md:p-8">
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 md:p-8">
         <div className="mx-auto max-w-[960px]">
           {activeNav === 'groups' ? (
             runtime === 'hermes' ? <HermesGroups /> : <Notice>Groups require the Hermes runtime.</Notice>

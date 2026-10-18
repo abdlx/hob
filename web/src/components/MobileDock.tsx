@@ -50,7 +50,7 @@ export const MobileDock: React.FC<MobileDockProps> = ({
     : 'bots';
 
   return (
-    <div className="md:hidden pt-2 pb-1 flex justify-center items-center w-full">
+    <div className="md:hidden pt-1.5 pb-1 flex justify-center items-center w-full shrink-0">
       <BottomDock
         items={items}
         activeId={activeId}

@@ -1,6 +1,7 @@
 export type HermesConfig = Record<string, unknown>;
+export type HermesModelSelection = { saved: true } | { saved: false; confirmation: string };
 
-export function hermesModelSelectionResult(value: unknown): { saved: true } | { saved: false; confirmation: string } {
+export function hermesModelSelectionResult(value: unknown): HermesModelSelection {
   if (value && typeof value === 'object') {
     const result = value as Record<string, unknown>;
     if (result.confirm_required === true && typeof result.confirm_message === 'string' && result.confirm_message.trim()) {

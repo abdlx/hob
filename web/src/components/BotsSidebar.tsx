@@ -113,7 +113,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
         aria-label="Bots directory"
       >
         {/* Header: Bots, badge, + button */}
-        <div className="px-5 pt-6 pb-2.5 flex items-center justify-between">
+        <div className="px-5 pt-6 pb-2.5 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <h2 className="text-[17px] font-semibold text-[#17191D] tracking-tight">Bots</h2>
             <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#687588]">
@@ -133,7 +133,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
         </div>
 
         {/* Search */}
-        <div className="px-4 py-2">
+        <div className="px-4 py-2 shrink-0">
           <div className="relative flex items-center">
             <Search
               size={15}
@@ -163,7 +163,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
         </div>
 
         {/* Contacts / Bots List */}
-        <div className="flex-1 overflow-y-auto px-3 py-1 space-y-1" role="list">
+        <div className="flex-1 min-h-0 overflow-y-auto px-3 py-1 space-y-1" role="list">
           {filteredAgents.length === 0 ? (
             <div className="text-center py-8 px-4 text-[#8792A1]">
               <p className="text-xs">No bots match "{search}".</p>
@@ -276,7 +276,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
         </div>
 
         {/* Footer: + New Bot and Manage in Settings */}
-        <div className="p-4 pt-2 border-t border-[rgba(25,35,50,0.06)] bg-[#FAFAFA] space-y-2.5">
+        <div className="hidden md:block p-4 pt-2 border-t border-[rgba(25,35,50,0.06)] bg-[#FAFAFA] space-y-2.5 shrink-0">
           <button
             type="button"
             onClick={() => setIsCreateOpen(true)}

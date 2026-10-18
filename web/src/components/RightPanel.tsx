@@ -27,6 +27,7 @@ import { DailyGoals } from '../pages/WorkspaceViews';
 import { HermesBrowser, HermesIdentity } from '../pages/HermesWorkspace';
 import { buttonClass, Field, inputClass, Notice } from './WorkspaceUI';
 import { errorText } from './workspaceUtils';
+import { MobileDock } from './MobileDock';
 import type { RightPanelTab } from '../types/chat';
 
 interface BrowserTab {
@@ -540,9 +541,9 @@ export function RightPanel() {
   const hasLiveTasks = tasks && tasks.length > 0;
 
   return (
-    <div className="hob-agent-panel w-full h-full min-h-0 bg-[#FAFAFA] flex flex-col select-none overflow-y-auto relative p-4 sm:p-5 lg:p-[26px]">
+    <div className="hob-agent-panel w-full h-full min-h-0 bg-[#FAFAFA] flex flex-col select-none overflow-hidden relative">
       {/* Mobile top bar with back button */}
-      <div className="lg:hidden flex items-center justify-between pb-3 mb-3 border-b border-[rgba(25,35,50,0.07)] shrink-0">
+      <div className="lg:hidden flex items-center justify-between px-4 py-3 border-b border-[rgba(25,35,50,0.07)] shrink-0 bg-[#FAFAFA]">
         <button
           onClick={toggleRightPanel}
           className="flex items-center gap-1 text-[14px] font-medium text-[#1677FF] hover:text-[#0D6CE5] p-1 -ml-1 cursor-pointer transition-colors"
@@ -571,6 +572,9 @@ export function RightPanel() {
       >
         <X size={18} strokeWidth={2} />
       </button>
+
+      {/* Middle scrollable content */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 sm:px-5 sm:py-4 lg:px-5 lg:py-5">
 
       {/* Profile Header */}
       <div className="flex flex-col items-center text-center">
@@ -784,6 +788,16 @@ export function RightPanel() {
 
         {/* Settings Tab (Daily Goals & Scheduling) */}
         {activeTab === 'goals' && <DailyGoals />}
+      </div>
+      </div>
+
+      {/* Mobile floating bottom dock navigation */}
+      <div className="shrink-0 pt-1 pb-2 bg-transparent flex justify-center lg:hidden">
+        <MobileDock
+          currentMobileView="chat"
+          onNavigateBots={() => toggleRightPanel()}
+          onOpenActivity={() => {}}
+        />
       </div>
     </div>
   );

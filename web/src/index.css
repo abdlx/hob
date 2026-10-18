@@ -85,6 +85,10 @@ button:disabled {
 /* Layout Classes */
 .hob-app {
   background: var(--hob-bg);
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
 }
 
 .hob-floating-panel {

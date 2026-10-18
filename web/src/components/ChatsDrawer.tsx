@@ -32,7 +32,7 @@ export const ChatsDrawer: React.FC = () => {
       {/* Drawer content: full width on mobile, w-80 on sm+ */}
       <div className="relative w-full sm:w-80 bg-[#FAFAFA] border-r border-[rgba(25,35,50,0.08)] h-full flex flex-col z-50 shadow-2xl animate-in slide-in-from-left duration-200">
         {/* Header */}
-        <div className="p-4 border-b border-[rgba(25,35,50,0.08)] flex items-center justify-between">
+        <div className="p-4 border-b border-[rgba(25,35,50,0.08)] flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-2.5">
             <MessageSquare size={19} className="text-[#1677FF]" />
             <h2 className="text-base font-semibold text-[#17191D]">Conversations</h2>
@@ -46,7 +46,7 @@ export const ChatsDrawer: React.FC = () => {
         </div>
 
         {/* New chat button */}
-        <div className="p-3.5">
+        <div className="p-3.5 shrink-0">
           <button
             onClick={createNewSession}
             disabled={isCreatingConversation}
@@ -58,7 +58,7 @@ export const ChatsDrawer: React.FC = () => {
         </div>
 
         {/* Search */}
-        <div className="px-3.5 pb-2.5">
+        <div className="px-3.5 pb-2.5 shrink-0">
           <div className="relative flex items-center">
             <Search
               size={15}
@@ -75,7 +75,7 @@ export const ChatsDrawer: React.FC = () => {
         </div>
 
         {/* Sessions list */}
-        <div className="flex-1 overflow-y-auto px-2.5 py-1.5 space-y-1">
+        <div className="flex-1 min-h-0 overflow-y-auto px-2.5 py-1.5 space-y-1">
           {filtered.map((session) => {
             const isActive = session.id === activeSessionId;
             return (

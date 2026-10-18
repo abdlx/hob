@@ -1,6 +1,5 @@
 import React from 'react';
 import { Pencil } from 'lucide-react';
-import { HLogo } from './HLogo';
 
 interface DogeshAvatarProps {
   size?: number;
@@ -29,17 +28,13 @@ export const DogeshAvatar: React.FC<DogeshAvatarProps> = ({
       style={{ width: size, height: size }}
     >
       <div
-        className="w-full h-full rounded-full overflow-hidden bg-[#DDE3EA] flex items-center justify-center shadow-xs"
+        className="w-full h-full rounded-full overflow-hidden bg-white border border-[rgba(25,35,50,0.06)] flex items-center justify-center shadow-xs"
       >
-        {isDefault ? (
-          <HLogo size={Math.round(size * 0.48)} color="#17191D" />
-        ) : (
-          <img
-            src={avatarUrl}
-            alt="Agent avatar"
-            className="w-full h-full object-cover"
-          />
-        )}
+        <img
+          src={isDefault ? '/brand/hob-mark.png' : avatarUrl}
+          alt="Agent avatar"
+          className="w-full h-full object-contain p-1.5"
+        />
       </div>
 
       {/* Edit pencil icon badge (bottom right) */}
