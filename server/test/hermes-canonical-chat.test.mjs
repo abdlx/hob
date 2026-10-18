@@ -59,6 +59,8 @@ async function fixture(t) {
           this.emit('event', { profile, event: { type: 'message.delta', session_id: params.session_id, admission_id: id, payload: { text: 'Native ' } } });
           this.finish(session, receipt);
         }
+        if (shared.mode === 'failed') this.finish(session, receipt, 'failed',
+          { failed: true, completed: false, error: 'Provider rejected the request (provider_auth).' });
         if (shared.mode === 'lost-acceptance') throw new HermesError(503, 'Connection lost.', 'SESSION_UNAVAILABLE');
         return structuredClone(receipt);
       }
@@ -80,11 +82,11 @@ async function fixture(t) {
       }
       throw new Error('Unexpected native method ' + method);
     }
-    finish(session, receipt, outcome = 'completed') {
+    finish(session, receipt, outcome = 'completed', result = { final_response: 'Native final response' }) {
       receipt.status = 'terminal'; receipt.outcome = outcome;
-      receipt.result = { final_response: 'Native final response' };
+      receipt.result = result;
       session.pending = []; session.prompts = [];
-      session.messages.push({ role: 'assistant', content: 'Native final response' });
+      session.messages.push({ role: 'assistant', content: result.final_response || '' });
     }
     close() { this.emit('event', { profile: 'default', event: { type: 'gateway.disconnected' } }); }
   }
@@ -147,6 +149,15 @@ test('chat uses native durable receipts and never dispatches through HTTP runs',
   assert.match(stream, /Native final response/); assert.doesNotMatch(stream, /private_policy|do-not-expose|event: error/);
   assert.equal(f.shared.calls.find(call => call.method === 'prompt.submit').profile, 'coder');
   assert.equal(f.legacyCalls.some(url => url.includes('/v1/runs')), false);
+});
+
+test('a terminal native failure surfaces the redacted reason instead of the generic sentence', async t => {
+  const f = await fixture(t); f.shared.mode = 'failed'; const session = await f.create('coder');
+  const stream = await (await f.turn(session.id)).text();
+  assert.match(stream, /event: accepted/); assert.match(stream, /event: error/); assert.doesNotMatch(stream, /event: done/);
+  assert.match(stream, /\(failed\): Provider rejected the request \(provider_auth\)\./);
+  const state = await (await f.call(`/api/sessions/${session.id}/run`)).json();
+  assert.equal(state.run.status, 'failed');
 });
 
 test('real HTTP question controls send exact native prompt and generation after adapter restart', async t => {

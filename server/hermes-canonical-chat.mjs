@@ -16,6 +16,14 @@ const nativeStatus = receipt => {
   if (!['queued', 'started', 'unknown'].includes(receipt.status)) throw new HermesError(502, 'Hermes returned an invalid admission state.', 'HERMES_PROTOCOL_ERROR');
   return receipt.status === 'started' ? 'running' : receipt.status;
 };
+// Native settlements carry an already-redacted reason (gateway/session_results.py). Surface a
+// bounded, single-line form so a failed turn is actionable; the generic sentence names no cause.
+const failureReason = receipt => {
+  const result = receipt?.result && typeof receipt.result === 'object' ? receipt.result : {};
+  const reason = [result.error, result.turn_exit_reason].find(value => typeof value === 'string' && value.trim());
+  return typeof reason === 'string'
+    ? reason.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300) : '';
+};
 
 /** Translate custom chat UX into the one native session/FIFO owner, without exposing raw RPC. */
 export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpChat }) {
@@ -290,7 +298,13 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
               if (typeof final !== 'string') throw new HermesError(502, 'The completed native result is unavailable. Refresh history.', 'HERMES_PROTOCOL_ERROR');
               sendEvent(res, 'done', { message: { id: accepted.admission_id, role: 'assistant', content: final,
                 timestamp: new Date().toISOString(), status: 'complete' } });
-            } else sendEvent(res, 'error', { message: 'Hermes did not complete this turn. Review its history before retrying.' });
+            } else {
+              const reason = failureReason(state.receipt);
+              console.log('[RAW_TURN_FAILURE]', JSON.stringify({ status: state.record.status, reason }));
+              sendEvent(res, 'error', { message: reason
+                ? `Hermes did not complete this turn (${state.record.status}): ${reason}`
+                : `Hermes did not complete this turn (${state.record.status}). Review its history before retrying.` });
+            }
             break;
           }
           if (state.record.status === 'unknown') { sendEvent(res, 'error', { message: 'Turn outcome is unknown. Review history and possible side effects before resolving it.' }); break; }
