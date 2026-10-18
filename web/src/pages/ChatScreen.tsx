@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { LeftSidebar } from '../components/LeftSidebar';
 import { BotsSidebar } from '../components/BotsSidebar';
 import { ChatHeader } from '../components/ChatHeader';
@@ -10,7 +10,6 @@ import { useChat } from '../context/ChatContext';
 import { WorkspaceViews } from './WorkspaceViews';
 import { Notice } from '../components/WorkspaceUI';
 import { MobileDock } from '../components/MobileDock';
-import { X } from 'lucide-react';
 
 export const ChatScreen: React.FC = () => {
   const {
@@ -29,9 +28,12 @@ export const ChatScreen: React.FC = () => {
 
   const readOnly = sessions.find((session) => session.id === activeSessionId)?.readOnly === true;
 
+  // On mobile: first screen is the bots directory, selecting a bot opens its chat
+  const [mobileView, setMobileView] = useState<'bots' | 'chat'>('bots');
+
   return (
-    <div className="hob-app flex h-screen w-screen overflow-hidden bg-[#EAE8E5] p-3 md:p-5 lg:p-[28px] gap-3 md:gap-4 lg:gap-5 select-none">
-      {/* Panel 1: Left Navigation Rail + Bot Directory */}
+    <div className="hob-app flex h-screen w-screen overflow-hidden bg-[#EAE8E5] p-2 sm:p-3 md:p-5 lg:p-[28px] gap-3 md:gap-4 lg:gap-5 select-none">
+      {/* Panel 1: Left Navigation Rail + Bot Directory (Desktop only) */}
       <aside
         className="hob-panel-left hidden md:flex rounded-[34px] bg-[#FAFAFA] shadow-[0_12px_40px_rgba(0,0,0,0.055)] border border-[rgba(0,0,0,0.035)] overflow-hidden shrink-0 w-[23%] min-w-[300px] max-w-[360px] h-full"
         aria-label="Navigation and bots"
@@ -43,7 +45,7 @@ export const ChatScreen: React.FC = () => {
       {/* Slide-over Conversations Drawer */}
       <ChatsDrawer />
 
-      {/* Panel 2: Center Primary Conversation Panel */}
+      {/* Panel 2: Center Primary Panel (Conversation or Mobile Views) */}
       <main
         id="main-content"
         className="hob-panel-center flex-1 flex flex-col h-full min-w-0 rounded-[34px] bg-[#FAFAFA] shadow-[0_12px_40px_rgba(0,0,0,0.055)] border border-[rgba(0,0,0,0.035)] overflow-hidden relative"
@@ -82,25 +84,74 @@ export const ChatScreen: React.FC = () => {
 
         {activeNav === 'chat' || activeNav === 'search' ? (
           <>
-            <ChatHeader />
-            {readOnly && (
-              <div className="px-6 py-2">
-                <Notice>
-                  This older API conversation is preserved as history.{' '}
-                  <button className="underline text-[#1677FF]" onClick={createNewSession}>
-                    Start a new interactive conversation
-                  </button>
-                </Notice>
-              </div>
-            )}
-            <ChatMessageList />
-            <ChatInput key={`composer:${activeSessionId}`} />
+            {/* ========================================================
+                MOBILE VIEW: Bots directory first, then Chat on select
+               ======================================================== */}
+            <div className="md:hidden flex-1 flex flex-col h-full overflow-hidden">
+              {mobileView === 'bots' ? (
+                <div className="flex-1 flex flex-col h-full overflow-hidden">
+                  <BotsSidebar onSelectBot={() => setMobileView('chat')} />
+                  <div className="shrink-0 p-2 border-t border-[rgba(25,35,50,0.06)] bg-[#FAFAFA]">
+                    <MobileDock
+                      currentMobileView="bots"
+                      onNavigateBots={() => setMobileView('bots')}
+                      onOpenActivity={() => toggleRightPanel()}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col h-full overflow-hidden">
+                  <ChatHeader onBackToBots={() => setMobileView('bots')} />
+                  {readOnly && (
+                    <div className="px-6 py-2">
+                      <Notice>
+                        This older API conversation is preserved as history.{' '}
+                        <button className="underline text-[#1677FF]" onClick={createNewSession}>
+                          Start a new interactive conversation
+                        </button>
+                      </Notice>
+                    </div>
+                  )}
+                  <ChatMessageList />
+                  <ChatInput
+                    key={`composer-mobile:${activeSessionId}`}
+                    onNavigateBots={() => setMobileView('bots')}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* ========================================================
+                DESKTOP VIEW: Center conversation panel always active
+               ======================================================== */}
+            <div className="hidden md:flex flex-1 flex-col h-full overflow-hidden">
+              <ChatHeader onBackToBots={() => setMobileView('bots')} />
+              {readOnly && (
+                <div className="px-6 py-2">
+                  <Notice>
+                    This older API conversation is preserved as history.{' '}
+                    <button className="underline text-[#1677FF]" onClick={createNewSession}>
+                      Start a new interactive conversation
+                    </button>
+                  </Notice>
+                </div>
+              )}
+              <ChatMessageList />
+              <ChatInput
+                key={`composer-desktop:${activeSessionId}`}
+                onNavigateBots={() => setMobileView('bots')}
+              />
+            </div>
           </>
         ) : (
           <div className="flex-1 overflow-y-auto flex flex-col h-full">
             <WorkspaceViews activeNav={activeNav} />
             <div className="shrink-0 p-2 md:hidden">
-              <MobileDock />
+              <MobileDock
+                currentMobileView={mobileView}
+                onNavigateBots={() => setMobileView('bots')}
+                onOpenActivity={() => toggleRightPanel()}
+              />
             </div>
           </div>
         )}
@@ -118,18 +169,12 @@ export const ChatScreen: React.FC = () => {
           </aside>
 
           {/* Mobile/Tablet slide-over */}
-          <div className="lg:hidden fixed inset-0 z-40 flex justify-end">
+          <div className="lg:hidden fixed inset-0 z-50 flex justify-end">
             <div
-              className="fixed inset-0 bg-black/30 backdrop-blur-xs"
+              className="fixed inset-0 bg-black/40 backdrop-blur-xs"
               onClick={toggleRightPanel}
             />
-            <div className="relative w-80 max-w-[90vw] h-full bg-[#FAFAFA] z-50 shadow-2xl rounded-l-[30px] overflow-hidden">
-              <button
-                onClick={toggleRightPanel}
-                className="absolute top-4 right-4 p-2 rounded-full text-[#687588] hover:text-[#17191D] hover:bg-black/5 z-20 cursor-pointer"
-              >
-                <X size={18} />
-              </button>
+            <div className="relative w-84 max-w-[90vw] h-full bg-[#FAFAFA] z-50 shadow-2xl rounded-l-[30px] overflow-hidden flex flex-col">
               <RightPanel />
             </div>
           </div>

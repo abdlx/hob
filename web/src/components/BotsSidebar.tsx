@@ -14,7 +14,11 @@ import { DogeshAvatar } from './DogeshAvatar';
 import { apiFetch } from '../services/api';
 import { buttonClass } from './WorkspaceUI';
 
-export const BotsSidebar: React.FC = () => {
+interface BotsSidebarProps {
+  onSelectBot?: (botId: string) => void;
+}
+
+export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot }) => {
   const {
     agents,
     agent,
@@ -191,12 +195,16 @@ export const BotsSidebar: React.FC = () => {
               return (
                 <div
                   key={bot.id}
-                  onClick={() => void selectAgent(bot.id)}
+                  onClick={() => {
+                    void selectAgent(bot.id);
+                    if (onSelectBot) onSelectBot(bot.id);
+                  }}
                   role="listitem"
                   tabIndex={0}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       void selectAgent(bot.id);
+                      if (onSelectBot) onSelectBot(bot.id);
                     }
                   }}
                   className={`group relative flex items-center gap-3 p-2.5 h-[64px] rounded-[18px] cursor-pointer transition-all duration-150 ${

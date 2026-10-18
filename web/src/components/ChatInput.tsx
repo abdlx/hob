@@ -8,7 +8,11 @@ import {
 } from 'lucide-react';
 import { MobileDock } from './MobileDock';
 
-export const ChatInput: React.FC = () => {
+interface ChatInputProps {
+  onNavigateBots?: () => void;
+}
+
+export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
   const {
     sendMessage,
     isLoading,
@@ -139,7 +143,7 @@ export const ChatInput: React.FC = () => {
       </form>
 
       {/* iOS-Inspired Bottom Dock Mobile Navigation Bar below input field on small screens */}
-      <MobileDock />
+      <MobileDock currentMobileView="chat" onNavigateBots={onNavigateBots} />
     </div>
   );
 };
