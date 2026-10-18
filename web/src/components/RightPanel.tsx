@@ -16,6 +16,7 @@ import {
   Code2,
   Image as ImageIcon,
   Compass,
+  ChevronLeft,
 } from 'lucide-react';
 import { useChat } from '../context/ChatContext';
 import { useRuntime } from '../context/RuntimeContext';
@@ -539,12 +540,34 @@ export function RightPanel() {
   const hasLiveTasks = tasks && tasks.length > 0;
 
   return (
-    <div className="hob-agent-panel w-full h-full bg-[#FAFAFA] flex flex-col select-none overflow-y-auto relative p-[26px]">
-      {/* Mobile close button */}
+    <div className="hob-agent-panel w-full h-full bg-[#FAFAFA] flex flex-col select-none overflow-y-auto relative p-4 sm:p-5 lg:p-[26px]">
+      {/* Mobile top bar with back button */}
+      <div className="lg:hidden flex items-center justify-between pb-3 mb-3 border-b border-[rgba(25,35,50,0.07)] shrink-0">
+        <button
+          onClick={toggleRightPanel}
+          className="flex items-center gap-1 text-[14px] font-medium text-[#1677FF] hover:text-[#0D6CE5] p-1 -ml-1 cursor-pointer transition-colors"
+          title="Back to chat"
+          aria-label="Back to chat"
+        >
+          <ChevronLeft size={20} strokeWidth={2.4} />
+          <span>Back</span>
+        </button>
+        <span className="text-[15px] font-semibold text-[#17191D]">Bot Activity</span>
+        <button
+          onClick={toggleRightPanel}
+          className="w-8 h-8 rounded-full flex items-center justify-center text-[#687588] hover:text-[#17191D] hover:bg-black/5 transition-colors cursor-pointer"
+          title="Close"
+          aria-label="Close"
+        >
+          <X size={18} strokeWidth={2} />
+        </button>
+      </div>
+
+      {/* Desktop close button */}
       <button
         onClick={toggleRightPanel}
         title="Close panel"
-        className="lg:hidden absolute top-4 right-4 p-2 rounded-full text-[#687588] hover:text-[#17191D] hover:bg-black/5 transition-colors cursor-pointer z-10"
+        className="hidden lg:block absolute top-4 right-4 p-2 rounded-full text-[#687588] hover:text-[#17191D] hover:bg-black/5 transition-colors cursor-pointer z-10"
       >
         <X size={18} strokeWidth={2} />
       </button>

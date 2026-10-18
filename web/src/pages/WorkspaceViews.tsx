@@ -295,11 +295,11 @@ export function WorkspaceViews({ activeNav }: { activeNav: string }) {
   const title = activeNav === 'idea' ? 'Workshop' : activeNav.charAt(0).toUpperCase() + activeNav.slice(1);
   return (
     <>
-      <header className="h-[64px] border-b border-[#241e18] px-6 flex items-center gap-3.5 shrink-0">
-        <button className="text-[#a89885] hover:text-white md:hidden p-1.5 transition-colors" title="Back to chat" onClick={() => setActiveNav('chat')}>
+      <header className="h-[64px] border-b border-[rgba(25,35,50,0.07)] px-6 flex items-center gap-3.5 shrink-0 bg-[#FAFAFA]">
+        <button className="text-[#687588] hover:text-[#17191D] md:hidden p-1.5 transition-colors cursor-pointer" title="Back to chat" onClick={() => setActiveNav('chat')}>
           <ArrowLeft size={18} />
         </button>
-        <h1 className="text-base md:text-lg font-semibold text-[#f0e7dc]">{title}</h1>
+        <h1 className="text-base md:text-lg font-semibold text-[#17191D]">{title}</h1>
       </header>
       <div className="flex-1 overflow-y-auto p-6 md:p-8">
         <div className="mx-auto max-w-[960px]">

@@ -32,7 +32,7 @@ export const ChatScreen: React.FC = () => {
   const [mobileView, setMobileView] = useState<'bots' | 'chat'>('bots');
 
   return (
-    <div className="hob-app flex h-screen w-screen overflow-hidden bg-[#EAE8E5] p-2 sm:p-3 md:p-5 lg:p-[28px] gap-3 md:gap-4 lg:gap-5 select-none">
+    <div className="hob-app flex h-screen w-screen overflow-hidden bg-[#FAFAFA] md:bg-[#EAE8E5] p-0 md:p-5 lg:p-[28px] gap-0 md:gap-4 lg:gap-5 select-none">
       {/* Panel 1: Left Navigation Rail + Bot Directory (Desktop only) */}
       <aside
         className="hob-panel-left hidden md:flex rounded-[34px] bg-[#FAFAFA] shadow-[0_12px_40px_rgba(0,0,0,0.055)] border border-[rgba(0,0,0,0.035)] overflow-hidden shrink-0 w-[23%] min-w-[300px] max-w-[360px] h-full"
@@ -48,7 +48,7 @@ export const ChatScreen: React.FC = () => {
       {/* Panel 2: Center Primary Panel (Conversation or Mobile Views) */}
       <main
         id="main-content"
-        className="hob-panel-center flex-1 flex flex-col h-full min-w-0 rounded-[34px] bg-[#FAFAFA] shadow-[0_12px_40px_rgba(0,0,0,0.055)] border border-[rgba(0,0,0,0.035)] overflow-hidden relative"
+        className="hob-panel-center flex-1 flex flex-col h-full min-w-0 rounded-none md:rounded-[34px] bg-[#FAFAFA] shadow-none md:shadow-[0_12px_40px_rgba(0,0,0,0.055)] border-0 md:border md:border-[rgba(0,0,0,0.035)] overflow-hidden relative"
       >
         {isPreparing && (
           <div className="px-6 pt-3">
@@ -168,15 +168,9 @@ export const ChatScreen: React.FC = () => {
             <RightPanel />
           </aside>
 
-          {/* Mobile/Tablet slide-over */}
-          <div className="lg:hidden fixed inset-0 z-50 flex justify-end">
-            <div
-              className="fixed inset-0 bg-black/40 backdrop-blur-xs"
-              onClick={toggleRightPanel}
-            />
-            <div className="relative w-84 max-w-[90vw] h-full bg-[#FAFAFA] z-50 shadow-2xl rounded-l-[30px] overflow-hidden flex flex-col">
-              <RightPanel />
-            </div>
+          {/* Mobile full-screen view (edge-to-edge, not a floating pane) */}
+          <div className="lg:hidden fixed inset-0 z-50 bg-[#FAFAFA] flex flex-col w-full h-full overflow-hidden">
+            <RightPanel />
           </div>
         </>
       )}

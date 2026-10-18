@@ -29,8 +29,8 @@ export const ChatsDrawer: React.FC = () => {
         onClick={toggleLeftDrawer}
       />
 
-      {/* Drawer content */}
-      <div className="relative w-80 max-w-full bg-[#FAFAFA] border-r border-[rgba(25,35,50,0.08)] h-full flex flex-col z-50 shadow-2xl animate-in slide-in-from-left duration-200">
+      {/* Drawer content: full width on mobile, w-80 on sm+ */}
+      <div className="relative w-full sm:w-80 bg-[#FAFAFA] border-r border-[rgba(25,35,50,0.08)] h-full flex flex-col z-50 shadow-2xl animate-in slide-in-from-left duration-200">
         {/* Header */}
         <div className="p-4 border-b border-[rgba(25,35,50,0.08)] flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
