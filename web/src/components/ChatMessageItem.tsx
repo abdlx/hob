@@ -3,8 +3,6 @@ import { CheckCheck } from 'lucide-react';
 import type { ChatMessage } from '../types/chat';
 import { displayGatewayNotice } from '../services/errors';
 import { MarkdownView } from './MarkdownView';
-import { DogeshAvatar } from './DogeshAvatar';
-import { useChat } from '../context/ChatContext';
 
 interface ChatMessageItemProps {
   message: ChatMessage;
@@ -21,7 +19,6 @@ function formatMessageTime(timestamp?: string): string {
 
 export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => {
   const isUser = message.role === 'user';
-  const { agent } = useChat();
 
   if (!message.content.trim()) return null;
 
@@ -50,33 +47,21 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
   }
 
   return (
-    <div className="flex items-start gap-3 w-full mb-4 select-text">
-      {/* Bot Avatar on the left */}
-      <div className="shrink-0 mt-0.5">
-        <DogeshAvatar
-          size={36}
-          showEditBadge={false}
-          avatarUrl={agent?.avatarUrl}
-          ringColor="ring-[#FAFAFA]"
-        />
-      </div>
-
-      <div className="flex flex-col items-start max-w-[82%] min-w-0">
-        {/* Incoming Bubble */}
-        <div className="w-full rounded-[22px] rounded-tl-[6px] bg-[#F0F0F0] text-[14.5px] text-[#253041] leading-relaxed px-5 py-3.5">
-          {renderedContent}
-          {message.status === 'streaming' && (
-            <span className="inline-block w-2 h-4 ml-1.5 bg-[#1677FF] animate-pulse align-middle rounded-xs" />
-          )}
-        </div>
-
-        {/* Timestamp beneath bubble */}
-        {timeString && (
-          <div className="mt-1.5 ml-2 text-[11px] text-[#7B8798]">
-            {timeString}
-          </div>
+    <div className="flex flex-col items-start w-full mb-4 select-text">
+      {/* Incoming Bubble without bot avatar */}
+      <div className="max-w-[82%] rounded-[22px] rounded-tl-[6px] bg-[#F0F0F0] text-[14.5px] text-[#253041] leading-relaxed px-5 py-3.5">
+        {renderedContent}
+        {message.status === 'streaming' && (
+          <span className="inline-block w-2 h-4 ml-1.5 bg-[#1677FF] animate-pulse align-middle rounded-xs" />
         )}
       </div>
+
+      {/* Timestamp beneath bubble */}
+      {timeString && (
+        <div className="mt-1.5 ml-2 text-[11px] text-[#7B8798]">
+          {timeString}
+        </div>
+      )}
     </div>
   );
 };

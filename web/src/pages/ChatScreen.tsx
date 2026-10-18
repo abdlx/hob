@@ -103,7 +103,7 @@ export const ChatScreen: React.FC = () => {
                   </div>
                 </div>
               ) : (
-                <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
+                <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden relative">
                   <ChatHeader onBackToBots={() => setMobileView('bots')} />
                   {readOnly && (
                     <div className="px-6 py-2 shrink-0">

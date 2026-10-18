@@ -20,13 +20,13 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
 
   return (
     <header
-      className="hob-chat-header flex items-center justify-between px-3.5 sm:px-4 md:px-6 h-[78px] min-h-[78px] sm:h-[84px] sm:min-h-[84px] bg-transparent select-none shrink-0 relative z-20 border-none border-b-0"
+      className="hob-chat-header flex items-center justify-between px-3.5 sm:px-4 md:px-6 h-[78px] min-h-[78px] sm:h-[84px] sm:min-h-[84px] bg-transparent select-none shrink-0 border-none border-b-0 absolute top-0 left-0 right-0 z-20 pointer-events-none md:relative md:pointer-events-auto"
       style={{ background: 'transparent', backgroundColor: 'transparent', border: 'none', borderBottom: 'none', boxShadow: 'none' }}
     >
       {/* ========================================================
           DESKTOP HEADER LAYOUT (hidden on mobile, flex on md+)
          ======================================================== */}
-      <div className="hidden md:flex items-center gap-3 py-1.5 px-3.5 rounded-full bg-white/90 backdrop-blur-md border border-[rgba(0,0,0,0.06)] shadow-[0_2px_10px_rgba(0,0,0,0.04)]">
+      <div className="hidden md:flex items-center gap-3 py-1.5 px-3.5 rounded-full bg-white/90 backdrop-blur-md border border-[rgba(0,0,0,0.06)] shadow-[0_2px_10px_rgba(0,0,0,0.04)] pointer-events-auto">
         <DogeshAvatar
           size={38}
           showEditBadge={false}
@@ -61,7 +61,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
         </div>
       </div>
 
-      <div className="hidden md:flex items-center gap-2">
+      <div className="hidden md:flex items-center gap-2 pointer-events-auto">
         {/* ... More button */}
         <button
           onClick={toggleLeftDrawer}
@@ -102,7 +102,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
           MOBILE HEADER LAYOUT (flex on mobile, hidden on md+)
          ======================================================== */}
       {/* Left: Floating back button to return to bots list */}
-      <div className="md:hidden flex items-center">
+      <div className="md:hidden flex items-center pointer-events-auto">
         <button
           onClick={onBackToBots}
           className="flex items-center justify-center w-10 h-10 rounded-full bg-white/95 backdrop-blur-md shadow-[0_4px_14px_rgba(0,0,0,0.06)] border border-[rgba(0,0,0,0.06)] text-[#17191D] hover:bg-white active:scale-95 transition-all cursor-pointer"
@@ -116,7 +116,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
       {/* Middle: Floating oversized avatar overlapping on top of nametag */}
       <div
         onClick={toggleRightPanel}
-        className="md:hidden absolute left-1/2 -translate-x-1/2 top-[19px] flex flex-col items-center cursor-pointer group z-20"
+        className="md:hidden absolute left-1/2 -translate-x-1/2 top-[19px] flex flex-col items-center cursor-pointer group z-20 pointer-events-auto"
         role="button"
         tabIndex={0}
         aria-label="Open agent details and activity"
@@ -144,7 +144,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
       </div>
 
       {/* Right: Floating more button */}
-      <div className="md:hidden flex items-center gap-1">
+      <div className="md:hidden flex items-center gap-1 pointer-events-auto">
         <button
           onClick={toggleLeftDrawer}
           className="w-10 h-10 rounded-full bg-white/95 backdrop-blur-md shadow-[0_4px_14px_rgba(0,0,0,0.06)] border border-[rgba(0,0,0,0.06)] text-[#253041] hover:bg-white flex items-center justify-center active:scale-95 transition-all cursor-pointer"

@@ -132,7 +132,7 @@ export function ChatMessageList() {
   ];
 
   return (
-    <div className="hob-conversation flex-1 min-h-0 overflow-y-auto px-4 md:px-6 pb-2 bg-transparent">
+    <div className="hob-conversation flex-1 min-h-0 overflow-y-auto px-4 md:px-6 pt-[88px] md:pt-0 pb-2 bg-transparent">
       <div
         className={`w-full max-w-[840px] mx-auto flex flex-col min-h-full ${
           visibleMessages.length ? 'justify-start pt-4' : 'justify-center'
