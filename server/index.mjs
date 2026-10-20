@@ -46,12 +46,25 @@ const nativeSessions = new HermesSessionBridge({ profileAccess: profile => regis
 const server = createApp({ gateway, bots, browser, runJournal, nativeSessions, ...(process.env.MUSE_STATIC_DIR ? { staticDir: process.env.MUSE_STATIC_DIR } : {}) });
 gateway.start();
 server.listen(Number(process.env.MUSE_PORT || 3000), process.env.MUSE_HOST || '127.0.0.1', () => console.log(`hob listening on port ${process.env.MUSE_PORT || 3000}.`));
-// The Main bot skips the per-bot setup flow, so its browser binding is seeded on
-// boot instead. Best-effort: a dashboard that has not finished coming up must not
-// stop hob from serving, and the binding is retried on the next boot.
-void bots.configureBrowser('default')
-  .then(changed => { if (changed) console.log('Pointed the Main bot at its managed browser.'); })
-  .catch(error => console.warn(`Could not bind the Main bot's browser: ${error.message}`));
+// Bind every active bot on boot, not just the ones this process created. Bots
+// that predate the managed browser (and bots whose setup-time binding failed)
+// otherwise drive a throwaway Hermes browser while the dashboard watches an idle
+// HOB one. Best-effort with a short backoff: the dashboard may still be coming
+// up, and a bot must never be blocked from serving because of that.
+const bindBrowsers = async (attempt = 1) => {
+  let result;
+  try { result = await bots.reconcileBrowsers(); }
+  catch (error) { result = { configured: [], unchanged: [], failed: [{ name: '*', error: error.message }] }; }
+  if (result.configured.length) {
+    console.log(`Pointed ${result.configured.length === 1 ? 'a bot' : `${result.configured.length} bots`} at their managed browsers: ${result.configured.join(', ')}.`);
+  }
+  if (!result.failed.length) return;
+  const detail = result.failed.map(item => `${item.name}: ${item.error}`).join('; ');
+  if (attempt >= 5) { console.warn(`Could not bind every bot's browser: ${detail}`); return; }
+  const timer = setTimeout(() => void bindBrowsers(attempt + 1), attempt * 2000);
+  timer.unref?.();
+};
+void bindBrowsers();
 // A signal must finish the graceful browser stop — that close is what flushes cookies
 // and storage to the profile — but it must also finish inside the supervisor's window:
 // `deploy/start.mjs` escalates to SIGKILL at 30 s, so wait at most 25 s and then leave.

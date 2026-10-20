@@ -121,6 +121,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   const browserRoutes = browser && bots ? createBrowserRoutes({
     browser, json, body, startEvents, sendEvent,
     knownBot: name => bots.has(name),
+    ...(typeof bots.configureBrowser === 'function' ? { ensureBinding: name => bots.configureBrowser(name) } : {}),
     authenticated: req => authenticated(req),
     assertOrigin: req => assertOrigin(req),
     ...(viewerTicketTtlMs ? { ticketTtlMs: viewerTicketTtlMs } : {}),

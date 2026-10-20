@@ -25,7 +25,7 @@ function stubGateway() {
   return { kind: 'other', connected: false, on() {}, request: async () => ({}), start() {}, stop() {} };
 }
 
-async function startApp(t, { bots = ['alpha'], viewerTicketTtlMs } = {}) {
+async function startApp(t, { bots = ['alpha'], viewerTicketTtlMs, bind } = {}) {
   const stateDir = await mkdtemp(join(tmpdir(), 'hob-browser-routes-'));
   const registry = await BrowserRegistry.open({ stateDir });
   const browser = await BrowserManager.open({ registry, stateDir, options: { idleMs: 60000, maxFps: 10 } });
@@ -35,6 +35,7 @@ async function startApp(t, { bots = ['alpha'], viewerTicketTtlMs } = {}) {
       list: async () => ({ profiles: bots.map(name => ({ name })) }),
       has: name => bots.includes(name),
       token: () => 'x'.repeat(32),
+      ...(bind ? { configureBrowser: bind } : {}),
     },
     browser,
     password: PASSWORD,
@@ -163,6 +164,27 @@ test('browser routes: a viewer socket needs a real ticket or a real session', as
   await new Promise(resolve => setTimeout(resolve, 1500));
   assert.ok(frames.length > 0, 'a connected viewer must receive screen frames');
   assert.equal(browser.session(profile).viewerCount, 1);
+  socket.close();
+  await new Promise(resolve => setTimeout(resolve, 300));
+});
+
+test('browser routes: opening a viewer repairs a bot that was never bound to its managed browser', async t => {
+  const bound = [];
+  const { origin } = await startApp(t, { bind: async name => { bound.push(name); } });
+  const cookie = await signIn(origin);
+  const minted = await fetch(`${origin}/api/hermes/browser/viewer?profile=alpha`, {
+    method: 'POST', headers: { Cookie: cookie },
+  });
+  assert.equal(minted.status, 200);
+  const ticket = await minted.json();
+  const socket = new WebSocket(`${origin.replace('http:', 'ws:')}${ticket.wsPath}?profile=alpha&token=${ticket.viewerToken}`);
+  const hello = await new Promise((resolve, reject) => {
+    socket.once('message', data => { try { resolve(JSON.parse(data.toString('utf8'))); } catch (error) { reject(error); } });
+    socket.once('error', reject);
+    setTimeout(() => reject(new Error('no hello frame')), 20000).unref?.();
+  });
+  assert.equal(hello.t, 'hello');
+  assert.deepEqual(bound, ['alpha'], 'a viewer must repair the agent binding before streaming');
   socket.close();
   await new Promise(resolve => setTimeout(resolve, 300));
 });

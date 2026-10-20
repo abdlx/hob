@@ -45,6 +45,70 @@ test('fresh roster contains only Main and does not enroll discovered native prof
   assert.ok(!JSON.stringify(await bots.list()).includes('apiKey'));
 }));
 
+test('boot reconciliation binds pre-existing active bots and isolates failures', async () => fixture(async ({ registry, root }) => {
+  const profiles = [{ name: 'default' }, { name: 'research' }, { name: 'pending' }];
+  const configs = new Map();
+  const ensured = [];
+  const failing = new Set();
+  const client = { async dashboard(route, request = {}) {
+    if (route === '/api/profiles') return { profiles };
+    if (route.startsWith('/api/config') && request.method === 'PUT') {
+      const previous = configs.get(request.profile) ?? {};
+      configs.set(request.profile, {
+        ...previous,
+        ...request.body.config,
+        browser: { ...previous.browser, ...request.body.config.browser },
+      });
+      return { ok: true };
+    }
+    if (route.startsWith('/api/config')) {
+      const profile = new URL(route, 'http://test').searchParams.get('profile');
+      return { config: configs.get(profile) ?? {} };
+    }
+    return { ok: true };
+  } };
+  const browser = {
+    async record(name) {
+      const ports = { default: 32100, research: 32101, pending: 32102 };
+      return { gatewayPort: ports[name], gatewayToken: name.padEnd(32, '0') };
+    },
+    async ensureEndpoint(name) {
+      if (failing.has(name)) throw new Error(`synthetic bind failure for ${name}`);
+      ensured.push(name);
+    },
+  };
+
+  // Both bots already existed before this process: one active and bound by hand,
+  // one active but never pointed at a managed browser, one still in setup.
+  await registry.reserve('research');
+  await registry.update('research', { state: 'active', nativeCreated: true });
+  await registry.reserve('pending');
+  const bots = new HermesBots({ registry, client, workspaceRoot: path.join(root, 'work'), browser });
+
+  failing.add('research');
+  const first = await bots.reconcileBrowsers();
+  assert.deepEqual(first.configured, ['default']);
+  assert.deepEqual(first.failed.map(item => item.name), ['research']);
+  assert.equal(configs.has('research'), false, 'a failed bind must not write a partial profile');
+
+  failing.clear();
+  const second = await bots.reconcileBrowsers();
+  assert.deepEqual(second.configured, ['research']);
+  assert.deepEqual(second.unchanged, ['default']);
+  assert.deepEqual(second.failed, []);
+  assert.deepEqual(configs.get('research').browser, {
+    backend: 'off',
+    cdp_url: 'http://127.0.0.1:32101/' + 'research'.padEnd(32, '0'),
+  });
+
+  // Idempotent after an upgrade: the next boot does not rewrite healthy profiles.
+  const third = await bots.reconcileBrowsers();
+  assert.deepEqual(third.configured, []);
+  assert.deepEqual(third.unchanged.sort(), ['default', 'research']);
+  assert.equal(ensured.includes('pending'), false, 'a bot in setup must stay unbound');
+  assert.equal(configs.has('pending'), false);
+}));
+
 test('operator-created bot gets independent credentials and workspace through native owners before activation', async () => fixture(async ({ registry, root, mainApiKey, options }) => {
   const upstream = native();
   const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work') });

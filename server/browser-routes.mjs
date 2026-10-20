@@ -49,6 +49,7 @@ function publicStatus(status) {
 
 export function createBrowserRoutes({
   browser, knownBot, authenticated, assertOrigin, startEvents, sendEvent, json, body,
+  ensureBinding,
   // Production leaves this at the default; tests shorten it so expiry can be
   // observed without a fifteen-minute wait.
   ticketTtlMs = TICKET_TTL_MS,
@@ -70,6 +71,16 @@ export function createBrowserRoutes({
 
   const requireKnownBot = async profile => {
     if (knownBot && !(await knownBot(profile))) throw new RouteError(404, 'This bot is not in your dashboard.');
+  };
+
+  // Repair the agent's browser binding before this bot's browser is used. A bot
+  // created before the managed browser existed is otherwise left driving a
+  // throwaway Hermes browser, which is what makes its live view stay blank while
+  // the bot itself can still browse and screenshot. Failure here is not fatal:
+  // the viewer still works, and boot reconciliation retries the binding.
+  const repoint = async profile => {
+    if (!ensureBinding) return;
+    try { await ensureBinding(profile); } catch { /* the viewer must still open */ }
   };
 
   const mintTicket = profile => {
@@ -116,6 +127,7 @@ export function createBrowserRoutes({
     }
 
     if (tail === '/start' && method === 'POST') {
+      await repoint(profile);
       await browser.ensure(profile);
       return json(res, 200, publicStatus(await browser.view(profile)));
     }
@@ -198,6 +210,7 @@ export function createBrowserRoutes({
       void (async () => {
         try {
           if (knownBot && !(await knownBot(profile))) { ws.close(1008, 'unknown bot'); return; }
+          await repoint(profile);
           await browser.attachViewer(profile, ws);
         } catch {
           try { ws.close(1011, 'browser unavailable'); } catch { /* already gone */ }

@@ -147,6 +147,32 @@ export class HermesBots {
       body: { profile: name, config: { browser: { backend: 'off', cdp_url: cdpUrl } } } });
     return true;
   }
+  /**
+   * Point every active bot at its managed browser.
+   *
+   * Binding normally happens once, during setup, but bots that predate the
+   * managed browser — and bots whose setup-time binding failed, which is
+   * recorded as active anyway — would otherwise keep driving a throwaway Hermes
+   * browser while the dashboard watched an idle HOB one. Boot calls this, so an
+   * upgrade repairs those profiles without the operator recreating them.
+   *
+   * Failures stay per-bot: one profile the Hermes dashboard cannot read must not
+   * leave every other bot unbound.
+   */
+  async reconcileBrowsers() {
+    const result = { configured: [], unchanged: [], failed: [] };
+    if (!this.#browser) return result;
+    for (const { name, state } of this.#registry.list()) {
+      if (state !== 'active') continue;
+      try {
+        if (await this.configureBrowser(name)) result.configured.push(name);
+        else result.unchanged.push(name);
+      } catch (error) {
+        result.failed.push({ name, error: error.message });
+      }
+    }
+    return result;
+  }
   async list() {
     const native = await this.#client.dashboard('/api/profiles');
     if (!Array.isArray(native.profiles)) throw new HermesError(502, 'Hermes returned an invalid bot roster.', 'HERMES_PROTOCOL_ERROR');
