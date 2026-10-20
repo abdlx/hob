@@ -80,7 +80,8 @@ port is bound to `127.0.0.1`, and the project is torn down with `docker compose 
 
 The validation used the deployment’s own `compose.yaml` (cap_drop ALL, the six runtime
 capabilities, `no-new-privileges`, the repository seccomp profile, `shm_size: 1gb`,
-`stop_grace_period: 40s`) with only image, project name and loopback port overridden.
+`stop_grace_period: 40s`). Only the image, project name, loopback port and the required
+secret/URL environment values were overridden — the same values Coolify supplies.
 
 ---
 
