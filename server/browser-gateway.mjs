@@ -364,7 +364,7 @@ export class BrowserSession {
   #viewers = new Map();
   #activity = new Set();
   #stateListeners = new Set();
-  #castCdp = null; #castSessionId = null; #castTargetId = null;
+  #castCdp = null; #castSessionId = null; #castTargetId = null; #castPinned = false;
   #frameSeq = 0; #lastFrame = null; #lastFrameAt = 0;
   #viewport = { w: 1280, h: 800 };
   #tabs = [];
@@ -462,7 +462,8 @@ export class BrowserSession {
       }));
       if (active) {
         this.#page.url = String(active.url || this.#page.url);
-        this.#page.title = String(active.title || this.#page.title);
+        const title = String(active.title || '');
+        if (title && title !== this.#page.url && !isLocationTitle(title)) this.#page.title = title;
       }
     }
     return this.status();
@@ -1155,9 +1156,15 @@ export class BrowserSession {
   async #attachActiveTarget() {
     if (!this.#castCdp?.open) return;
     const { targetInfos = [] } = await this.#castCdp.send('Target.getTargets');
-    const pages = targetInfos.filter(target => target.type === 'page' && !String(target.url || '').startsWith('devtools://'));
-    if (pages.length === 0) { this.#tabs = []; return; }
-    const target = pages.find(entry => entry.targetId === this.#castTargetId) ?? pages[0];
+    const pages = targetInfos.filter(isPageTarget);
+    if (pages.length === 0) {
+      this.#tabs = [];
+      this.#broadcast({ t: 'tabs', tabs: [] });
+      this.#emitState();
+      return;
+    }
+    const target = this.#selectTarget(pages);
+    await this.#detachCastSession();
     this.#castTargetId = target.targetId;
     const { sessionId } = await this.#castCdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
     this.#castSessionId = sessionId;
@@ -1165,10 +1172,55 @@ export class BrowserSession {
     const metrics = await this.#castCdp.send('Page.getLayoutMetrics', {}, { sessionId }).catch(() => null);
     const view = metrics?.cssLayoutViewport;
     if (view?.clientWidth && view?.clientHeight) this.#viewport = { w: Math.round(view.clientWidth), h: Math.round(view.clientHeight) };
+    const previousUrl = this.#page.url;
     this.#updatePageFromTarget(target);
+    // Attaching to a page that already navigated does not replay
+    // `Page.frameNavigated`; tell the viewer where it now is.
+    if (this.#page.url !== previousUrl) this.#broadcast({ t: 'navigate', url: this.#page.url });
     await this.#startScreencast();
     this.#broadcast({ t: 'viewport', w: this.#viewport.w, h: this.#viewport.h });
     await this.#refreshTabs();
+  }
+
+  /**
+   * Which page the viewer should show.
+   *
+   * A viewer that attaches while the browser is still on its launch page pins the
+   * screencast to `about:blank`. The agent's first navigation can then happen in
+   * a *different* target (a new tab), and the person watches a white page while
+   * the bot works elsewhere. Prefer a real page unless someone deliberately chose
+   * a tab; otherwise keep the current one.
+   */
+  #selectTarget(pages) {
+    const current = pages.find(page => page.targetId === this.#castTargetId);
+    if (this.#castPinned && current) return current;
+    if (current && !isBlankUrl(current.url)) return current;
+    // Prefer the newest real page: when an agent opens a tab, that is the one it
+    // is about to drive.
+    const real = [...pages].reverse().find(page => !isBlankUrl(page.url));
+    return real ?? current ?? pages[0];
+  }
+
+  async #detachCastSession() {
+    const sessionId = this.#castSessionId;
+    this.#castSessionId = null;
+    if (!sessionId || !this.#castCdp?.open) return;
+    await this.#castCdp.post('Page.stopScreencast', {}, { sessionId }).catch(() => undefined);
+    await this.#castCdp.send('Target.detachFromTarget', { sessionId }).catch(() => undefined);
+  }
+
+  /**
+   * Follow a page the agent opened while the viewer was still on a blank launch
+   * page. This is observational (it never activates or navigates the target), so
+   * it needs no lease admission. A page a person is already watching is left
+   * alone: a background tab must not yank the view away.
+   */
+  async #adoptTarget(targetId) {
+    if (!this.#castCdp?.open || this.#castPinned || targetId === this.#castTargetId) return;
+    if (!isBlankUrl(this.#page.url)) return;
+    this.#castTargetId = targetId;
+    await this.#attachActiveTarget();
+    if (this.#page.url) this.#broadcast({ t: 'navigate', url: this.#page.url });
   }
 
   async #startScreencast() {
@@ -1190,6 +1242,7 @@ export class BrowserSession {
     this.#castCdp?.close();
     this.#castCdp = null;
     this.#castSessionId = null;
+    this.#castPinned = false;
     this.#lastFrame = null;
   }
 
@@ -1221,15 +1274,30 @@ export class BrowserSession {
         this.#emitActivity({ type: 'action', kind: 'dialog', method: 'Page.javascriptDialogOpening' });
         return;
       case 'Target.targetCreated':
-      case 'Target.targetDestroyed':
       case 'Target.targetInfoChanged': {
         const info = params?.targetInfo;
-        if (info && info.targetId === this.#castTargetId) {
+        if (!isPageTarget(info)) return;
+        if (info.targetId === this.#castTargetId) {
           this.#updatePageFromTarget(info);
           this.#refreshTabs();
-        } else if (isPageTarget(info) && method !== 'Target.targetDestroyed') {
-          this.#refreshTabs();
+          return;
         }
+        this.#refreshTabs();
+        // A viewer opened before the agent's first navigation is streaming the
+        // launch page. Once the agent opens a real page, follow it.
+        if (!this.#castPinned && isBlankUrl(this.#page.url)) {
+          void this.#adoptTarget(info.targetId).catch(() => undefined);
+        }
+        return;
+      }
+      case 'Target.targetDestroyed': {
+        const info = params?.targetInfo;
+        if (info?.targetId !== this.#castTargetId) return;
+        // The screencast session died with its target. Choose another page now
+        // instead of leaving every viewer on a frozen last frame.
+        this.#castSessionId = null;
+        this.#castTargetId = null;
+        void this.#attachActiveTarget().catch(() => undefined);
         return;
       }
       case 'Target.attachedToTarget': {
@@ -1249,9 +1317,15 @@ export class BrowserSession {
   }
 
   #updatePageFromTarget(target) {
-    this.#page.url = String(target.url || this.#page.url);
-    this.#page.title = String(target.title || this.#page.title);
-    if (this.#page.title) this.#broadcast({ t: 'title', title: this.#page.title });
+    const url = String(target.url || '');
+    if (url) this.#page.url = url;
+    const title = String(target.title || '');
+    // While a page is loading Chromium reports its URL as the title. Do not let
+    // that replace a real title, and keep the old one until the new one arrives.
+    if (title && title !== url && title !== this.#page.url && !isLocationTitle(title) && title !== this.#page.title) {
+      this.#page.title = title;
+      this.#broadcast({ t: 'title', title });
+    }
   }
 
   #publishFrame(buffer) {
@@ -1282,6 +1356,11 @@ export class BrowserSession {
         title: String(target.title || ''),
         active: target.targetId === this.#castTargetId,
       }));
+      // The target list is the freshest snapshot of the page the viewer is
+      // attached to; keep the status URL/title in sync with it even when the
+      // loading target event did not carry a usable title.
+      const active = this.#tabs.find(tab => tab.id === this.#castTargetId);
+      if (active) this.#updatePageFromTarget(active);
       this.#broadcast({ t: 'tabs', tabs: this.#tabs.map(tab => ({ ...tab })) });
       this.#emitState();
     } catch { /* the next event refreshes it */ }
@@ -1296,10 +1375,12 @@ export class BrowserSession {
       await this.#ensureScreencast();
       if (!this.#castCdp?.open) throw new BrowserUnavailableError('The browser is not streaming yet.');
       await this.#castCdp.send('Target.activateTarget', { targetId });
-      if (this.#castSessionId) await this.#castCdp.post('Page.stopScreencast', {}, { sessionId: this.#castSessionId });
-      this.#castSessionId = null;
+      // An explicit choice is sticky for this viewing session: automatic
+      // following must not pull the person off the tab they picked.
+      this.#castPinned = true;
       this.#castTargetId = targetId;
       await this.#attachActiveTarget();
+      if (this.#page.url) this.#broadcast({ t: 'navigate', url: this.#page.url });
     } catch (error) { this.#sendTo(viewer, { t: 'error', code: 'tab_failed', message: error.message }); }
     finally { admission.release(); }
   }
@@ -1337,3 +1418,14 @@ export class BrowserSession {
 }
 
 function isPageTarget(target) { return target?.type === 'page' && !String(target.url || '').startsWith('devtools://'); }
+
+/** The launch page, and any page that has not committed a real navigation yet. */
+function isBlankUrl(value) {
+  const url = String(value || '');
+  return url === '' || url === 'about:blank' || url.startsWith('about:blank?');
+}
+
+/** Chromium briefly reports a loading page's location where a title belongs. */
+function isLocationTitle(value) {
+  return /^(?:https?|data|file|about|chrome|devtools):/i.test(String(value || ''));
+}

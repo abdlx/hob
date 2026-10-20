@@ -287,6 +287,68 @@ test('gateway: the viewer streams frames and drives the browser while in control
   await waitFor(() => viewer.received.some(message => message.t === 'tabs' && message.tabs.length >= 1));
 });
 
+test('gateway: a viewer opened on the launch page follows the page the agent opens', async t => {
+  const started = await startManager(t);
+  if (!started) return;
+  const { manager } = started;
+  const session = await manager.ensure('alpha');
+  const agent = await agentClient(session);
+  t.after(() => agent.raw.close());
+
+  // This is the dashboard's normal order: the person opens the live view while
+  // the browser is still on its launch page, before the bot does anything.
+  const viewer = await createViewer(session);
+  t.after(() => viewer.close());
+  await waitFor(() => viewer.hello());
+  await waitFor(() => session.status().url === 'about:blank');
+  const framesBefore = viewer.received.filter(message => message.t === 'frame').length;
+
+  // The agent opens its work in a new tab instead of navigating the blank one.
+  const created = await agent.raw.call('Target.createTarget', {
+    url: dataUrl('<title>FOLLOWED</title><h1>the bot page</h1>'),
+  });
+  assert.ok(created.result?.targetId);
+  await waitFor(() => session.status().tabs.some(tab => tab.title === 'FOLLOWED'));
+
+  // The live view moves to that tab rather than staying white on about:blank.
+  await waitFor(() => {
+    const active = session.status().tabs.find(tab => tab.active);
+    return active?.title === 'FOLLOWED';
+  });
+  assert.equal(session.status().title, 'FOLLOWED');
+  assert.match(session.status().url, /^data:text\/html/);
+  await waitFor(() => viewer.received.some(message => message.t === 'navigate' && message.url.startsWith('data:text/html')));
+  await waitFor(() => session.status().tabs.find(tab => tab.active)?.id === created.result.targetId);
+  await waitFor(() => viewer.received.filter(message => message.t === 'frame').length > framesBefore);
+});
+
+test('gateway: a background tab does not replace the page a viewer is watching', async t => {
+  const started = await startManager(t);
+  if (!started) return;
+  const { manager } = started;
+  const session = await manager.ensure('alpha');
+  const agent = await agentClient(session);
+  t.after(() => agent.raw.close());
+
+  await agent.raw.call('Page.navigate', { url: dataUrl('<title>WATCHED</title>') }, agent.sessionId);
+  await waitFor(async () => (await titleOf(agent)) === 'WATCHED');
+
+  const viewer = await createViewer(session);
+  t.after(() => viewer.close());
+  await waitFor(() => viewer.hello());
+  await waitFor(() => session.status().title === 'WATCHED');
+  const watchedId = session.status().tabs.find(tab => tab.active)?.id;
+  assert.ok(watchedId);
+
+  // A second tab must not yank the view away from a page that is already real.
+  await agent.raw.call('Target.createTarget', { url: dataUrl('<title>BACKGROUND</title>') });
+  await waitFor(() => session.status().tabs.some(tab => tab.id !== watchedId));
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  assert.equal(session.status().tabs.find(tab => tab.active)?.id, watchedId);
+  assert.equal(session.status().title, 'WATCHED');
+  assert.match(session.status().url, /^data:text\/html/);
+});
+
 test('gateway: the last viewer leaving returns control to the agent', async t => {
   const started = await startManager(t);
   if (!started) return;
