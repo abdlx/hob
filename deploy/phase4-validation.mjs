@@ -272,5 +272,4 @@ try {
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
-  console.log('PHASE4_PASSED: ' + results.join(', '));
 }

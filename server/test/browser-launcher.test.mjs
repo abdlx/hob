@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { linuxCandidates, resolveChromiumExecutable } from '../browser-executable.mjs';
+import { findChromiumExecutable, linuxCandidates, resolveChromiumExecutable } from '../browser-executable.mjs';
 
 async function executableAt(...segments) {
   const file = join(...segments);
@@ -47,11 +47,11 @@ test('resolves Chromium in the chrome-linux64 layout shipped by the production i
     });
   });
 
-test('falls back to a bounded search for an unknown layout',
-  { skip: process.platform === 'win32' ? 'The Windows resolver has its own candidates.' : false },
-  async () => {
-    await withRoot(async root => {
-      const executable = await executableAt(root, 'runtime', 'browsers', 'custom', 'chrome');
-      assert.equal(await resolveChromiumExecutable(), executable);
-    });
+test('falls back to a bounded search for an unknown layout', async () => {
+  await withRoot(async root => {
+    const executable = await executableAt(root, 'runtime', 'browsers', 'custom', 'chrome');
+    // The fallback is asserted directly: on a host that also has Chromium in
+    // /opt/hermes/tools, the fixed candidates correctly win before the fallback.
+    assert.equal(findChromiumExecutable(root), executable);
   });
+});

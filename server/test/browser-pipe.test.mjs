@@ -415,9 +415,13 @@ test('mux: losing the pipe fails every waiter and closes every client', async ()
   const inFlight = client_.call('Runtime.evaluate',
     { expression: 'new Promise(() => {})', awaitPromise: true }, page.sessionId)
     .then(() => 'resolved', error => error);
+  // A stopped child cannot answer, so the internal request is still pending when
+  // the pipe dies. On Windows SIGSTOP does not exist; there the kill itself is the
+  // race, and the client's never-settling promise still covers the close path.
+  if (process.platform !== 'win32') process.kill(dying.pid, 'SIGSTOP');
   const internal = pipe.request('Browser.getVersion').then(() => 'resolved', error => error);
 
-  await stopChromium(dying).catch(() => undefined);
+  await stopChromium(dying, { graceMs: 250 }).catch(() => undefined);
   // On Windows the pipe closes with the process; on Linux it may take the exit
   // event first. Either way both waiters must be told, not left hanging.
   const [inFlightOutcome, internalOutcome] = await Promise.all([inFlight, internal, closed]);

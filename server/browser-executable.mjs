@@ -68,7 +68,7 @@ export function chromiumCandidates() {
  * callers can report an actionable "install Chromium" error at start time.
  */
 /** Bounded search for a browser binary, for layouts that are not fixed. */
-function executableUnder(directory, depth) {
+export function findChromiumExecutable(directory, depth = 0) {
   if (depth > 4) return null;
   let entries;
   try { entries = readdirSync(directory, { withFileTypes: true }); } catch { return null; }
@@ -80,7 +80,7 @@ function executableUnder(directory, depth) {
   }
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
-    const found = executableUnder(path.join(directory, entry.name), depth + 1);
+    const found = findChromiumExecutable(path.join(directory, entry.name), depth + 1);
     if (found) return found;
   }
   return null;
@@ -96,7 +96,7 @@ export async function resolveChromiumExecutable() {
   if (process.platform !== 'win32') {
     for (const root of [process.env.PLAYWRIGHT_BROWSERS_PATH, '/opt/hermes/tools', '/opt/hermes/chromium']) {
       if (!root) continue;
-      const found = executableUnder(root, 0);
+      const found = findChromiumExecutable(root);
       if (found) return found;
     }
   }
