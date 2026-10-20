@@ -405,14 +405,27 @@ looking at **different browsers**.
 
 ### Root cause
 
-`HermesBots.finishSetup` returns early when a bot is already active, before calling
-`configureBrowser`. That method is what writes the profile's `browser.backend: "off"`
-and `browser.cdp_url` pointing at the bot's HOB gateway. Bots created before the
-managed browser existed (and bots whose setup-time binding failed, because that error
-was swallowed and the bot was still marked active) therefore kept using Hermes' own
-throwaway browser. The dashboard, meanwhile, lazily started the idle HOB browser for
-the viewer: a blank launch page that the agent never touched. Screenshots came from
-the throwaway browser; the white canvas came from the untouched HOB one.
+The first repair attempt added the right call sites but could not work.
+`configureBrowser` is what writes the profile's `browser.backend: "off"` and
+`browser.cdp_url` pointing at the bot's HOB gateway:
+
+```js
+await this.#client.dashboard(`/api/config?profile=${encodeURIComponent(name)}`);
+```
+
+`HermesClient.#response` treats its `pathname` argument as a path and rejects
+anything containing `?`, `#`, whitespace or control characters before it opens a
+socket. A profile is a **bound selector** there, not a query to paste into the path.
+So the config read in `configureBrowser` threw `Invalid upstream request path.`
+for every bot, including the default bot. `finishSetup`, boot reconciliation and
+the viewer-attach repair all caught that error, and the bot was still marked active.
+The feature's write path had never run in production.
+
+The dashboard, meanwhile, lazily started the idle HOB browser for the viewer: a
+blank launch page that the agent never touched. Screenshots came from Hermes' own
+throwaway browser; the white canvas came from the untouched HOB one. The existing
+test suite missed this because its fake client parsed the query string itself
+instead of enforcing the real client's path contract.
 
 A second, independent viewer bug could produce the same white page: a viewer that
 attached before the bot's first navigation stayed pinned to the launch target even
@@ -421,41 +434,61 @@ defect: `Target.targetDestroyed` carries a bare `targetId`, but the gateway read
 `targetInfo`, so a destroyed target never matched and the viewer froze on its last
 frame.
 
-### Fix (deployed)
+### Fix (deployed in `e729e19a`)
 
+- `configureBrowser` now calls `dashboard('/api/config', { profile: name })`. The
+  client appends the selector to the dashboard URL, so the GET and the PUT both
+  read and write the named profile. A new test drives the **real** `HermesClient`
+  (a stub `fetch`) and would fail on the old query-in-path form.
 - `HermesBots.reconcileBrowsers()` binds every active bot on boot, with per-bot
   failure isolation. `server/index.mjs` retries it briefly while the private Hermes
-  dashboard comes up.
-- The browser route repairs the binding before `/start` and before a viewer socket
-  attaches, so opening the live view after an upgrade also repairs the profile.
+  dashboard comes up. The browser route repairs the binding before `/start`, before
+  minting a viewer ticket, and before a viewer socket attaches.
+- A failed repair is returned to the dashboard instead of swallowed. An
+  authenticated `GET /api/hermes/browser/diagnose` reports the binding read-only;
+  `POST` on the same route repairs it. The report contains the profile, backend,
+  configured and expected ports, an `envOverride` flag for `BROWSER_CDP_URL`, and a
+  reason, but never the CDP URL or its token.
+- The viewer shows whether the agent is connected and how many pages are open,
+  offers **Check bot connection**, and explains the likely cause of a blank view.
+  A fullscreen control keeps the toolbar and canvas together, with a CSS overlay as
+  the fallback when the Fullscreen API is refused.
 - The gateway follows the newest real page only while the current view is blank. It
   never replaces a page a person is already watching, does not adopt a loading
   page's URL as its title, and moves to a surviving page when the watched target is
   destroyed.
 
-No sandbox or takeover control was weakened. The changes are migration and viewer
-selection only.
+No sandbox or takeover control was weakened. The changes are binding, diagnostics
+and viewer selection only.
 
 ### Verification
 
-- Full server suite: **283 tests, 282 passed, 1 skipped** (the Windows resolver
+- Full server suite: **286 tests, 285 passed, 1 skipped** (the Windows resolver
   skip), **0 failed**.
-- New regression tests cover: boot reconciliation for a pre-existing active bot,
-  failure isolation and idempotence, viewer-triggered repair, following the agent's
-  new tab from a blank launch page, not hijacking a watched page, and moving off a
-  watched tab that was destroyed.
+- New regression tests cover: the real client's path/profile contract, boot
+  reconciliation for a pre-existing active bot, failure isolation and idempotence,
+  viewer- and `/viewer`-triggered repair, read-only diagnosis versus repairing POST,
+  visible repair failures without token leakage, following the agent's new tab from a
+  blank launch page, not hijacking a watched page, and moving off a watched tab that
+  was destroyed.
+- Web build and lint pass.
 - Main image smoke run `39421191783` (final code commit `a10beb9f`): **success**.
   This rebuilds the production image and reruns the sandboxed container probe and
   persistence checks; the earlier run `39420273669` did the same for `ad20299d` +
-  `0ba926b1`.
+  `0ba926b1`. The `e729e19a` image smoke is the next run to check.
 - `https://hob.idkwihl.site/healthz` returned `200 {"ok":true,"gatewayConnected":true}`.
 
 ### What the operator should see
 
-After Coolify recreates the stack from `main`, the boot log should contain either
-`Pointed … at their managed browsers: …` or no binding message (already correct).
-Opening a bot's live view and then sending it a new turn should show the bot's real
-page in the viewer; no bot needs to be recreated.
+After Coolify recreates the stack from `main` with `e729e19a`, the boot log should
+contain `Pointed … at their managed browsers: …` (the previous builds could only log
+failures). Opening a bot's live view should show a binding line; **Check bot
+connection** should report a configured binding and the expected port. Send a new
+turn after that: the viewer should switch from `about:blank` to the bot's real page.
+No bot needs to be recreated. If the view is still blank, the same panel now names
+whether the bot is unbound, the backend is wrong, the credential is stale,
+`BROWSER_CDP_URL` overrides the profile, the WebSocket has not connected, or the
+agent has not connected to this browser.
 
 This fix also makes the next live browser launch the real production sandbox check.
 If the HOB browser fails with `No usable sandbox`, the remaining Ubuntu 24.04
