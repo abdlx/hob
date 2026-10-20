@@ -58,7 +58,8 @@ function run(command, { timeout = 600000, stream = false, allowFailure = false }
   const stderr = String(result.stderr || '').trim();
   if (!allowFailure && result.status !== 0) {
     throw new Error(`${command.slice(0, 3).join(' ')} failed (exit ${result.status})`
-      + (stderr ? ': ' + stderr.slice(-4000) : ''));
+      + (stdout ? '\n' + stdout.slice(-12000) : '')
+      + (stderr ? '\n' + stderr.slice(-4000) : ''));
   }
   return { status: result.status, stdout, stderr };
 }
