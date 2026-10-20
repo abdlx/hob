@@ -161,7 +161,7 @@ export class HermesBots {
    */
   async browserBinding(name) {
     const envOverride = Boolean(process.env.BROWSER_CDP_URL);
-    const base = { configured: false, backend: null, configuredPort: null, expectedPort: null, envOverride, reason: 'unavailable' };
+    const base = { profile: name, configured: false, backend: null, configuredPort: null, expectedPort: null, envOverride, reason: 'unavailable' };
     if (!this.#browser) return base;
     let record;
     try { record = await this.#browser.record(name); }
@@ -174,6 +174,7 @@ export class HermesBots {
       try { configuredPort = Number(new URL(String(browser.cdp_url ?? '')).port) || null; } catch { /* not a URL */ }
       const configured = browser.cdp_url === expectedUrl && browser.backend === 'off';
       return {
+        profile: name,
         configured,
         backend: typeof browser.backend === 'string' ? browser.backend : null,
         configuredPort,

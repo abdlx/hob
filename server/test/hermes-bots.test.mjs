@@ -153,6 +153,7 @@ test('configureBrowser binds the named profile through the real dashboard client
 
   const bound = await bots.browserBinding('research');
   assert.deepEqual(bound, {
+    profile: 'research',
     configured: true,
     backend: 'off',
     configuredPort: 32101,

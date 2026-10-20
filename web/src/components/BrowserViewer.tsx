@@ -31,6 +31,7 @@ interface BrowserStatus {
 }
 
 interface BindingReport {
+  profile?: string;
   configured: boolean;
   backend: string | null;
   configuredPort: number | null;

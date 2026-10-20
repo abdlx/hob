@@ -28,6 +28,10 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
   const workspace = (resource, method = 'GET', value, profile = 'default', query) => api(
     '/api/hermes/workspace/' + resource + '?' + new URLSearchParams({ ...(query || {}), profile }).toString(),
     method, value, profile);
+  // The managed-browser binding is a native profile write, so this read is the
+  // only dashboard-visible proof that boot/reconciliation actually performed it.
+  const browserDiagnosis = (profile = 'default') => api(
+    '/api/hermes/browser/diagnose?' + new URLSearchParams({ profile }).toString(), 'GET', undefined, profile);
   const session = (id, suffix) => '/api/sessions/' + encodeURIComponent(id) + (suffix || '');
   // Hermes reports a paused schedule as enabled false with state paused.
   const paused = row => Boolean(row) && row.enabled === false && row.state === 'paused' && row.last_run_at == null;
@@ -59,6 +63,17 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
     // A stale OpenClaw-era dashboard must never reach a different runtime's owner.
     check('a stale OpenClaw-era dashboard action is refused', (await request('/api/settings')).status === 409);
     check('the fresh roster contains Main only', JSON.stringify((await api('/api/hermes/profiles')).profiles.map(item => item.name)) === '["default"]');
+    const mainBrowser = await retry('Main browser binding', async () => {
+      const result = await browserDiagnosis();
+      assert.equal(result.binding?.configured, true, JSON.stringify(result.binding || null));
+      return result;
+    }, 30000);
+    check('boot binds Main to its managed browser',
+      mainBrowser.binding?.profile === 'default' && mainBrowser.binding?.backend === 'off'
+        && mainBrowser.binding?.configuredPort === mainBrowser.binding?.expectedPort
+        && mainBrowser.binding?.envOverride === false);
+    check('the browser diagnosis never exposes the CDP credential',
+      !JSON.stringify(mainBrowser).includes('cdp_url') && !JSON.stringify(mainBrowser).includes('gatewayToken'));
     const config = await api('/api/hermes/config');
     check('native settings are readable before provider setup', Boolean(config) && typeof config === 'object' && !Array.isArray(config));
     check('the native settings schema is available', Object.keys((await api('/api/hermes/config/schema')).fields || {}).length > 0);
@@ -110,6 +125,13 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
     }
     const bot = await api('/api/hermes/profiles', 'POST', { name: 'smoke-bot', soul: 'Independent synthetic smoke bot.' });
     check('an additional bot needs explicit creation', bot.ok === true && bot.state === 'active');
+    const botBrowser = await browserDiagnosis('smoke-bot');
+    check('a new bot is bound to its managed browser',
+      botBrowser.binding?.profile === 'smoke-bot' && botBrowser.binding?.configured === true
+        && botBrowser.binding?.backend === 'off' && botBrowser.binding?.envOverride === false,
+      JSON.stringify(botBrowser.binding || null));
+    check('the new bot diagnosis never exposes the CDP credential',
+      !JSON.stringify(botBrowser).includes('cdp_url') && !JSON.stringify(botBrowser).includes('gatewayToken'));
     check('the new bot does not inherit Main personality', !String((await workspace('soul', 'GET', undefined, 'smoke-bot')).content).includes(soul.trim()));
     const learningRoute = '/api/hermes/setup/learning';
     const mainLearning = await api(learningRoute);
@@ -197,6 +219,20 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
     check('login survives recreation', (await api('/api/auth/status')).authenticated === true);
     check('personality survives recreation', (await workspace('soul')).content === saved.soul);
     check('the bot roster survives recreation', (await api('/api/hermes/profiles')).profiles.some(item => item.name === 'smoke-bot' && item.state === 'active'));
+    const mainBrowserAfter = await retry('Main browser binding after recreation', async () => {
+      const result = await browserDiagnosis();
+      assert.equal(result.binding?.configured, true, JSON.stringify(result.binding || null));
+      return result;
+    }, 30000);
+    check('boot reconciliation rebinds Main after recreation',
+      mainBrowserAfter.binding?.profile === 'default' && mainBrowserAfter.binding?.configured === true);
+    const botBrowserAfter = await retry('bot browser binding after recreation', async () => {
+      const result = await browserDiagnosis('smoke-bot');
+      assert.equal(result.binding?.configured, true, JSON.stringify(result.binding || null));
+      return result;
+    }, 30000);
+    check('the bot browser binding survives recreation',
+      botBrowserAfter.binding?.profile === 'smoke-bot' && botBrowserAfter.binding?.configured === true);
     const row = rows(await workspace('jobs')).find(item => item.id === saved.jobId);
     check('the paused schedule survives recreation without executing', paused(row), 'observed ' + JSON.stringify(row || null));
     check('credentials survive recreation without exposure', (await api('/api/hermes/credentials')).EXAMPLE_PROVIDER_API_KEY?.is_set === true);
