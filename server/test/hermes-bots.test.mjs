@@ -51,6 +51,7 @@ test('boot reconciliation binds pre-existing active bots and isolates failures',
   const ensured = [];
   const failing = new Set();
   const client = { async dashboard(route, request = {}) {
+    if (route.includes('?')) throw new Error('profile must use the bound selector');
     if (route === '/api/profiles') return { profiles };
     if (route.startsWith('/api/config') && request.method === 'PUT') {
       const previous = configs.get(request.profile) ?? {};
@@ -62,7 +63,10 @@ test('boot reconciliation binds pre-existing active bots and isolates failures',
       return { ok: true };
     }
     if (route.startsWith('/api/config')) {
-      const profile = new URL(route, 'http://test').searchParams.get('profile');
+      // Mirror the real client: the profile is a bound option, never a query
+      // embedded in the path (the real client rejects that before sending).
+      if (route.includes('?')) throw new Error('profile must use the bound selector');
+      const profile = request.profile ?? 'default';
       return { config: configs.get(profile) ?? {} };
     }
     return { ok: true };
@@ -107,6 +111,63 @@ test('boot reconciliation binds pre-existing active bots and isolates failures',
   assert.deepEqual(third.unchanged.sort(), ['default', 'research']);
   assert.equal(ensured.includes('pending'), false, 'a bot in setup must stay unbound');
   assert.equal(configs.has('pending'), false);
+}));
+
+test('configureBrowser binds the named profile through the real dashboard client', async () => fixture(async ({ registry, root, mainApiKey }) => {
+  await registry.reserve('research');
+  await registry.update('research', { state: 'active', nativeCreated: true });
+  const calls = [];
+  let stored = {};
+  const client = new HermesClient({
+    apiKey: mainApiKey,
+    dashboardToken: 'synthetic-settings-token',
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), method: options.method, body: options.body });
+      if (options.method === 'PUT') {
+        stored = JSON.parse(options.body).config;
+        return Response.json({ ok: true });
+      }
+      return Response.json({ config: stored });
+    },
+  });
+  const token = 'a'.repeat(32);
+  const browser = {
+    async record() { return { gatewayPort: 32101, gatewayToken: token }; },
+    async ensureEndpoint() {},
+  };
+  const bots = new HermesBots({ registry, client, workspaceRoot: path.join(root, 'work'), browser });
+
+  // Before the fix this GET embedded `?profile=` in the path, which the real
+  // client rejects before any request is sent. The fake clients in the other
+  // tests parsed the query themselves, so they could not catch it.
+  assert.equal(await bots.configureBrowser('research'), true);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].method, 'GET');
+  assert.equal(calls[0].url, 'http://127.0.0.1:8080/api/config?profile=research');
+  assert.equal(calls[1].method, 'PUT');
+  assert.equal(calls[1].url, 'http://127.0.0.1:8080/api/config?profile=research');
+  assert.deepEqual(JSON.parse(calls[1].body), {
+    profile: 'research',
+    config: { browser: { backend: 'off', cdp_url: `http://127.0.0.1:32101/${token}` } },
+  });
+
+  const bound = await bots.browserBinding('research');
+  assert.deepEqual(bound, {
+    configured: true,
+    backend: 'off',
+    configuredPort: 32101,
+    expectedPort: 32101,
+    envOverride: Boolean(process.env.BROWSER_CDP_URL),
+    reason: 'bound',
+  });
+  assert.ok(!JSON.stringify(bound).includes(token), 'the diagnostic report must not leak the gateway token');
+
+  stored = { browser: { backend: 'browser-use', cdp_url: `http://127.0.0.1:32101/${'b'.repeat(32)}` } };
+  const stale = await bots.browserBinding('research');
+  assert.equal(stale.configured, false);
+  assert.equal(stale.backend, 'browser-use');
+  assert.equal(stale.reason, 'backend');
+  assert.equal(stale.configuredPort, 32101);
 }));
 
 test('operator-created bot gets independent credentials and workspace through native owners before activation', async () => fixture(async ({ registry, root, mainApiKey, options }) => {

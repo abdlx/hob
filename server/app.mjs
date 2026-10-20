@@ -122,6 +122,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
     browser, json, body, startEvents, sendEvent,
     knownBot: name => bots.has(name),
     ...(typeof bots.configureBrowser === 'function' ? { ensureBinding: name => bots.configureBrowser(name) } : {}),
+    ...(typeof bots.browserBinding === 'function' ? { bindingFor: name => bots.browserBinding(name) } : {}),
     authenticated: req => authenticated(req),
     assertOrigin: req => assertOrigin(req),
     ...(viewerTicketTtlMs ? { ticketTtlMs: viewerTicketTtlMs } : {}),

@@ -49,7 +49,7 @@ function publicStatus(status) {
 
 export function createBrowserRoutes({
   browser, knownBot, authenticated, assertOrigin, startEvents, sendEvent, json, body,
-  ensureBinding,
+  ensureBinding, bindingFor,
   // Production leaves this at the default; tests shorten it so expiry can be
   // observed without a fifteen-minute wait.
   ticketTtlMs = TICKET_TTL_MS,
@@ -76,11 +76,13 @@ export function createBrowserRoutes({
   // Repair the agent's browser binding before this bot's browser is used. A bot
   // created before the managed browser existed is otherwise left driving a
   // throwaway Hermes browser, which is what makes its live view stay blank while
-  // the bot itself can still browse and screenshot. Failure here is not fatal:
-  // the viewer still works, and boot reconciliation retries the binding.
+  // the bot itself can still browse and screenshot. A failure is reported rather
+  // than swallowed, so the dashboard can show why its view is empty; the viewer
+  // still opens, and the next turn or boot retries the binding.
   const repoint = async profile => {
-    if (!ensureBinding) return;
-    try { await ensureBinding(profile); } catch { /* the viewer must still open */ }
+    if (!ensureBinding) return { ok: true, changed: false };
+    try { return { ok: true, changed: Boolean(await ensureBinding(profile)) }; }
+    catch (error) { return { ok: false, error: error.message }; }
   };
 
   const mintTicket = profile => {
@@ -127,9 +129,33 @@ export function createBrowserRoutes({
     }
 
     if (tail === '/start' && method === 'POST') {
-      await repoint(profile);
+      const repair = await repoint(profile);
       await browser.ensure(profile);
-      return json(res, 200, publicStatus(await browser.view(profile)));
+      const probe = await browser.probe();
+      return json(res, 200, {
+        ...publicStatus(await browser.view(profile)),
+        available: probe.ready,
+        browserExecutable: probe.chromium,
+        binding: bindingFor ? await bindingFor(profile) : null,
+        repair,
+      });
+    }
+
+    // The dashboard's "why is my view empty?" surface. GET is observational;
+    // POST also repairs the profile, which is the only write and therefore needs
+    // the same session gate as every other dashboard action.
+    if (tail === '/diagnose' && (method === 'GET' || method === 'POST')) {
+      const repair = method === 'POST' ? await repoint(profile) : undefined;
+      const probe = await browser.probe();
+      const status = await browser.view(profile);
+      const binding = bindingFor ? await bindingFor(profile) : null;
+      return json(res, 200, {
+        ...publicStatus(status),
+        available: probe.ready,
+        browserExecutable: probe.chromium,
+        binding,
+        ...(repair ? { repair } : {}),
+      });
     }
 
     if (tail === '/stop' && method === 'POST') {
@@ -153,7 +179,14 @@ export function createBrowserRoutes({
     if (tail === '/viewer' && method === 'POST') {
       // Field names match what @atriumjs/react consumes: it appends `viewerToken`
       // to `wsUrl` as the `token` query parameter, and displays `sessionId`.
-      return json(res, 200, { profile, sessionId: profile, wsPath: STREAM, ...mintTicket(profile) });
+      // Repair here as well as on the upgrade so the dashboard learns the result:
+      // an upgrade cannot return a body to say why the view is about to be blank.
+      const repair = await repoint(profile);
+      return json(res, 200, {
+        profile, sessionId: profile, wsPath: STREAM, ...mintTicket(profile),
+        ...(bindingFor ? { binding: await bindingFor(profile) } : {}),
+        repair,
+      });
     }
 
     if (tail === '/activity' && method === 'GET') {

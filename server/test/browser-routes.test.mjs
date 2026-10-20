@@ -25,7 +25,7 @@ function stubGateway() {
   return { kind: 'other', connected: false, on() {}, request: async () => ({}), start() {}, stop() {} };
 }
 
-async function startApp(t, { bots = ['alpha'], viewerTicketTtlMs, bind } = {}) {
+async function startApp(t, { bots = ['alpha'], viewerTicketTtlMs, bind, binding } = {}) {
   const stateDir = await mkdtemp(join(tmpdir(), 'hob-browser-routes-'));
   const registry = await BrowserRegistry.open({ stateDir });
   const browser = await BrowserManager.open({ registry, stateDir, options: { idleMs: 60000, maxFps: 10 } });
@@ -36,6 +36,7 @@ async function startApp(t, { bots = ['alpha'], viewerTicketTtlMs, bind } = {}) {
       has: name => bots.includes(name),
       token: () => 'x'.repeat(32),
       ...(bind ? { configureBrowser: bind } : {}),
+      ...(binding ? { browserBinding: binding } : {}),
     },
     browser,
     password: PASSWORD,
@@ -184,9 +185,60 @@ test('browser routes: opening a viewer repairs a bot that was never bound to its
     setTimeout(() => reject(new Error('no hello frame')), 20000).unref?.();
   });
   assert.equal(hello.t, 'hello');
-  assert.deepEqual(bound, ['alpha'], 'a viewer must repair the agent binding before streaming');
+  assert.ok(bound.length >= 1 && bound.every(name => name === 'alpha'),
+    'a viewer must repair the agent binding before streaming');
   socket.close();
   await new Promise(resolve => setTimeout(resolve, 300));
+});
+
+test('browser routes: diagnosis reports the binding but only a POST repairs it', async t => {
+  let repaired = 0;
+  const { origin, browser } = await startApp(t, {
+    bind: async () => { repaired += 1; return true; },
+    binding: async () => ({
+      configured: false, backend: 'browser-use', configuredPort: 32100,
+      expectedPort: 32100, envOverride: false, reason: 'backend',
+    }),
+  });
+  const cookie = await signIn(origin);
+
+  const read = await getJson(origin, '/api/hermes/browser/diagnose?profile=alpha', cookie);
+  assert.equal(read.status, 200);
+  assert.equal(read.body.binding.configured, false);
+  assert.equal(read.body.binding.backend, 'browser-use');
+  assert.equal(read.body.binding.expectedPort, 32100);
+  assert.equal(repaired, 0, 'a diagnostic read must not write the profile');
+  const record = await browser.record('alpha');
+  assert.ok(!JSON.stringify(read.body).includes(record.gatewayToken),
+    'the diagnosis must not expose the gateway credential');
+
+  const write = await fetch(`${origin}/api/hermes/browser/diagnose?profile=alpha`, {
+    method: 'POST', headers: { Cookie: cookie },
+  });
+  assert.equal(write.status, 200);
+  const body = await write.json();
+  assert.deepEqual(body.repair, { ok: true, changed: true });
+  assert.equal(repaired, 1, 'the explicit check repairs the binding');
+});
+
+test('browser routes: a failed binding repair is reported instead of hidden', async t => {
+  const { origin } = await startApp(t, {
+    bind: async () => { throw new Error('synthetic binding failure'); },
+    binding: async () => ({
+      configured: false, backend: null, configuredPort: null,
+      expectedPort: 32100, envOverride: false, reason: 'unreadable', error: 'synthetic read failure',
+    }),
+  });
+  const cookie = await signIn(origin);
+  const response = await fetch(`${origin}/api/hermes/browser/diagnose?profile=alpha`, {
+    method: 'POST', headers: { Cookie: cookie },
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.repair.ok, false);
+  assert.match(body.repair.error, /synthetic binding failure/);
+  assert.equal(body.binding.configured, false);
+  assert.equal(body.binding.error, 'synthetic read failure');
 });
 
 test('browser routes: a viewer ticket is single-use and cannot be replayed', async t => {

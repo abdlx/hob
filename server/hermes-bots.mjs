@@ -140,12 +140,53 @@ export class HermesBots {
     // Listen before the profile is told where to connect, so the URL is true the
     // moment Hermes reads it.
     await this.#browser.ensureEndpoint(name);
-    const current = await this.#client.dashboard(`/api/config?profile=${encodeURIComponent(name)}`);
+    // The profile is the *bound selector*: HermesClient appends it to the
+    // dashboard URL itself and rejects a query embedded in a path. Passing
+    // `?profile=` here made every bind throw before it could read the profile.
+    const current = await this.#client.dashboard('/api/config', { profile: name });
     const browser = current?.config?.browser ?? {};
     if (browser.cdp_url === cdpUrl && browser.backend === 'off') return false;
     await this.#client.dashboard('/api/config', { profile: name, method: 'PUT',
       body: { profile: name, config: { browser: { backend: 'off', cdp_url: cdpUrl } } } });
     return true;
+  }
+  /**
+   * Read-only view of a bot's browser binding for the dashboard's diagnostics.
+   *
+   * `browser.cdp_url` embeds the bot's gateway credential, so the report never
+   * contains it: it compares the URL internally and exposes only the port and
+   * the reason a binding does not match. `BROWSER_CDP_URL` is an environment
+   * override that affects every profile, so it is reported separately without
+   * its value.
+   */
+  async browserBinding(name) {
+    const envOverride = Boolean(process.env.BROWSER_CDP_URL);
+    const base = { configured: false, backend: null, configuredPort: null, expectedPort: null, envOverride, reason: 'unavailable' };
+    if (!this.#browser) return base;
+    let record;
+    try { record = await this.#browser.record(name); }
+    catch (error) { return { ...base, error: error.message }; }
+    const expectedUrl = `http://127.0.0.1:${record.gatewayPort}/${record.gatewayToken}`;
+    try {
+      const current = await this.#client.dashboard('/api/config', { profile: name });
+      const browser = current?.config?.browser ?? {};
+      let configuredPort = null;
+      try { configuredPort = Number(new URL(String(browser.cdp_url ?? '')).port) || null; } catch { /* not a URL */ }
+      const configured = browser.cdp_url === expectedUrl && browser.backend === 'off';
+      return {
+        configured,
+        backend: typeof browser.backend === 'string' ? browser.backend : null,
+        configuredPort,
+        expectedPort: record.gatewayPort,
+        envOverride,
+        reason: configured ? 'bound'
+          : !browser.cdp_url ? 'missing'
+            : browser.backend !== 'off' ? 'backend'
+              : 'stale-url',
+      };
+    } catch (error) {
+      return { ...base, expectedPort: record.gatewayPort, reason: 'unreadable', error: error.message };
+    }
   }
   /**
    * Point every active bot at its managed browser.
