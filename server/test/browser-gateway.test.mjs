@@ -349,6 +349,34 @@ test('gateway: a background tab does not replace the page a viewer is watching',
   assert.match(session.status().url, /^data:text\/html/);
 });
 
+test('gateway: closing the watched tab moves the viewer to a surviving page', async t => {
+  const started = await startManager(t);
+  if (!started) return;
+  const { manager } = started;
+  const session = await manager.ensure('alpha');
+  const agent = await agentClient(session);
+  t.after(() => agent.raw.close());
+
+  await agent.raw.call('Page.navigate', { url: dataUrl('<title>FIRST</title>') }, agent.sessionId);
+  await waitFor(async () => (await titleOf(agent)) === 'FIRST');
+
+  const viewer = await createViewer(session);
+  t.after(() => viewer.close());
+  await waitFor(() => viewer.hello());
+  await waitFor(() => session.status().title === 'FIRST');
+
+  await agent.raw.call('Target.createTarget', { url: dataUrl('<title>SECOND</title>') });
+  await waitFor(() => session.status().tabs.some(tab => tab.title === 'SECOND'));
+
+  // The agent closes the tab the person is watching. The stream must move to
+  // the surviving page instead of freezing on its last frame.
+  await agent.raw.call('Target.closeTarget', { targetId: agent.targetId });
+  await waitFor(() => session.status().tabs.find(tab => tab.active)?.title === 'SECOND');
+  assert.equal(session.status().title, 'SECOND');
+  assert.equal(session.status().tabs.some(tab => tab.id === agent.targetId), false);
+  await waitFor(() => viewer.received.some(message => message.t === 'navigate' && message.url.includes('SECOND')));
+});
+
 test('gateway: the last viewer leaving returns control to the agent', async t => {
   const started = await startManager(t);
   if (!started) return;

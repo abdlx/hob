@@ -1172,14 +1172,16 @@ export class BrowserSession {
     const metrics = await this.#castCdp.send('Page.getLayoutMetrics', {}, { sessionId }).catch(() => null);
     const view = metrics?.cssLayoutViewport;
     if (view?.clientWidth && view?.clientHeight) this.#viewport = { w: Math.round(view.clientWidth), h: Math.round(view.clientHeight) };
-    const previousUrl = this.#page.url;
     this.#updatePageFromTarget(target);
-    // Attaching to a page that already navigated does not replay
-    // `Page.frameNavigated`; tell the viewer where it now is.
-    if (this.#page.url !== previousUrl) this.#broadcast({ t: 'navigate', url: this.#page.url });
     await this.#startScreencast();
     this.#broadcast({ t: 'viewport', w: this.#viewport.w, h: this.#viewport.h });
     await this.#refreshTabs();
+    // Attaching to a page that already navigated does not replay
+    // `Page.frameNavigated`; tell the viewer where it now is. Announce even
+    // when the URL was updated by an event during the attach, otherwise a
+    // viewer moved after its tab was closed would show the right frames with a
+    // stale location.
+    if (this.#page.url) this.#broadcast({ t: 'navigate', url: this.#page.url });
   }
 
   /**
@@ -1220,7 +1222,6 @@ export class BrowserSession {
     if (!isBlankUrl(this.#page.url)) return;
     this.#castTargetId = targetId;
     await this.#attachActiveTarget();
-    if (this.#page.url) this.#broadcast({ t: 'navigate', url: this.#page.url });
   }
 
   async #startScreencast() {
@@ -1291,8 +1292,14 @@ export class BrowserSession {
         return;
       }
       case 'Target.targetDestroyed': {
-        const info = params?.targetInfo;
-        if (info?.targetId !== this.#castTargetId) return;
+        // Unlike the other target events, this one carries a bare `targetId`,
+        // not a `targetInfo` object.
+        const targetId = params?.targetId;
+        if (!targetId) return;
+        if (targetId !== this.#castTargetId) {
+          this.#refreshTabs();
+          return;
+        }
         // The screencast session died with its target. Choose another page now
         // instead of leaving every viewer on a frozen last frame.
         this.#castSessionId = null;
@@ -1380,7 +1387,6 @@ export class BrowserSession {
       this.#castPinned = true;
       this.#castTargetId = targetId;
       await this.#attachActiveTarget();
-      if (this.#page.url) this.#broadcast({ t: 'navigate', url: this.#page.url });
     } catch (error) { this.#sendTo(viewer, { t: 'error', code: 'tab_failed', message: error.message }); }
     finally { admission.release(); }
   }
