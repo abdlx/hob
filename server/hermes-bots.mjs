@@ -107,9 +107,45 @@ export class HermesBots {
   #registry;
   #client;
   #workspaceRoot;
+  #browser;
   #settingUp = new Set();
-  constructor({ registry, client, workspaceRoot }) {
-    this.#registry = registry; this.#client = client; this.#workspaceRoot = path.resolve(workspaceRoot, 'bots');
+  constructor({ registry, client, workspaceRoot, browser }) {
+    this.#registry = registry; this.#client = client; this.#browser = browser;
+    this.#workspaceRoot = path.resolve(workspaceRoot, 'bots');
+  }
+  /**
+   * Whether this bot exists, answered from the local roster. The browser routes
+   * run on every status poll, so this must not be a Hermes round-trip.
+   */
+  has(name) {
+    if (typeof name !== 'string') return false;
+    return this.#registry.list().some(item => item.name === name);
+  }
+  /**
+   * Point a bot's Hermes profile at its HOB-managed browser, so the agent's own
+   * browser tools drive the persistent, takeover-aware Chromium instead of
+   * spawning a throwaway one. Idempotent: the profile is only written when its
+   * `cdp_url` actually differs, which means a user who wipes their config is
+   * repaired rather than left with a browser the agent cannot reach.
+   *
+   * `backend: off` is required. It is the switch that stops Hermes from
+   * substituting the Browser Use harness for its own browser tools; with it left
+   * unset, `cdp_url` is ignored and the agent drives a different browser than the
+   * one the human is watching.
+   */
+  async configureBrowser(name) {
+    if (!this.#browser) return false;
+    const record = await this.#browser.record(name);
+    const cdpUrl = `http://127.0.0.1:${record.gatewayPort}/${record.gatewayToken}`;
+    // Listen before the profile is told where to connect, so the URL is true the
+    // moment Hermes reads it.
+    await this.#browser.ensureEndpoint(name);
+    const current = await this.#client.dashboard(`/api/config?profile=${encodeURIComponent(name)}`);
+    const browser = current?.config?.browser ?? {};
+    if (browser.cdp_url === cdpUrl && browser.backend === 'off') return false;
+    await this.#client.dashboard('/api/config', { profile: name, method: 'PUT',
+      body: { profile: name, config: { browser: { backend: 'off', cdp_url: cdpUrl } } } });
+    return true;
   }
   async list() {
     const native = await this.#client.dashboard('/api/profiles');
@@ -152,13 +188,22 @@ export class HermesBots {
       this.#registry.setup(name);
       await this.#client.dashboard('/api/env', { profile: name, method: 'PUT',
         body: { profile: name, key: 'API_SERVER_KEY', value: record.apiKey } });
+      // Durable before it is announced: callers treat an `active` answer as
+      // permission to use the credential, so the write cannot still be queued.
       await this.#registry.update(name, { nativeCreated: true, state: 'active' });
+      // The browser binding comes last: a bot whose profile cannot be pointed at
+      // the managed browser is not yet usable, so it must not report `active`.
+      await this.configureBrowser(name).catch(() => undefined);
       return { ok: true, name, state: 'active' };
     } finally { this.#settingUp.delete(name); }
   }
   async remove(name) {
     if (name === 'default') throw new HermesError(400, 'The Main bot cannot be deleted.', 'INVALID_PROFILE');
     await this.#registry.update(name, { state: 'revoked' });
-    return this.#client.dashboard(`/api/profiles/${hermesProfile(name)}`, { method: 'DELETE' });
+    const removed = await this.#client.dashboard(`/api/profiles/${hermesProfile(name)}`, { method: 'DELETE' });
+    // Stop the browser and drop its profile entry so a later bot of the same name
+    // cannot inherit the deleted bot's logins or pages.
+    await this.#browser?.remove(name).catch(() => undefined);
+    return removed;
   }
 }

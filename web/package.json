@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@atriumjs/protocol": "^0.3.0",
+    "@atriumjs/react": "^0.3.0",
     "@tailwindcss/vite": "^4.3.3",
     "lucide-react": "^1.52.0",
     "react": "^19.2.8",

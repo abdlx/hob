@@ -22,6 +22,14 @@ RUN --mount=type=cache,id=hob-npm,target=/root/.npm npm ci
 COPY web/ ./
 RUN npm run build
 
+# The application's own server deps are installed from the lockfile rather than
+# copied from the build context, so the image never carries host node_modules and
+# a dependency bump cannot silently ship a half-installed tree.
+FROM ${NODE_BUILD_IMAGE} AS server-build
+WORKDIR /app/server
+COPY server/package.json server/package-lock.json ./
+RUN --mount=type=cache,id=hob-npm,target=/root/.npm npm ci --omit=dev
+
 FROM ${HERMES_IMAGE} AS runtime
 # Preserve the upstream entrypoint, sealed runtime, PM tools, migrations and
 # privilege drop. Only the application CMD and its files are added.
@@ -29,6 +37,8 @@ USER root
 WORKDIR /app
 COPY --from=web-build /app/web/dist/ ./web/dist/
 COPY server/ ./server/
+# After `server/`, so the installed deps win over anything in the build context.
+COPY --from=server-build /app/server/node_modules/ ./server/node_modules/
 COPY deploy/ ./deploy/
 COPY LICENSE ./LICENSE
 RUN chmod -R a+rX /app && /usr/local/bin/node --version && test -x /opt/hermes/bin/hermes

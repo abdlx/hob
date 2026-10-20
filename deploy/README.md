@@ -134,8 +134,11 @@ passed at `1dd39956`, including an image build and 33 authenticated/native check
 across container recreation using a deterministic model fixture. It verifies
 hardening configuration, native session/tool execution and persisted state.
 Service UID checks verify the supervisor, web server, gateway and settings service
-are unprivileged before and after recreation. The isolated Chromium probe uses
-DevTools to assert namespace and seccomp sandbox status and gates CI success.
+are unprivileged before and after recreation. The isolated Chromium probe
+(`deploy/probe-browser.mjs`) launches the browser on the same
+`--remote-debugging-pipe` transport production uses, speaks CDP over the pipe, asserts
+namespace and seccomp sandbox status, and fails if the browser writes a
+`DevToolsActivePort` file or listens on any TCP port. It gates CI success.
 This is a binary capability check, not proof of Hermes browser-tool isolation:
 the pinned upstream `agent-browser` automatically adds `--no-sandbox` in Docker
 (see its [container detection](https://github.com/vercel-labs/agent-browser/blob/v0.26.0/cli/src/native/cdp/chrome.rs)).

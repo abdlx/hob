@@ -6,6 +6,7 @@ import { buttonClass, cardClass, ConfirmButton, EmptyState, Field, inputClass, N
 import { errorText } from '../components/workspaceUtils';
 import { useToast } from '../context/ToastContext';
 import { DogeshAvatar } from '../components/DogeshAvatar';
+import { BrowserViewer } from '../components/BrowserViewer';
 import { clearBotAvatar, readAvatarFile, setBotAvatar } from '../services/avatars';
 
 function useWorkspaceResource<T>(profile: string, operation: string, query: Record<string, string> = {}) {
@@ -221,7 +222,8 @@ export function HermesBrowser({ profile }: { profile: string }) {
   return (
     <div className="space-y-3.5 pt-1">
       <h3 className="text-sm md:text-base font-semibold text-ink">Browse with this bot</h3>
-      <Notice>Hermes controls its browser through agent tools. Send a browsing request to this conversation; results and approval prompts appear in chat.</Notice>
+      <BrowserViewer profile={profile} />
+      <p className="text-xs md:text-sm text-muted">Or ask the bot to browse for you. It drives the same browser shown above, so you can watch it work and take over at any point.</p>
       {(error || requestError) && <Notice error>{error || requestError}</Notice>}
       {browser && <p className="text-xs md:text-sm text-muted">Browser tools: <span className="font-medium text-ink">{browser.enabled ? 'Enabled' : 'Disabled'}</span> · <span className="font-medium text-ink">{browser.configured ? 'Configured' : 'Setup required'}</span></p>}
       <Field label="Website URL"><input className={inputClass} value={url} onChange={event => setUrl(event.target.value)} placeholder="https://example.com" /></Field>

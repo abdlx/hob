@@ -11,6 +11,7 @@ import { createHermesWorkspaceRoutes } from './hermes-workspace.mjs';
 import { createHermesSetupRoutes } from './hermes-setup.mjs';
 import { createHermesGroups } from './hermes-groups.mjs';
 import { createHermesMcpOAuth } from './hermes-mcp-oauth.mjs';
+import { createBrowserRoutes } from './browser-routes.mjs';
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -106,7 +107,7 @@ async function browserImage(stateDir, filename) {
   } finally { await handle?.close(); await rootHandle.close(); }
 }
 
-export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gateway : undefined, bots, runJournal, nativeSessions, password = process.env.MUSE_PASSWORD, accessToken = process.env.MUSE_ACCESS_TOKEN, sessionSecret = process.env.MUSE_SESSION_SECRET, publicUrl = process.env.MUSE_PUBLIC_URL, secureCookies = process.env.MUSE_SECURE_COOKIES === 'true', stateDir = process.env.OPENCLAW_STATE_DIR, staticDir = fileURLToPath(new URL('../web/dist', import.meta.url)) }) {
+export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gateway : undefined, bots, browser, runJournal, nativeSessions, password = process.env.MUSE_PASSWORD, accessToken = process.env.MUSE_ACCESS_TOKEN, sessionSecret = process.env.MUSE_SESSION_SECRET, publicUrl = process.env.MUSE_PUBLIC_URL, secureCookies = process.env.MUSE_SECURE_COOKIES === 'true', stateDir = process.env.OPENCLAW_STATE_DIR, viewerTicketTtlMs, staticDir = fileURLToPath(new URL('../web/dist', import.meta.url)) }) {
   if (nativeSessions && !runJournal) throw new Error('Native chat requires a durable admission journal.');
   const hermesGroups = hermes && nativeSessions ? createHermesGroups({ client: hermes, bridge: nativeSessions, bots, home: process.env.HERMES_HOME }) : null;
   const hermesRoutes = hermes ? createHermesRoutes(hermes, bots, { ...(hermesGroups ? { removeBot: hermesGroups.removeBot } : {}), home: process.env.HERMES_HOME }) : null;
@@ -116,6 +117,14 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
     workspaceRoot: process.env.HERMES_HOME ? path.join(process.env.HERMES_HOME, 'workspaces') : undefined }) : null;
   const hermesChat = gateway?.kind === 'hermes' ? createHermesChatRoutes(gateway, bots, runJournal, { home: process.env.HERMES_HOME }) : null;
   const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat }) : null;
+  // The managed browser is only meaningful with a bot roster to scope it to.
+  const browserRoutes = browser && bots ? createBrowserRoutes({
+    browser, json, body, startEvents, sendEvent,
+    knownBot: name => bots.has(name),
+    authenticated: req => authenticated(req),
+    assertOrigin: req => assertOrigin(req),
+    ...(viewerTicketTtlMs ? { ticketTtlMs: viewerTicketTtlMs } : {}),
+  }) : null;
   const configured = Boolean(password || accessToken);
   const secret = sessionSecret || createHash('sha256').update(`muse-session:${password || accessToken || randomBytes(32).toString('hex')}`).digest();
   const fingerprint = createHash('sha256').update(`${password || ''}:${accessToken || ''}`).digest('base64url');
@@ -209,6 +218,9 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
       if (route.startsWith('/api/')) {
         if (!authenticated(req)) throw new HttpError(401, 'Sign in to hob.');
         if (route === '/api/runtime' && method === 'GET') return json(res, 200, { runtime: hermes ? 'hermes' : 'openclaw' });
+        // Before the Hermes catch-all: the managed browser is a Hermes-runtime
+        // surface, but it is HOB's own, not a passthrough to Hermes.
+        if (browserRoutes && await browserRoutes.route(req, res, url)) return;
         if (route.startsWith('/api/hermes/')) {
           if (!hermesRoutes) throw new HttpError(503, 'Hermes has not been connected to this server.');
           if (route === '/api/hermes/groups' || route.startsWith('/api/hermes/groups/')) {
@@ -460,7 +472,13 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
     void poll();
   });
   server.once('close', () => clearInterval(runPoll));
-  server.once('close', () => { canonicalChat?.close(); nativeSessions?.close(); });
+  server.once('close', () => { canonicalChat?.close(); nativeSessions?.close(); browserRoutes?.close(); });
   server.on('close', () => { for (const res of streams) res.end(); streams.clear(); });
+  // Viewer streams are WebSockets, so they never reach the request handler above.
+  // Anything that is not a browser stream is refused here rather than left open.
+  if (browserRoutes) server.on('upgrade', (req, socket, head) => {
+    if (browserRoutes.upgrade(req, socket, head)) return;
+    socket.destroy();
+  });
   return server;
 }
