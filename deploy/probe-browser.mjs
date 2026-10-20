@@ -157,7 +157,7 @@ try {
   assert.ok(rows.some(row => /^layer 1 sandbox$/i.test(row[0]) && /^namespace$/i.test(row[1])),
     'Chromium namespace sandbox must be enabled: ' + evidence);
   assert.ok(enabled(/^seccomp-bpf sandbox$/i), 'Chromium seccomp-BPF sandbox must be enabled: ' + evidence);
-  console.log(`SANDBOX_OK (${version.product}; zero TCP listeners)`);
+  console.log(`SANDBOX_OK (${version.product}; zero TCP listeners; ${chrome})`);
 } catch (error) {
   console.error('SANDBOX_FAILED: ' + error.message + '\n' + stderr);
   process.exitCode = 1;

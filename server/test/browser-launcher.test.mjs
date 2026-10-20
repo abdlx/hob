@@ -1,7 +1,7 @@
 // Executable discovery for the Linux production image. The Hermes image installs
-// Chromium through Playwright, under a revisioned directory; a resolver that only
-// looks at the root of the tool store passes every Windows test and fails the
-// actual deployment. These tests build the shipped layout and assert discovery.
+// Chrome for Testing via Playwright, under a revisioned `chrome-linux64` directory;
+// a resolver that only looks at the root of the tool store passes every Windows
+// test and fails the actual deployment. These tests build the shipped layout.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,39 +10,48 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { linuxCandidates, resolveChromiumExecutable } from '../browser-executable.mjs';
 
-async function layout() {
-  const root = await mkdtemp(join(tmpdir(), 'hob-launcher-'));
-  await mkdir(join(root, 'chromium-1194', 'chrome-linux'), { recursive: true });
-  const executable = join(root, 'chromium-1194', 'chrome-linux', 'chrome');
-  await writeFile(executable, '#!/bin/sh\nexit 0\n');
-  await chmod(executable, 0o755);
-  return { root, executable };
+async function executableAt(...segments) {
+  const file = join(...segments);
+  await mkdir(join(file, '..'), { recursive: true });
+  await writeFile(file, '#!/bin/sh\nexit 0\n');
+  await chmod(file, 0o755);
+  return file;
 }
 
-test('the Linux candidate list includes the Playwright revision directory', async () => {
-  const { root, executable } = await layout();
+async function withRoot(run) {
+  const root = await mkdtemp(join(tmpdir(), 'hob-launcher-'));
   const previous = process.env.PLAYWRIGHT_BROWSERS_PATH;
   process.env.PLAYWRIGHT_BROWSERS_PATH = root;
   try {
-    assert.ok(linuxCandidates().includes(executable));
+    return await run(root);
   } finally {
     if (previous === undefined) delete process.env.PLAYWRIGHT_BROWSERS_PATH;
     else process.env.PLAYWRIGHT_BROWSERS_PATH = previous;
     await rm(root, { recursive: true, force: true });
   }
+}
+
+test('the Linux candidate list includes the shipped chrome-linux64 revision directory', async () => {
+  await withRoot(async root => {
+    const executable = await executableAt(root, 'chromium-1208', 'chrome-linux64', 'chrome');
+    assert.ok(linuxCandidates().includes(executable));
+  });
 });
 
-test('resolves Chromium in the Playwright layout used by the production image',
+test('resolves Chromium in the chrome-linux64 layout shipped by the production image',
   { skip: process.platform === 'win32' ? 'The Windows resolver has its own candidates.' : false },
   async () => {
-    const { root, executable } = await layout();
-    const previous = process.env.PLAYWRIGHT_BROWSERS_PATH;
-    process.env.PLAYWRIGHT_BROWSERS_PATH = root;
-    try {
+    await withRoot(async root => {
+      const executable = await executableAt(root, 'chromium-1208', 'chrome-linux64', 'chrome');
       assert.equal(await resolveChromiumExecutable(), executable);
-    } finally {
-      if (previous === undefined) delete process.env.PLAYWRIGHT_BROWSERS_PATH;
-      else process.env.PLAYWRIGHT_BROWSERS_PATH = previous;
-      await rm(root, { recursive: true, force: true });
-    }
+    });
+  });
+
+test('falls back to a bounded search for an unknown layout',
+  { skip: process.platform === 'win32' ? 'The Windows resolver has its own candidates.' : false },
+  async () => {
+    await withRoot(async root => {
+      const executable = await executableAt(root, 'runtime', 'browsers', 'custom', 'chrome');
+      assert.equal(await resolveChromiumExecutable(), executable);
+    });
   });

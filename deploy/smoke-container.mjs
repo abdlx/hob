@@ -130,7 +130,7 @@ function probeChromiumSandbox(container) {
   // and requires namespace/seccomp status from the actual renderer over CDP.
   const result = docker(['exec', '--user', 'hermes', '--env', 'HOME=/opt/data', container,
     '/usr/local/bin/node', '/app/deploy/probe-browser.mjs'], 60000);
-  assert.match(result.trim(), /^SANDBOX_OK \([^)]+; zero TCP listeners\)$/,
+  assert.match(result.trim(), /^SANDBOX_OK \([^)]+; zero TCP listeners; .+\)$/,
     'The shipped Chromium must report both sandbox layers enabled and no TCP listener.');
   console.log('Blank-profile browser sandbox probe: ' + result);
 }

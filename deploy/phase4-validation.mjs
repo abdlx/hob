@@ -101,6 +101,16 @@ function diagnostics() {
   } catch (error) {
     console.error('Diagnostics unavailable: ' + error.message);
   }
+  try {
+    const pm = exec(['/opt/hermes/.venv/bin/python', '-c',
+      "import sys; sys.path.insert(0, '/opt/hermes'); import pm; p = pm.installed_package('agent-browser'); print(p.binary if p else 'missing')"],
+    { timeout: 60000, allowFailure: true });
+    console.log('PM agent-browser: ' + (pm.stdout || pm.stderr));
+    const baked = exec(['cat', '/etc/hermes/agent-browser-executable-path'], { timeout: 30000, allowFailure: true });
+    console.log('Baked Chromium path: ' + (baked.stdout || baked.stderr));
+  } catch (error) {
+    console.error('Runtime diagnostics unavailable: ' + error.message);
+  }
 }
 
 function containerStats(label) {
@@ -198,7 +208,7 @@ try {
   diagnostics();
   const probe = exec(['/usr/local/bin/node', '/app/deploy/probe-browser.mjs'],
     { user: 'hermes', env: { HOME: '/opt/data' }, timeout: 120000 });
-  assert.match(probe.stdout, /^SANDBOX_OK \([^)]+; zero TCP listeners\)$/,
+  assert.match(probe.stdout, /^SANDBOX_OK \([^)]+; zero TCP listeners; .+\)$/,
     'the probe must prove both sandbox layers and no TCP listener');
   console.log('Sandbox/transport probe: ' + probe.stdout);
   results.push('probe');
