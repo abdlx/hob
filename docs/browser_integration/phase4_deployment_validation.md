@@ -393,3 +393,66 @@ It builds `openmuse:phase4`, starts an isolated Compose project, and runs:
 tag. The workflow is `.github/workflows/phase4-validation.yml` (manual dispatch, or push to
 `phase4-validation`). Artifacts for this report: run `39402625635`, job `118560809276`,
 commit `a6d8c994`.
+
+---
+
+## 7. Post-validation production fix: the bot was not using the watched browser
+
+The operator reported that a bot said it could use the browser and could take
+screenshots, but every live view showed `about:blank` and a white canvas with the bot
+in control. The browser subsystem itself was healthy; the bot and the dashboard were
+looking at **different browsers**.
+
+### Root cause
+
+`HermesBots.finishSetup` returns early when a bot is already active, before calling
+`configureBrowser`. That method is what writes the profile's `browser.backend: "off"`
+and `browser.cdp_url` pointing at the bot's HOB gateway. Bots created before the
+managed browser existed (and bots whose setup-time binding failed, because that error
+was swallowed and the bot was still marked active) therefore kept using Hermes' own
+throwaway browser. The dashboard, meanwhile, lazily started the idle HOB browser for
+the viewer: a blank launch page that the agent never touched. Screenshots came from
+the throwaway browser; the white canvas came from the untouched HOB one.
+
+A second, independent viewer bug could produce the same white page: a viewer that
+attached before the bot's first navigation stayed pinned to the launch target even
+when the agent opened its work in a new tab.
+
+### Fix (deployed)
+
+- `HermesBots.reconcileBrowsers()` binds every active bot on boot, with per-bot
+  failure isolation. `server/index.mjs` retries it briefly while the private Hermes
+  dashboard comes up.
+- The browser route repairs the binding before `/start` and before a viewer socket
+  attaches, so opening the live view after an upgrade also repairs the profile.
+- The gateway follows the newest real page only while the current view is blank. It
+  never replaces a page a person is already watching, moves off a destroyed target,
+  and does not adopt a loading page's URL as its title.
+
+No sandbox or takeover control was weakened. The changes are migration and viewer
+selection only.
+
+### Verification
+
+- Full server suite: **282 tests, 281 passed, 1 skipped** (the Windows resolver
+  skip), **0 failed**.
+- New regression tests cover: boot reconciliation for a pre-existing active bot,
+  failure isolation and idempotence, viewer-triggered repair, following the agent's
+  new tab from a blank launch page, and not hijacking a watched page.
+- Main image smoke run `39420273669` (commits `ad20299d` + `0ba926b1`):
+  **success**. This rebuilds the production image and reruns the sandboxed
+  container probe and persistence checks.
+- `https://hob.idkwihl.site/healthz` returned `200 {"ok":true,"gatewayConnected":true}`.
+
+### What the operator should see
+
+After Coolify recreates the stack from `main`, the boot log should contain either
+`Pointed … at their managed browsers: …` or no binding message (already correct).
+Opening a bot's live view and then sending it a new turn should show the bot's real
+page in the viewer; no bot needs to be recreated.
+
+This fix also makes the next live browser launch the real production sandbox check.
+If the HOB browser fails with `No usable sandbox`, the remaining Ubuntu 24.04
+AppArmor gap in §5 is the cause: grant `userns,` in the host's
+`docker-default`/AppArmor profile or use Docker's updated profile. Never add
+`--no-sandbox`.
