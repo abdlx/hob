@@ -1,0 +1,37 @@
+name: Phase 4 deployment validation
+
+# Executes the production checklist against the image built from this commit, in
+# an isolated Compose project on a real Linux Docker host. It never touches a
+# deployed stack: unique project name, loopback-only port, its own volume.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - phase4-validation
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase4-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    # Ubuntu 22.04: unprivileged Chromium user namespaces are available without
+    # the 24.04 AppArmor restriction. No sandbox or seccomp bypass is applied.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out the application
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up supported Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.21.0'
+      - name: Build the image and run the deployment checklist
+        run: node deploy/phase4-validation.mjs
+        env:
+          PHASE4_IMAGE: openmuse:phase4

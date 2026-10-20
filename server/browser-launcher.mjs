@@ -14,9 +14,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { CdpConnection } from './browser-cdp-client.mjs';
 import { PipeChromium } from './browser-pipe.mjs';
-import { constants as fsConstants } from 'node:fs';
-import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { resolveChromiumExecutable } from './browser-executable.mjs';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+
+export { resolveChromiumExecutable };
 
 const DEVTOOLS_FILE = 'DevToolsActivePort';
 const START_TIMEOUT_MS = 30000;
@@ -41,63 +43,6 @@ export function cdpTransportMode() {
   if (requested === 'tcp') return 'tcp';
   if (requested === 'pipe' || requested === '') return 'pipe';
   throw new Error(`HOB_CDP_TRANSPORT must be "pipe" or "tcp" (got "${requested}").`);
-}
-
-// Candidate executables, most specific first. `PLAYWRIGHT_BROWSERS_PATH` and the
-// baked agent-browser path are consulted because the production Linux image
-// ships Chromium under /opt/hermes/tools rather than on PATH.
-function linuxCandidates() {
-  const roots = [process.env.PLAYWRIGHT_BROWSERS_PATH, '/opt/hermes/tools', '/opt/hermes/chromium', '/usr/lib/chromium'];
-  const names = ['chrome', 'headless_shell', 'chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable'];
-  const out = [];
-  for (const root of roots) {
-    if (!root) continue;
-    out.push(path.join(root, 'chrome'), path.join(root, 'chromium'), path.join(root, 'chrome-linux', 'chrome'));
-    for (const name of names) out.push(path.join(root, name));
-  }
-  for (const name of names) out.push(`/usr/bin/${name}`, `/usr/local/bin/${name}`);
-  return out;
-}
-
-function darwinCandidates() {
-  return [
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    '/Applications/Chromium.app/Contents/MacOS/Chromium',
-    '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
-  ];
-}
-
-function windowsCandidates() {
-  const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
-  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
-  const localAppData = process.env.LOCALAPPDATA || '';
-  return [
-    path.join(programFiles, 'Google\\Chrome\\Application\\chrome.exe'),
-    path.join(programFilesX86, 'Google\\Chrome\\Application\\chrome.exe'),
-    path.join(localAppData, 'Google\\Chrome\\Application\\chrome.exe'),
-    path.join(programFiles, 'Chromium\\Application\\chrome.exe'),
-  ].filter(Boolean);
-}
-
-function candidates() {
-  const explicit = (process.env.HOB_CHROMIUM_PATH || '').trim();
-  const discovered = process.platform === 'win32' ? windowsCandidates()
-    : process.platform === 'darwin' ? darwinCandidates() : linuxCandidates();
-  return explicit ? [explicit, ...discovered] : discovered;
-}
-
-/**
- * Locate a Chromium-family executable. Returns `null` rather than throwing so
- * callers can report an actionable "install Chromium" error at start time.
- */
-export async function resolveChromiumExecutable() {
-  for (const candidate of candidates()) {
-    try {
-      await access(candidate, process.platform === 'win32' ? fsConstants.F_OK : fsConstants.X_OK);
-      return candidate;
-    } catch { /* try the next candidate */ }
-  }
-  return null;
 }
 
 export async function readDevToolsActivePort(profileDir) {

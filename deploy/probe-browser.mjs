@@ -16,49 +16,80 @@
 //
 // No operator profile, external page or credential is used.
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
-import { access, mkdtemp, readdir, rm } from 'node:fs/promises';
-import { constants, existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { existsSync, readdirSync, readFileSync, readlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { PipeChromium } from '../server/browser-pipe.mjs';
+import { resolveChromiumExecutable } from '../server/browser-executable.mjs';
 
 assert.ok(process.getuid?.() > 0, 'The browser probe must run as the unprivileged runtime user.');
 
-const root = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/hermes/tools';
-async function executable(directory, depth = 0) {
-  if (depth > 4) return null;
-  const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+// The production image ships no `ss` (iproute2); a skipped listener check must
+// never be reported as a pass. These helpers read the kernel's own tables, so
+// the proof works in a minimal image and cannot silently degrade.
+function processTree(profile) {
+  let entries;
+  try { entries = readdirSync('/proc'); } catch { return null; }
+  const pids = [];
   for (const entry of entries) {
-    const path = join(directory, entry.name);
-    if (entry.isFile() && entry.name === 'chrome') {
-      try { await access(path, constants.X_OK); return path; } catch { /* continue */ }
-    }
-    if (entry.isDirectory()) { const found = await executable(path, depth + 1); if (found) return found; }
+    if (!/^\d+$/.test(entry)) continue;
+    let commandLine;
+    try { commandLine = readFileSync(`/proc/${entry}/cmdline`, 'utf8'); } catch { continue; }
+    if (commandLine.includes(profile)) pids.push(entry);
   }
-  return null;
+  return pids;
+}
+
+/** Listening sockets in this network namespace, keyed by socket inode. */
+function listeningSockets() {
+  const listeners = new Map();
+  for (const table of ['/proc/net/tcp', '/proc/net/tcp6']) {
+    let text;
+    try { text = readFileSync(table, 'utf8'); } catch (error) {
+      if (error.code === 'ENOENT') continue;
+      return null;
+    }
+    for (const line of text.split('\n').slice(1)) {
+      const fields = line.trim().split(/\s+/);
+      // 0A is TCP_LISTEN; fields[1] is LOCAL_ADDRESS:PORT, fields[9] the inode.
+      if (fields.length < 10 || fields[3] !== '0A') continue;
+      const local = fields[1].split(':');
+      if (local.length !== 2) continue;
+      const port = Number.parseInt(local[1], 16);
+      if (Number.isFinite(port)) listeners.set(fields[9], port);
+    }
+  }
+  return listeners;
 }
 
 /** Ports the browser's own process tree listens on, or `null` when it cannot be known. */
 function listeningPorts(profile) {
-  const tree = spawnSync('pgrep', ['-f', profile], { encoding: 'utf8' });
-  const pids = new Set(String(tree.stdout || '').split(/\s+/).filter(Boolean));
-  if (tree.error || tree.status !== 0 || pids.size === 0) return { ports: null, reason: 'pgrep' };
-  const listing = spawnSync('sh', ['-c', 'ss -ltnp 2>/dev/null'], { encoding: 'utf8' });
-  if (listing.error || listing.status !== 0) return { ports: null, reason: 'ss' };
-  const ports = [];
-  for (const line of String(listing.stdout || '').split('\n')) {
-    const owner = /pid=(\d+)/.exec(line);
-    if (!owner || !pids.has(owner[1])) continue;
-    const port = /:(\d+)\s/.exec(line);
-    if (port) ports.push(Number(port[1]));
+  const pids = processTree(profile);
+  if (pids === null) return { ports: null, reason: '/proc' };
+  if (pids.length === 0) return { ports: null, reason: 'the browser process tree' };
+  const listeners = listeningSockets();
+  if (listeners === null) return { ports: null, reason: '/proc/net/tcp' };
+  const ports = new Set();
+  for (const pid of pids) {
+    let entries;
+    try { entries = readdirSync(`/proc/${pid}/fd`); } catch { return { ports: null, reason: `/proc/${pid}/fd` }; }
+    for (const entry of entries) {
+      let target;
+      try { target = readlinkSync(`/proc/${pid}/fd/${entry}`); } catch { continue; }
+      const socket = /^socket:\[(\d+)\]$/.exec(target);
+      if (socket && listeners.has(socket[1])) ports.add(listeners.get(socket[1]));
+    }
   }
-  return { ports, reason: null };
+  return { ports: [...ports], reason: null };
 }
 
-const chrome = await executable(root);
-assert.ok(chrome, 'The pinned Chromium executable must be available in the managed tool store.');
+// Resolve exactly as the application does, so a broken layout cannot pass the
+// probe while production would fail to launch its browser.
+const chrome = await resolveChromiumExecutable();
+assert.ok(chrome, 'The pinned Chromium executable must be available to the application.');
 const profile = await mkdtemp(join(tmpdir(), 'hob-browser-probe-'));
 let stderr = '';
 const browser = spawn(chrome, [
@@ -83,11 +114,9 @@ try {
   assert.equal(existsSync(join(profile, 'DevToolsActivePort')), false,
     'A pipe-backed browser must not write DevToolsActivePort.');
   const listeners = listeningPorts(profile);
-  if (listeners.ports === null) {
-    console.log(`PROBE_NOTE: ${listeners.reason} is not available; the TCP listener check was skipped.`);
-  } else {
-    assert.deepEqual(listeners.ports, [], 'A pipe-backed browser must not listen on any TCP port.');
-  }
+  assert.notEqual(listeners.ports, null,
+    `The probe could not prove a pipe-only browser has no TCP listener (${listeners.reason} unreadable).`);
+  assert.deepEqual(listeners.ports, [], 'A pipe-backed browser must not listen on any TCP port.');
 
   // The sandbox page is created the same way `/json/new?chrome://sandbox` did
   // before the pipe existed: through the browser's own target API.
