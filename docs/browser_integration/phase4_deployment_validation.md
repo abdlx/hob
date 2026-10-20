@@ -434,7 +434,7 @@ defect: `Target.targetDestroyed` carries a bare `targetId`, but the gateway read
 `targetInfo`, so a destroyed target never matched and the viewer froze on its last
 frame.
 
-### Fix (deployed in `e729e19a`)
+### Fix (deployed in `e729e19a`, smoke coverage in `45df72f9`)
 
 - `configureBrowser` now calls `dashboard('/api/config', { profile: name })`. The
   client appends the selector to the dashboard URL, so the GET and the PUT both
@@ -472,15 +472,20 @@ and viewer selection only.
   blank launch page, not hijacking a watched page, and moving off a watched tab that
   was destroyed.
 - Web build and lint pass.
+- The real container smoke in `45df72f9` now asserts the authenticated binding report
+  for Main on first boot, for a newly created bot, and for both after container
+  recreation. It checks the `off` backend, matching configured/expected ports, the
+  absence of `BROWSER_CDP_URL`, and that neither response carries the CDP URL or
+  gateway token. This is the end-to-end proof the unit fake could not provide.
 - Main image smoke run `39421191783` (final code commit `a10beb9f`): **success**.
   This rebuilds the production image and reruns the sandboxed container probe and
   persistence checks; the earlier run `39420273669` did the same for `ad20299d` +
-  `0ba926b1`. The `e729e19a` image smoke is the next run to check.
+  `0ba926b1`. The `45df72f9` image smoke is the next run to check.
 - `https://hob.idkwihl.site/healthz` returned `200 {"ok":true,"gatewayConnected":true}`.
 
 ### What the operator should see
 
-After Coolify recreates the stack from `main` with `e729e19a`, the boot log should
+After Coolify recreates the stack from `main` with `45df72f9`, the boot log should
 contain `Pointed … at their managed browsers: …` (the previous builds could only log
 failures). Opening a bot's live view should show a binding line; **Check bot
 connection** should report a configured binding and the expected port. Send a new
