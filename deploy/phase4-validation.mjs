@@ -161,10 +161,12 @@ function stopAndCheckOrphans() {
   assert.equal(inspected.Running, false, 'the container must be stopped');
   assert.equal(inspected.ExitCode, 0, 'graceful shutdown must exit 0 (got ' + inspected.ExitCode + ')');
   console.log('Graceful stop exit code: ' + inspected.ExitCode);
-  const logs = docker(['logs', '--no-color', '--tail', '30', container], { timeout: 30000, allowFailure: true });
+  const logs = docker(['logs', '--tail', '30', container], { timeout: 30000, allowFailure: true });
   console.log('Last container log lines:\n' + (logs.stdout || logs.stderr));
+  // The bracket keeps this shell's own command line (which contains the pattern)
+  // from matching; only a real Chromium process can match the text `chrome`.
   const survivors = spawnSync('bash', ['-lc',
-    "pgrep -af '/opt/data/browsers|hob-browser|--user-data-dir=/opt/data' || true"],
+    "pgrep -af '[c]hrome.*--user-data-dir=/opt/data' || true"],
   { encoding: 'utf8' }).stdout.trim();
   assert.equal(survivors, '', 'Chromium must not survive the container stop: ' + survivors);
   console.log('No Chromium process survived the stop.');
