@@ -10,6 +10,11 @@ closed on every platform this host can execute. The Linux/container checklist in
 reviewed and prepared but not measured. §0 states exactly which sentence is evidence and
 which is inference.
 
+> **Phase 4 update:** the §6 checklist has now been executed against the shipped image on a
+> Linux Docker host. See [`phase4_deployment_validation.md`](./phase4_deployment_validation.md).
+> All executable container checks pass; the one remaining gap is the production host's
+> Ubuntu 24.04 AppArmor user-namespace policy.
+
 Everything below was run on this machine unless a section says otherwise: Windows 11,
 Node v25.3.0, Google Chrome 155 (`--headless=new`).
 
