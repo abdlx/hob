@@ -416,7 +416,10 @@ the throwaway browser; the white canvas came from the untouched HOB one.
 
 A second, independent viewer bug could produce the same white page: a viewer that
 attached before the bot's first navigation stayed pinned to the launch target even
-when the agent opened its work in a new tab.
+when the agent opened its work in a new tab. Closing the watched tab had a related
+defect: `Target.targetDestroyed` carries a bare `targetId`, but the gateway read
+`targetInfo`, so a destroyed target never matched and the viewer froze on its last
+frame.
 
 ### Fix (deployed)
 
@@ -426,22 +429,25 @@ when the agent opened its work in a new tab.
 - The browser route repairs the binding before `/start` and before a viewer socket
   attaches, so opening the live view after an upgrade also repairs the profile.
 - The gateway follows the newest real page only while the current view is blank. It
-  never replaces a page a person is already watching, moves off a destroyed target,
-  and does not adopt a loading page's URL as its title.
+  never replaces a page a person is already watching, does not adopt a loading
+  page's URL as its title, and moves to a surviving page when the watched target is
+  destroyed.
 
 No sandbox or takeover control was weakened. The changes are migration and viewer
 selection only.
 
 ### Verification
 
-- Full server suite: **282 tests, 281 passed, 1 skipped** (the Windows resolver
+- Full server suite: **283 tests, 282 passed, 1 skipped** (the Windows resolver
   skip), **0 failed**.
 - New regression tests cover: boot reconciliation for a pre-existing active bot,
   failure isolation and idempotence, viewer-triggered repair, following the agent's
-  new tab from a blank launch page, and not hijacking a watched page.
-- Main image smoke run `39420273669` (commits `ad20299d` + `0ba926b1`):
-  **success**. This rebuilds the production image and reruns the sandboxed
-  container probe and persistence checks.
+  new tab from a blank launch page, not hijacking a watched page, and moving off a
+  watched tab that was destroyed.
+- Main image smoke run `39421191783` (final code commit `a10beb9f`): **success**.
+  This rebuilds the production image and reruns the sandboxed container probe and
+  persistence checks; the earlier run `39420273669` did the same for `ad20299d` +
+  `0ba926b1`.
 - `https://hob.idkwihl.site/healthz` returned `200 {"ok":true,"gatewayConnected":true}`.
 
 ### What the operator should see
