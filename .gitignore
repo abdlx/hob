@@ -26,3 +26,4 @@ __pycache__/
 stale-harnesses/
 browser_integration/
 docs/
+server/*.out
