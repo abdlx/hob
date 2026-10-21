@@ -87,28 +87,6 @@ async function clearStaleProfileState(profileDir) {
   for (const name of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
     await rm(path.join(profileDir, name), { force: true });
   }
-  await clearRestorableTabs(profileDir);
-}
-
-// `--restore-last-session` is what keeps *session* cookies alive across a
-// restart, and it also restores the previous window's tabs. HOB promises the
-// logins, not the tab set: the agent opens pages on demand, and re-opening every
-// tab of the last session would quietly grow memory on every idle restart. So
-// the saved tab state is dropped before each launch. The cookie jar is a
-// different file and is deliberately left alone — this is what makes a restart
-// come back signed in with one clean page.
-//
-// Best-effort: a locked or absent file must never fail a launch.
-async function clearRestorableTabs(profileDir) {
-  const profiles = [path.join(profileDir, 'Default'), profileDir];
-  const names = ['Sessions', 'Current Session', 'Current Tabs', 'Last Session', 'Last Tabs'];
-  for (const profile of profiles) {
-    for (const name of names) {
-      await rm(path.join(profile, name), {
-        recursive: true, force: true, maxRetries: 5, retryDelay: 100,
-      }).catch(() => undefined);
-    }
-  }
 }
 
 /**
@@ -165,6 +143,7 @@ export async function launchChromium({ profileDir, executablePath, headless = tr
   const args = [
     ...(headless ? ['--headless=new'] : []),
     ...debuggingArgs,
+    '--disable-blink-features=AutomationControlled',
     `--user-data-dir=${profileDir}`,
     // Session cookies are the one class of login state a browser would otherwise
     // drop on every restart: Chromium only loads them from disk when it believes
@@ -173,9 +152,6 @@ export async function launchChromium({ profileDir, executablePath, headless = tr
     // supported way to keep them (verified against this Chromium: without it a
     // session cookie is gone after a restart, with it the cookie is back).
     //
-    // It also reopens the previous session's tabs, which is not state this
-    // subsystem promises to keep, so `clearStaleProfileState` drops the saved
-    // tab state before every launch and leaves the cookie jar untouched.
     '--restore-last-session',
     '--no-first-run', '--no-default-browser-check',
     '--disable-background-networking', '--disable-component-update',
@@ -183,7 +159,6 @@ export async function launchChromium({ profileDir, executablePath, headless = tr
     '--disable-extensions', '--disable-plugins', '--disable-gpu',
     '--metrics-recording-only', '--mute-audio',
     `--window-size=${BROWSER_WINDOW_SIZE}`,
-    'about:blank',
     ...sandboxArgs, ...extraArgs,
   ];
 

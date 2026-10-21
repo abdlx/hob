@@ -9,7 +9,6 @@
 //   * no mutating command is running or waiting for the lease,
 //   * the last activity is older than the idle timeout.
 
-import { join } from 'node:path';
 import { BrowserSession } from './browser-gateway.mjs';
 import { BROWSER_VIEWPORT, resolveChromiumExecutable } from './browser-launcher.mjs';
 
@@ -87,13 +86,18 @@ export class BrowserManager {
    * `attachViewer` do that.
    */
   async #sessionFor(botId) {
+    if (this.#closed) throw new Error('The browser manager is shutting down.');
     const existing = this.#sessions.get(botId);
     if (existing) return existing;
     const record = await this.#registry.getOrCreate(botId);
+    await this.#registry.prepareProfile(botId);
+    if (this.#closed) throw new Error('The browser manager is shutting down.');
+    const concurrent = this.#sessions.get(botId);
+    if (concurrent) return concurrent;
     const session = new BrowserSession({
       botId,
       record,
-      options: { profileDir: this.#registry.profileDir(this.#stateDir, botId), ...this.#options },
+      options: { ...this.#options, profileDir: this.#registry.profileDir(this.#stateDir, botId) },
     });
     this.#sessions.set(botId, session);
     return session;
@@ -161,8 +165,8 @@ export class BrowserManager {
   /** Bot deletion: stop the browser and forget the profile roster entry. */
   async remove(botId) {
     const session = this.#sessions.get(botId);
+    if (session) await session.destroy({ reason: 'destroyed' });
     this.#sessions.delete(botId);
-    if (session) await session.destroy({ reason: 'destroyed' }).catch(() => undefined);
     return this.#registry.remove(botId);
   }
 

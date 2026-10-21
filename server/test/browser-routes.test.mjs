@@ -386,13 +386,17 @@ test('browser routes: agent activity reaches the dashboard, including live contr
     params: { type: 'mouseMoved', x: 40, y: 60, button: 'none', clickCount: 0 },
   }));
   const deadline = Date.now() + 5000;
-  const cursor = () => events.find(event => {
+  const cursorEvents = () => events.filter(event => {
     if (event.name !== 'browser') return false;
     try { return JSON.parse(event.data).type === 'cursor'; } catch { return false; }
   });
-  while (Date.now() < deadline && !cursor()) await new Promise(resolve => setTimeout(resolve, 50));
-  assert.ok(cursor(), 'the agent pointer must reach the dashboard');
-  assert.equal(JSON.parse(cursor().data).x, 40);
+  const finalCursor = () => cursorEvents().find(event => {
+    const payload = JSON.parse(event.data);
+    return payload.x === 40 && payload.y === 60;
+  });
+  while (Date.now() < deadline && !finalCursor()) await new Promise(resolve => setTimeout(resolve, 50));
+  assert.ok(finalCursor(), 'the agent pointer endpoint must reach the dashboard');
+  assert.ok(cursorEvents().length >= 2, 'the dashboard should see progressive cursor movement');
   agent.close();
 
   reader.cancel().catch(() => undefined);

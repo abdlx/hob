@@ -215,6 +215,42 @@ test('partial native setup stays pending across restart and resumes without recr
   assert.equal(upstream.calls.filter(call => call.route === '/api/profiles' && call.method === 'POST').length, 1);
 }));
 
+test('browser binding must succeed before a new bot becomes active', async () => fixture(async ({ registry, root }) => {
+  const upstream = native();
+  let failBinding = true;
+  const browser = {
+    async record() { return { gatewayPort: 32101, gatewayToken: 'a'.repeat(32) }; },
+    async ensureEndpoint() { if (failBinding) throw new Error('synthetic browser binding failure'); },
+  };
+  const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work'), browser });
+  await assert.rejects(bots.create({ name: 'research' }), /browser binding failure/);
+  assert.throws(() => registry.token('research'), /Finish this bot/);
+  failBinding = false;
+  await bots.finishSetup('research');
+  assert.match(registry.token('research'), /^[a-f0-9]{64}$/);
+  assert.equal(upstream.calls.filter(call => call.route === '/api/profiles' && call.method === 'POST').length, 1);
+}));
+
+test('bot deletion revokes its browser even when native profile deletion fails', async () => fixture(async ({ registry, root }) => {
+  const upstream = native();
+  const removed = [];
+  const browser = {
+    async record() { return { gatewayPort: 32101, gatewayToken: 'a'.repeat(32) }; },
+    async ensureEndpoint() {},
+    async remove(name) { removed.push(name); },
+  };
+  const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work'), browser });
+  await bots.create({ name: 'research' });
+  const dashboard = upstream.client.dashboard;
+  upstream.client.dashboard = async (route, options) => {
+    if (options?.method === 'DELETE') throw new Error('synthetic native deletion failure');
+    return dashboard(route, options);
+  };
+  await assert.rejects(bots.remove('research'), /native deletion failure/);
+  assert.deepEqual(removed, ['research']);
+  assert.throws(() => registry.token('research'), /not in your dashboard/);
+}));
+
 test('unconfirmed creation requires deliberate operator confirmation and never recreates a missing profile', async () => fixture(async ({ registry, root }) => {
   const upstream = native();
   const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work') });

@@ -301,7 +301,7 @@ test('gateway: a viewer opened on the launch page follows the page the agent ope
   const viewer = await createViewer(session);
   t.after(() => viewer.close());
   await waitFor(() => viewer.hello());
-  await waitFor(() => session.status().url === 'about:blank');
+  await waitFor(() => /^(?:about:blank|chrome:\/\/(?:newtab|new-tab-page)\/?)$/.test(session.status().url));
   const framesBefore = viewer.received.filter(message => message.t === 'frame').length;
 
   // The agent opens its work in a new tab instead of navigating the blank one.
@@ -378,6 +378,34 @@ test('gateway: closing the watched tab moves the viewer to a surviving page', as
   await waitFor(() => viewer.received.some(message => message.t === 'navigate' && message.url.includes('SECOND')));
 });
 
+test('gateway: an agent creates multiple tabs and switches the live viewer between them', async t => {
+  const started = await startManager(t);
+  if (!started) return;
+  const session = await started.manager.ensure('alpha');
+  const agent = await agentClient(session);
+  t.after(() => agent.raw.close());
+  await agent.raw.call('Page.navigate', { url: dataUrl('<title>FIRST-TAB</title>') }, agent.sessionId);
+  await waitFor(async () => (await titleOf(agent)) === 'FIRST-TAB');
+  const viewer = await createViewer(session);
+  t.after(() => viewer.close());
+  await waitFor(() => session.status().tabs.find(tab => tab.active)?.id === agent.targetId);
+
+  const second = await agent.raw.call('Target.createTarget', { url: dataUrl('<title>SECOND-TAB</title>') });
+  const third = await agent.raw.call('Target.createTarget', { url: dataUrl('<title>THIRD-TAB</title>') });
+  await waitFor(() => session.status().tabs.length === 3);
+  assert.equal((await agent.raw.call('Target.activateTarget', { targetId: second.result.targetId })).error, undefined);
+  await waitFor(() => session.status().tabs.find(tab => tab.active)?.title === 'SECOND-TAB');
+
+  const attached = await agent.raw.call('Target.attachToTarget', { targetId: third.result.targetId, flatten: true });
+  const front = await agent.raw.call('Page.bringToFront', {}, attached.result.sessionId);
+  assert.equal(front.error, undefined);
+  await waitFor(() => session.status().tabs.find(tab => tab.active)?.title === 'THIRD-TAB');
+
+  await agent.raw.call('Target.activateTarget', { targetId: agent.targetId });
+  await waitFor(() => session.status().tabs.find(tab => tab.active)?.title === 'FIRST-TAB');
+  assert.equal(session.status().tabs.length, 3);
+});
+
 test('gateway: the last viewer leaving returns control to the agent', async t => {
   const started = await startManager(t);
   if (!started) return;
@@ -427,6 +455,107 @@ test('gateway: bots get separate ports, tokens, profiles and pages', async t => 
   // Beta's browser is untouched by alpha's navigation.
   const betaTargets = await betaAgent.raw.call('Target.getTargets');
   assert.equal(betaTargets.result.targetInfos.some(info => info.title === 'ALPHA-PAGE'), false);
+});
+
+test('gateway: agent pointer jumps reach the page as trusted, progressive mouse events', async t => {
+  const started = await startManager(t);
+  if (!started) return;
+  const { manager } = started;
+  const session = await manager.ensure('alpha');
+  const agent = await agentClient(session);
+  t.after(() => agent.raw.close());
+
+  await agent.raw.call('Page.navigate', { url: dataUrl(`
+    <title>POINTER</title>
+    <script>
+      window.pointerEvents = [];
+      addEventListener('mousemove', event => pointerEvents.push({
+        x: event.clientX, y: event.clientY, trusted: event.isTrusted
+      }));
+    </script>
+  `) }, agent.sessionId);
+  await waitFor(async () => (await titleOf(agent)) === 'POINTER');
+
+  await agent.raw.call('Input.dispatchMouseEvent',
+    { type: 'mouseMoved', x: 800, y: 600, button: 'none', buttons: 0 }, agent.sessionId);
+  const observed = await evaluate(agent, `({
+    count: pointerEvents.length,
+    trusted: pointerEvents.every(event => event.trusted),
+    last: pointerEvents.at(-1)
+  })`);
+  assert.ok(observed.result?.result?.value.count >= 4, 'the page should receive a progressive trajectory');
+  assert.equal(observed.result.result.value.trusted, true, 'CDP input must remain browser-trusted');
+  assert.deepEqual(observed.result.result.value.last, { x: 800, y: 600, trusted: true });
+});
+
+test('gateway: direct CDP clicks move to the element, hover and hold before release', async t => {
+  const started = await startManager(t);
+  if (!started) return;
+  const session = await started.manager.ensure('alpha');
+  const agent = await agentClient(session);
+  t.after(() => agent.raw.close());
+  await agent.raw.call('Page.navigate', { url: dataUrl(`
+    <title>CLICK-SEQUENCE</title>
+    <button style="position:absolute;left:700px;top:500px;width:120px;height:80px">Target</button>
+    <script>
+      window.events = [];
+      for (const type of ['mousemove', 'mouseover', 'mousedown', 'mouseup', 'click']) {
+        addEventListener(type, event => events.push({
+          type, x: event.clientX, y: event.clientY, time: event.timeStamp,
+          trusted: event.isTrusted, target: event.target.tagName
+        }));
+      }
+    </script>
+  `) }, agent.sessionId);
+  await waitFor(async () => (await titleOf(agent)) === 'CLICK-SEQUENCE');
+
+  const press = await agent.raw.call('Input.dispatchMouseEvent', {
+    type: 'mousePressed', x: 760, y: 540, button: 'left', buttons: 1, clickCount: 1,
+  }, agent.sessionId);
+  assert.equal(press.error, undefined);
+  const release = await agent.raw.call('Input.dispatchMouseEvent', {
+    type: 'mouseReleased', x: 760, y: 540, button: 'left', buttons: 0, clickCount: 1,
+  }, agent.sessionId);
+  assert.equal(release.error, undefined);
+
+  const reply = await evaluate(agent, 'events');
+  const events = reply.result.result.value;
+  const down = events.find(event => event.type === 'mousedown');
+  const up = events.find(event => event.type === 'mouseup');
+  const moves = events.filter(event => event.type === 'mousemove');
+  const clicks = events.filter(event => event.type === 'click');
+  assert.ok(moves.length >= 4);
+  assert.deepEqual({ x: moves.at(-1).x, y: moves.at(-1).y }, { x: 760, y: 540 });
+  assert.ok(down.time - moves.at(-1).time >= 35, 'the pointer must hover before pressing');
+  assert.ok(up.time - down.time >= 35, 'the press must be held before release');
+  assert.ok(events.every(event => event.trusted));
+  assert.equal(clicks.length, 1, 'one request must not produce duplicate clicks');
+  assert.equal(clicks[0].target, 'BUTTON');
+});
+
+test('gateway: automation marker suppression remains native across tabs and frames', async t => {
+  const started = await startManager(t);
+  if (!started) return;
+  const session = await started.manager.ensure('alpha');
+  const agent = await agentClient(session);
+  t.after(() => agent.raw.close());
+  await agent.raw.call('Page.navigate', { url: dataUrl('<title>NATIVE-MARKER</title><iframe src="about:blank"></iframe>') }, agent.sessionId);
+  await waitFor(async () => (await titleOf(agent)) === 'NATIVE-MARKER');
+  const expression = `({
+    webdriver: navigator.webdriver,
+    ownProperty: Object.hasOwn(navigator, 'webdriver'),
+    nativeGetter: Function.prototype.toString.call(Object.getOwnPropertyDescriptor(Navigator.prototype, 'webdriver').get).includes('[native code]'),
+    frameWebdriver: frames[0].navigator.webdriver
+  })`;
+  const first = await evaluate(agent, expression);
+  assert.deepEqual(first.result.result.value, {
+    webdriver: false, ownProperty: false, nativeGetter: true, frameWebdriver: false,
+  });
+  const created = await agent.raw.call('Target.createTarget', { url: dataUrl('<title>NEW-MARKER</title>') });
+  const attached = await agent.raw.call('Target.attachToTarget', { targetId: created.result.targetId, flatten: true });
+  const second = await agent.raw.call('Runtime.evaluate', { expression: 'navigator.webdriver', returnByValue: true }, attached.result.sessionId);
+  assert.equal(second.result.result.value, false);
+  assert.equal(session.status().transport, 'pipe');
 });
 
 test('gateway: stopping is graceful and the same profile returns at the same URL', async t => {

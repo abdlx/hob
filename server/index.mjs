@@ -33,6 +33,10 @@ const registry = await HermesBotRegistry.open({ stateDir: process.env.HOB_STATE_
 // starts when an agent turn or a viewer actually needs one, and stops after the
 // idle timeout when nobody does.
 const browserRegistry = await BrowserRegistry.open({ stateDir: process.env.HOB_STATE_DIR });
+const enrolledBots = new Set(registry.list().map(bot => bot.name));
+for (const record of browserRegistry.list()) {
+  if (!enrolledBots.has(record.bot)) await browserRegistry.remove(record.bot);
+}
 const idleMs = Number(process.env.HOB_BROWSER_IDLE_MS);
 const browser = await BrowserManager.open({
   registry: browserRegistry,

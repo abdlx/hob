@@ -259,22 +259,15 @@ export class HermesBots {
       this.#registry.setup(name);
       await this.#client.dashboard('/api/env', { profile: name, method: 'PUT',
         body: { profile: name, key: 'API_SERVER_KEY', value: record.apiKey } });
-      // Durable before it is announced: callers treat an `active` answer as
-      // permission to use the credential, so the write cannot still be queued.
+      await this.configureBrowser(name);
       await this.#registry.update(name, { nativeCreated: true, state: 'active' });
-      // The browser binding comes last: a bot whose profile cannot be pointed at
-      // the managed browser is not yet usable, so it must not report `active`.
-      await this.configureBrowser(name).catch(() => undefined);
       return { ok: true, name, state: 'active' };
     } finally { this.#settingUp.delete(name); }
   }
   async remove(name) {
     if (name === 'default') throw new HermesError(400, 'The Main bot cannot be deleted.', 'INVALID_PROFILE');
     await this.#registry.update(name, { state: 'revoked' });
-    const removed = await this.#client.dashboard(`/api/profiles/${hermesProfile(name)}`, { method: 'DELETE' });
-    // Stop the browser and drop its profile entry so a later bot of the same name
-    // cannot inherit the deleted bot's logins or pages.
-    await this.#browser?.remove(name).catch(() => undefined);
-    return removed;
+    await this.#browser?.remove(name);
+    return this.#client.dashboard(`/api/profiles/${hermesProfile(name)}`, { method: 'DELETE' });
   }
 }

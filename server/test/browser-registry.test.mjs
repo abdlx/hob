@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BrowserRegistry, preferredPortFor, validBotId } from '../browser-registry.mjs';
@@ -68,7 +68,7 @@ test('registry: the file is written atomically, owner-only, and holds no page da
     assert.equal(parsed.version, 1);
     assert.equal(parsed.browsers.length, 1);
     assert.deepEqual(Object.keys(parsed.browsers[0]).sort(),
-      ['bot', 'browserProfileId', 'createdAt', 'gatewayPort', 'gatewayToken', 'lastActiveAt']);
+      ['bot', 'browserProfileId', 'createdAt', 'gatewayPort', 'gatewayToken', 'lastActiveAt', 'storageVersion']);
   });
 });
 
@@ -84,14 +84,35 @@ test('registry: only lastActiveAt is writable, and unknown bots are rejected', a
   });
 });
 
-test('registry: bots are removed and their profile directory is derived, never stored', async () => {
+test('registry: a recreated bot name receives a new, non-inheriting profile path', async () => {
   await withState(async stateDir => {
     const registry = await BrowserRegistry.open({ stateDir });
-    await registry.getOrCreate('alpha');
+    const first = await registry.getOrCreate('alpha');
+    const firstPath = registry.profileDir(stateDir, 'alpha');
+    assert.equal(firstPath, join(stateDir, 'browsers', 'alpha', first.browserProfileId, 'chromium'));
     assert.equal(await registry.remove('alpha'), true);
     assert.equal(await registry.remove('alpha'), false);
     assert.equal(registry.list().length, 0);
-    assert.equal(registry.profileDir(stateDir, 'alpha'), join(stateDir, 'browsers', 'alpha', 'chromium'));
+    assert.throws(() => registry.profileDir(stateDir, 'alpha'), /no browser record/);
+
+    const second = await registry.getOrCreate('alpha');
+    const secondPath = registry.profileDir(stateDir, 'alpha');
+    assert.notEqual(second.browserProfileId, first.browserProfileId);
+    assert.notEqual(secondPath, firstPath, 'name reuse must not reuse the deleted bot\'s browser data');
+  });
+});
+
+test('registry: existing version-1 records keep their legacy profile path', async () => {
+  await withState(async stateDir => {
+    const filename = join(stateDir, 'browsers.json');
+    const registry = await BrowserRegistry.open({ stateDir });
+    await registry.getOrCreate('alpha');
+    const parsed = JSON.parse(await readFile(filename, 'utf8'));
+    delete parsed.browsers[0].storageVersion;
+    await writeFile(filename, JSON.stringify(parsed));
+
+    const reopened = await BrowserRegistry.open({ stateDir });
+    assert.equal(reopened.profileDir(stateDir, 'alpha'), join(stateDir, 'browsers', 'alpha', 'chromium'));
   });
 });
 
@@ -113,6 +134,7 @@ test('registry: a tampered record is refused rather than trusted', async () => {
       { ...parsed, browsers: [{ ...parsed.browsers[0], bot: '../../escape' }] },
       { ...parsed, browsers: [{ ...parsed.browsers[0], gatewayToken: 'short' }] },
       { ...parsed, browsers: [{ ...parsed.browsers[0], gatewayPort: 99999 }] },
+      { ...parsed, browsers: [{ ...parsed.browsers[0], storageVersion: 99 }] },
       { ...parsed, browsers: [parsed.browsers[0], parsed.browsers[0]] },
       { ...parsed, version: 2 },
       { ...parsed, browsers: 'nope' },
@@ -132,5 +154,34 @@ test('registry: distinct bots get distinct ports and tokens', async () => {
     assert.equal(new Set(records.map(record => record.gatewayPort)).size, bots.length);
     assert.equal(new Set(records.map(record => record.gatewayToken)).size, bots.length);
     assert.equal(new Set(records.map(record => record.browserProfileId)).size, bots.length);
+  });
+});
+
+test('registry: concurrent allocations resolve preferred-port collisions', async () => {
+  await withState(async stateDir => {
+    const registry = await BrowserRegistry.open({ stateDir });
+    const candidates = new Map();
+    let collision;
+    for (let index = 0; index <= 900; index += 1) {
+      const bot = `bot-${index}`;
+      const port = preferredPortFor(bot, stateDir);
+      if (candidates.has(port)) { collision = [candidates.get(port), bot]; break; }
+      candidates.set(port, bot);
+    }
+    assert.ok(collision);
+    const records = await Promise.all(collision.map(bot => registry.getOrCreate(bot, { portFree: freePort })));
+    assert.notEqual(records[0].gatewayPort, records[1].gatewayPort);
+  });
+});
+
+test('registry: a profile path cannot redirect into another bot through a junction or symlink', async () => {
+  await withState(async stateDir => {
+    const registry = await BrowserRegistry.open({ stateDir });
+    await registry.getOrCreate('alpha', { portFree: freePort });
+    await registry.getOrCreate('beta', { portFree: freePort });
+    await registry.prepareProfile('beta');
+    const root = join(stateDir, 'browsers');
+    await symlink(join(root, 'beta'), join(root, 'alpha'), process.platform === 'win32' ? 'junction' : 'dir');
+    await assert.rejects(() => registry.prepareProfile('alpha'), /independent directory/);
   });
 });

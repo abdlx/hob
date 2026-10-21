@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, rename, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, open, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
 
@@ -64,6 +64,7 @@ const view = record => ({ ...record });
 const fresh = (botId, gatewayPort) => ({
   bot: botId,
   browserProfileId: `br-${randomBytes(8).toString('hex')}`,
+  storageVersion: 2,
   gatewayPort,
   // Stable per-bot credential for the loopback CDP gateway. It is written into
   // this bot's Hermes profile as part of `browser.cdp_url` and read back on
@@ -108,14 +109,22 @@ export class BrowserRegistry {
     } finally { await handle.close(); }
     if (data?.version !== 1 || !Array.isArray(data.browsers) || data.browsers.length > 500) throw new Error('Invalid browser registry.');
     const seen = new Set();
+    const ports = new Set();
+    const tokens = new Set();
+    const profiles = new Set();
     for (const record of data.browsers) {
-      if (!validBotId(record.bot) || seen.has(record.bot) || !/^br-[a-f0-9]{16}$/.test(record.browserProfileId || '')
+      if (!validBotId(record?.bot) || seen.has(record.bot) || !/^br-[a-f0-9]{16}$/.test(record.browserProfileId || '')
+        || !(record.storageVersion === undefined || record.storageVersion === 2)
         || !Number.isInteger(record.gatewayPort) || record.gatewayPort < 1024 || record.gatewayPort > 65535
         || !/^[a-f0-9]{32}$/.test(record.gatewayToken || '')
+        || ports.has(record.gatewayPort) || tokens.has(record.gatewayToken) || profiles.has(record.browserProfileId)
         || typeof record.createdAt !== 'string' || !(record.lastActiveAt === null || typeof record.lastActiveAt === 'string')) {
         throw new Error('Invalid browser registry.');
       }
       seen.add(record.bot);
+      ports.add(record.gatewayPort);
+      tokens.add(record.gatewayToken);
+      profiles.add(record.browserProfileId);
     }
     return new BrowserRegistry(filename, data, stateDir);
   }
@@ -137,10 +146,11 @@ export class BrowserRegistry {
     if (!validBotId(botId)) throw new Error('Invalid bot id.');
     const existing = this.#data.browsers.find(item => item.bot === botId);
     if (existing) return view(existing);
-    const gatewayPort = await this.#pickPort(botId, portFree);    return this.#mutate(data => {
+    return this.#mutate(async data => {
       const duplicate = data.browsers.find(item => item.bot === botId);
       if (duplicate) return view(duplicate);
       if (data.browsers.length >= 500) throw new Error('The browser registry is full.');
+      const gatewayPort = await this.#pickPort(botId, portFree);
       const record = fresh(botId, gatewayPort);
       data.browsers.push(record);
       return view(record);
@@ -190,16 +200,40 @@ export class BrowserRegistry {
   }
 
   // The profile directory is derived, never stored: a recorded path could be
-  // forged to point at another bot's profile.
+  // forged to point at another bot's profile. Records created before storage v2
+  // keep their legacy location so upgrades never orphan existing cookies or
+  // logins. Every newly created identity includes its opaque profile id, so a
+  // deleted and recreated bot name cannot inherit the deleted identity's data.
   profileDir(stateDir, botId) {
     if (!validBotId(botId)) throw new Error('Invalid bot id.');
-    return path.join(stateDir, 'browsers', botId, 'chromium');
+    const record = this.#data.browsers.find(item => item.bot === botId);
+    if (!record) throw new Error('This bot has no browser record.');
+    return record.storageVersion === 2
+      ? path.join(stateDir, 'browsers', botId, record.browserProfileId, 'chromium')
+      : path.join(stateDir, 'browsers', botId, 'chromium');
+  }
+
+  async prepareProfile(botId) {
+    const directory = this.profileDir(this.#stateDir, botId);
+    let parent = await realpath(this.#stateDir);
+    for (const segment of path.relative(this.#stateDir, directory).split(path.sep)) {
+      const current = path.join(parent, segment);
+      try { await mkdir(current, { mode: 0o700 }); }
+      catch (error) { if (error.code !== 'EEXIST') throw error; }
+      const entry = await lstat(current);
+      const resolved = await realpath(current);
+      if (!entry.isDirectory() || entry.isSymbolicLink() || path.dirname(resolved) !== parent) {
+        throw new Error('The browser profile must be an independent directory.');
+      }
+      parent = resolved;
+    }
+    return directory;
   }
 
   #mutate(change) {
     const work = this.#queue.then(async () => {
       const data = structuredClone(this.#data);
-      const result = change(data);
+      const result = await change(data);
       const filename = this.#filename + '.' + randomBytes(8).toString('hex') + '.tmp';
       try {
         await writeFile(filename, JSON.stringify(data) + '\n', { flag: 'wx', mode: 0o600, flush: true });

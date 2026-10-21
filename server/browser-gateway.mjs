@@ -22,6 +22,7 @@ import { ControlLease, AGENT, HUMAN } from './browser-lease.mjs';
 import { CdpConnection } from './browser-cdp-client.mjs';
 import { PipeCdpConnection } from './browser-pipe.mjs';
 import { ModifierState, inputCommands } from './browser-input.mjs';
+import { humanizedMouseMove } from './browser-human-input.mjs';
 import { BROWSER_VIEWPORT, closeBrowserGracefully, closePipeGracefully, cdpTransportMode, launchChromium, probeCdp, probePipe, resolveChromiumExecutable, markProfileOwned, stopChromium } from './browser-launcher.mjs';
 
 // CDP error code for a command the gateway refused to forward. Hermes surfaces
@@ -90,6 +91,8 @@ class AgentProxy {
   #autoAttach = new Map();
   #internal = new Set();
   #internalSeq = 0;
+  #attachRequests = new Map();
+  #attachedTargets = new Map();
   label;
 
   constructor(session, client, { kind, targetId, label }) {
@@ -185,14 +188,17 @@ class AgentProxy {
     }
 
     if (method === 'Target.setAutoAttach') return this.#forwardAutoAttach(message, text);
-    if (classify(method) === OBSERVE) return this.#forward(text);
+    if (classify(method) === OBSERVE) {
+      if (method === 'Target.attachToTarget') this.#attachRequests.set(message.id, message.params?.targetId);
+      return this.#forward(text);
+    }
 
     if (method === 'Target.sendMessageToTarget') {
       this.#enqueueMutation(() => this.#forwardTunnel(message, text));
       return;
     }
 
-    this.#enqueueMutation(() => this.#admitAndForward(message.id, method, message.params, text));
+    this.#enqueueMutation(() => this.#admitAndForward(message, text));
   }
 
   /**
@@ -238,7 +244,8 @@ class AgentProxy {
     return sent;
   }
 
-  async #admitAndForward(id, method, params, text) {
+  async #admitAndForward(message, text) {
+    const { id, method, params } = message;
     if (this.#closed) return;
     const admission = await this.#session.admitAgentMutation(this.#abort.signal);
     if (this.#closed) { if (admission.ok) admission.release(); return; }
@@ -246,9 +253,62 @@ class AgentProxy {
       this.#sendClient({ id, error: { code: CDP_DENIED, message: denialMessage(admission.reason, method) } });
       return;
     }
-    this.#track(id, admission.release);
+    this.#track(id, admission.release, 0, message);
+    if (method === 'Input.dispatchMouseEvent' && params?.type === 'mouseMoved') {
+      await this.#forwardHumanizedMouse(message, text);
+      return;
+    }
+    if (method === 'Input.dispatchMouseEvent' && params?.type === 'mousePressed'
+      && params.button === 'left' && (!params.pointerType || params.pointerType === 'mouse')
+      && Number.isFinite(params.x) && Number.isFinite(params.y) && !this.#session.mouseButtons) {
+      await this.#forwardHumanizedMouse({ ...message, params: {
+        type: 'mouseMoved', x: params.x, y: params.y, button: 'none', buttons: 0,
+        modifiers: params.modifiers ?? 0,
+      } }, null, { internal: true });
+      await this.#pause(50);
+    }
+    if (method === 'Input.dispatchMouseEvent' && params?.type === 'mouseReleased') {
+      const pressedAt = this.#session.buttonPressedAt(params.button);
+      if (pressedAt !== null) await this.#pause(Math.max(0, 50 - (performance.now() - pressedAt)));
+    }
+    if (this.#closed) return;
     this.#session.noteAgentActivity(method, params);
     this.#forward(text);
+  }
+
+  async #pause(delayMs) {
+    if (delayMs <= 0 || this.#closed) return;
+    await new Promise(resolve => {
+      const finish = () => {
+        clearTimeout(timer);
+        this.#abort.signal.removeEventListener('abort', finish);
+        resolve();
+      };
+      const timer = setTimeout(finish, delayMs);
+      this.#abort.signal.addEventListener('abort', finish, { once: true });
+    });
+  }
+
+  async #forwardHumanizedMouse(message, originalText, { internal = false } = {}) {
+    const points = humanizedMouseMove(this.#session.pointer, message.params, { viewport: this.#session.viewport });
+    if (points.length === 1 && !internal) {
+      this.#session.noteAgentActivity(message.method, message.params, { force: true });
+      this.#forward(originalText);
+      return;
+    }
+    for (let index = 0; index < points.length; index += 1) {
+      const point = points[index];
+      await this.#pause(point.delayMs);
+      if (this.#closed) return;
+      this.#session.noteAgentActivity(message.method, point.params, { force: index === points.length - 1 });
+      if (index === points.length - 1 && !internal) {
+        this.#forward(originalText);
+        return;
+      }
+      const id = INTERNAL_ID_BASE - (this.#internalSeq += 1);
+      this.#internal.add(id);
+      this.#forward(JSON.stringify({ ...message, id, params: point.params }));
+    }
   }
 
   // Non-flattened session traffic hides the real command inside a JSON string
@@ -272,12 +332,12 @@ class AgentProxy {
     this.#forward(text);
   }
 
-  #track(id, release, holdMs = 0) {
+  #track(id, release, holdMs = 0, command = null) {
     const existing = this.#inFlight.get(id);
     if (existing) existing.release();
     const timer = holdMs > 0 ? setTimeout(() => { this.#inFlight.delete(id); release(); }, holdMs) : null;
     timer?.unref?.();
-    this.#inFlight.set(id, { release, timer });
+    this.#inFlight.set(id, { release, timer, command });
   }
 
   #releaseAll() {
@@ -300,10 +360,28 @@ class AgentProxy {
         // The reply to a neutralizing command belongs to nobody: it must not be
         // relayed to a client that never asked for it.
         if (this.#internal.delete(id)) return;
+        if (this.#attachRequests.has(id)) {
+          const targetId = this.#attachRequests.get(id);
+          this.#attachRequests.delete(id);
+          try {
+            const reply = JSON.parse(data.toString('utf8'));
+            if (!reply.error && reply.result?.sessionId) this.#attachedTargets.set(reply.result.sessionId, targetId);
+          } catch {}
+        }
         const entry = this.#inFlight.get(id);
         if (entry) {
           this.#inFlight.delete(id);
           if (entry.timer) clearTimeout(entry.timer);
+          const command = entry.command;
+          if (command?.method === 'Target.activateTarget' || command?.method === 'Page.bringToFront') {
+            try {
+              const reply = JSON.parse(data.toString('utf8'));
+              const targetId = command.method === 'Target.activateTarget'
+                ? command.params?.targetId
+                : this.#targetId || this.#attachedTargets.get(command.sessionId);
+              if (!reply.error && targetId) void this.#session.agentActivatedTarget(targetId).catch(() => undefined);
+            } catch {}
+          }
           entry.release();
         }
       }
@@ -328,6 +406,8 @@ class AgentProxy {
     this.#closed = true;
     this.#abort.abort();
     this.#releaseAll();
+    this.#attachRequests.clear();
+    this.#attachedTargets.clear();
     try { this.#upstream?.close(); } catch { /* already closed */ }
     this.#session.noteAgentDisconnected(this);
   }
@@ -379,7 +459,10 @@ export class BrowserSession {
   #listening = null;
   #restarts = 0;
   #stopping = false;
+  #destroyed = false;
   #minFrameIntervalMs;
+  #pointer = { x: 0, y: 0 };
+  #pressedButtons = new Map();
 
   constructor({ botId, record, options = {} }) {
     this.#botId = botId;
@@ -406,6 +489,10 @@ export class BrowserSession {
   get running() { return this.#server !== null && this.#chromium !== null; }
   get viewerCount() { return this.#viewers.size; }
   get lastActiveAt() { return this.#lastActiveAt; }
+  get viewport() { return { ...this.#viewport }; }
+  get pointer() { return { ...this.#pointer }; }
+  get mouseButtons() { return this.#pressedButtons.size; }
+  buttonPressedAt(button) { return this.#pressedButtons.get(button) ?? null; }
 
   #touch() { this.#lastActiveAt = Date.now(); }
 
@@ -523,6 +610,7 @@ export class BrowserSession {
    * brought up first and stays up across browser restarts.
    */
   start() {
+    if (this.#destroyed) return Promise.reject(new Error('The browser session has been removed.'));
     if (!this.#starting) {
       const epoch = this.#launchEpoch;
       this.#starting = this.#start(epoch).finally(() => { this.#starting = null; });
@@ -541,6 +629,7 @@ export class BrowserSession {
    * lifetimes and only the browser idles down.
    */
   async ensureGateway() {
+    if (this.#destroyed) throw new Error('The browser session has been removed.');
     if (!this.#server) {
       if (!this.#listening) {
         this.#listening = this.#listen().finally(() => { this.#listening = null; });
@@ -663,6 +752,7 @@ export class BrowserSession {
     this.#launchEpoch += 1;
     if (this.#starting) await this.#starting.catch(() => undefined);
     this.#stopScreencast();
+    this.#pressedButtons.clear();
     for (const viewer of [...this.#viewers.values()]) {
       this.#sendTo(viewer, { t: 'bye', reason });
       try { viewer.socket.close(1000, reason); } catch { /* already closed */ }
@@ -704,6 +794,8 @@ export class BrowserSession {
    * shutdown: while a bot exists, its endpoint must outlive its browser.
    */
   async destroy({ reason = 'destroyed' } = {}) {
+    this.#destroyed = true;
+    if (this.#listening) await this.#listening.catch(() => undefined);
     await this.stop({ reason });
     const server = this.#server;
     this.#server = null;
@@ -718,6 +810,7 @@ export class BrowserSession {
   #onChromiumExit(code, signal) {
     // An exit we asked for is not a crash, and must not be reported as one.
     if (this.#stopping) return;
+    this.#pressedButtons.clear();
     this.#chromium = null;
     this.#chromiumPort = null;
     this.#pipe?.close('The browser exited.');
@@ -919,12 +1012,16 @@ export class BrowserSession {
    * agent pointing right now": they pass through this process on their way to
    * Chromium, in the same viewport coordinates the stream is drawn in.
    */
-  noteAgentActivity(method, params) {
+  noteAgentActivity(method, params, { force = false } = {}) {
     this.#touch();
     if (method === 'Input.dispatchMouseEvent' && params && typeof params === 'object') {
       const x = Number(params.x) || 0; const y = Number(params.y) || 0;
-      if (params.type === 'mouseMoved') this.#emitActivity({ type: 'cursor', x, y, source: 'agent' });
+      this.#pointer = { x, y };
+      if (params.type === 'mouseMoved') this.#emitActivity({ type: 'cursor', x, y, source: 'agent' }, { force });
       else if (params.type === 'mousePressed' || params.type === 'mouseReleased') {
+        const button = params.button || 'left';
+        if (params.type === 'mousePressed') this.#pressedButtons.set(button, performance.now());
+        else this.#pressedButtons.delete(button);
         this.#emitActivity({ type: 'click', x, y, button: params.button || 'left', phase: params.type === 'mousePressed' ? 'down' : 'up' });
       }
       return;
@@ -932,6 +1029,13 @@ export class BrowserSession {
     if (method === 'Input.dispatchKeyEvent') { this.#emitActivity({ type: 'action', kind: 'key', method }); return; }
     if (method === 'Input.insertText') { this.#emitActivity({ type: 'action', kind: 'type', method }); return; }
     this.#emitActivity({ type: 'action', kind: 'command', method });
+  }
+
+  async agentActivatedTarget(targetId) {
+    if (this.#castPinned || this.#lease.holder !== AGENT) return;
+    this.#castTargetId = targetId;
+    if (this.#castCdp?.open) await this.#attachActiveTarget();
+    else await this.refresh();
   }
 
   /**
@@ -1052,7 +1156,10 @@ export class BrowserSession {
   #viewerInput(viewer, message) {
     viewer.modifiers.update(message.payload?.type, message.payload?.code);
     for (const command of inputCommands(message, { modifiers: viewer.modifiers, viewport: this.#viewport, lastPointer: viewer.pointer })) {
-      if (command.pointer) viewer.pointer = command.pointer;
+      if (command.pointer) {
+        viewer.pointer = command.pointer;
+        if (this.#lease.holder === HUMAN) this.#pointer = { ...command.pointer };
+      }
       this.#viewerCommand(viewer, command.method, command.params, { quiet: true });
     }
   }
@@ -1402,10 +1509,10 @@ export class BrowserSession {
 
   #broadcast(value) { for (const viewer of this.#viewers.values()) this.#sendTo(viewer, value); }
 
-  #emitActivity(payload) {
+  #emitActivity(payload, { force = false } = {}) {
     if (this.#activity.size === 0) return;
     const now = Date.now();
-    if (payload.type === 'cursor' && this.#lastCursorAt && now - this.#lastCursorAt < 33) return;
+    if (!force && payload.type === 'cursor' && this.#lastCursorAt && now - this.#lastCursorAt < 33) return;
     if (payload.type === 'cursor') this.#lastCursorAt = now;
     for (const listener of this.#activity) {
       try { listener(payload); } catch { /* a slow subscriber must not stall the stream */ }
@@ -1428,7 +1535,8 @@ function isPageTarget(target) { return target?.type === 'page' && !String(target
 /** The launch page, and any page that has not committed a real navigation yet. */
 function isBlankUrl(value) {
   const url = String(value || '');
-  return url === '' || url === 'about:blank' || url.startsWith('about:blank?');
+  return url === '' || url === 'about:blank' || url.startsWith('about:blank?')
+    || /^chrome:\/\/(?:newtab|new-tab-page)\/?$/.test(url);
 }
 
 /** Chromium briefly reports a loading page's location where a title belongs. */

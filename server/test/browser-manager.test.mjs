@@ -147,6 +147,22 @@ test('manager: nothing is launched until a bot actually needs a browser', async 
   unsubscribe();
 });
 
+test('manager: concurrent first use shares one session and one endpoint', async t => {
+  const { manager } = await startManager(t);
+  const sessions = await Promise.all(Array.from({ length: 8 }, () => manager.ensureEndpoint('alpha')));
+  assert.equal(new Set(sessions).size, 1);
+  assert.equal(sessions[0], manager.session('alpha'));
+});
+
+test('manager: a removed session cannot reopen its old browser endpoint', async t => {
+  const { manager, registry } = await startManager(t);
+  const session = await manager.ensureEndpoint('alpha');
+  await manager.remove('alpha');
+  assert.equal(registry.get('alpha'), null);
+  await assert.rejects(session.start(), /has been removed/);
+  await assert.rejects(session.ensureGateway(), /has been removed/);
+});
+
 test('manager: an idle browser is shut down, and a watched one is kept', async t => {
   const { manager } = await startManager(t, { idleMs: 1200 });
   const session = await manager.ensure('alpha');
@@ -247,12 +263,12 @@ function browsersOn(profileDir) {
 }
 
 test('manager: a browser that starts while a stop is in flight is not left behind', async t => {
-  const { manager, stateDir } = await startManager(t, { idleMs: 60000 });
-  const profileDir = join(stateDir, 'browsers', 'alpha', 'chromium');
+  const { manager } = await startManager(t, { idleMs: 60000 });
   // A session, and its endpoint, without a browser: this is what `configureBrowser`
   // leaves behind before anything connects.
   await manager.ensureEndpoint('alpha');
   const session = manager.session('alpha');
+  const profileDir = session.status().profileDir;
   assert.ok(session, 'the endpoint binds a session');
   assert.equal(session.status().state, 'stopped');
 
@@ -294,6 +310,12 @@ test('manager: a bot keeps its logins, cookies and page state across a shutdown'
   const snapshot = `localStorage.getItem('hob') + '|' + document.cookie.split('; ').sort().join('; ')`;
   const before = await agent.evaluate(snapshot);
   assert.equal(before, 'kept|hob=kept; sess=kept');
+  const extra = await agent.raw.call('Target.createTarget', { url: `${pages.origin}/second` });
+  assert.ok(extra.result?.targetId);
+  await waitFor(async () => {
+    const targets = await agent.raw.call('Target.getTargets');
+    return targets.result.targetInfos.some(info => info.url === `${pages.origin}/second` && info.title === 'Persist');
+  });
   agent.raw.close();
 
   // Idle all the way down: no viewers, no agent, past the window.
@@ -307,11 +329,11 @@ test('manager: a bot keeps its logins, cookies and page state across a shutdown'
   assert.equal(second.cdpUrl, first.cdpUrl, 'the bot URL must be stable across restarts');
   const resumed = await agentClient(second);
   t.after(() => resumed.raw.close());
-  // Restoring the last session must not restore its tabs: the browser is a
-  // single page again, not yesterday's window.
   const restarted = await resumed.raw.call('Target.getTargets');
-  assert.equal(restarted.result.targetInfos.filter(info => info.type === 'page').length, 1,
-    'a restarted browser must be pruned back to one page');
+  const restoredUrls = restarted.result.targetInfos.filter(info => info.type === 'page').map(info => info.url);
+  assert.ok(restoredUrls.includes(`${pages.origin}/seed`), 'the first tab must survive a restart');
+  assert.ok(restoredUrls.includes(`${pages.origin}/second`), 'additional tabs must survive a restart');
+  assert.equal(restoredUrls.length, 2, 'restarting must not accumulate extra launch tabs');
   await resumed.navigate(`${pages.origin}/again`);
   await waitFor(async () => (await titleOf(resumed)) === 'Persist');
   const after = await resumed.evaluate(snapshot);
@@ -327,10 +349,15 @@ test('manager: a bot keeps its logins, cookies and page state across a shutdown'
 });
 
 test('manager: two bots never share a browser process or a profile', async t => {
-  const { manager } = await startManager(t, { idleMs: 60000 });
+  const pages = await pageServer();
+  t.after(() => pages.close());
+  const { manager, registry } = await startManager(t, { idleMs: 60000 });
   const alpha = await manager.ensure('alpha');
   const beta = await manager.ensure('beta');
   assert.notEqual(alpha.cdpUrl, beta.cdpUrl, 'each bot needs its own gateway credential and port');
+  assert.notEqual(alpha.status().profileDir, beta.status().profileDir, 'each bot needs its own user-data directory');
+  assert.match(alpha.status().profileDir, new RegExp(registry.get('alpha').browserProfileId));
+  assert.match(beta.status().profileDir, new RegExp(registry.get('beta').browserProfileId));
 
   const agentAlpha = await agentClient(alpha);
   const agentBeta = await agentClient(beta);
@@ -342,6 +369,14 @@ test('manager: two bots never share a browser process or a profile', async t => 
     return targets.result.targetInfos.find(info => info.targetId === agentBeta.targetId)?.title;
   });
   assert.notEqual(betaTitle, 'ALPHA-ONLY', 'one bot must never see another bot’s page');
+
+  await Promise.all([agentAlpha.navigate(`${pages.origin}/alpha`), agentBeta.navigate(`${pages.origin}/beta`)]);
+  await waitFor(async () => (await titleOf(agentAlpha)) === 'Persist' && (await titleOf(agentBeta)) === 'Persist');
+  await agentAlpha.evaluate(`localStorage.setItem('owner', 'alpha'); document.cookie = 'owner=alpha; path=/; Max-Age=86400'; 'ok'`);
+  assert.equal(await agentBeta.evaluate(`localStorage.getItem('owner')`), null,
+    'beta must not read alpha localStorage');
+  assert.equal(await agentBeta.evaluate(`document.cookie.includes('owner=alpha')`), false,
+    'beta must not read alpha cookies');
 
   // Stopping one leaves the other running: windows do not idle out together.
   await manager.stop('alpha', { reason: 'idle' });

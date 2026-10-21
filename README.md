@@ -137,6 +137,56 @@ UI interaction and real vendor sign-in remain unverified.
 
 ## Persistence and upgrades
 
+The managed browser uses the same discovered Chromium executable for every bot,
+with a separate process, CDP gateway credential and persistent user-data directory
+for each bot. New profiles live under
+`HOB_STATE_DIR/browsers/<bot>/<browser-profile-id>/chromium`; existing profiles keep
+their previous directory across upgrades. Recreating a browser identity does not
+reuse the previous identity's logins. Bot setup stays incomplete if its managed
+browser endpoint cannot be bound.
+
+Agents can create, list, activate and close multiple tabs through `browser_cdp`:
+use `Target.createTarget` with a `url`, `Target.getTargets`,
+`Target.activateTarget` with a `targetId`, and `Target.closeTarget` with a
+`targetId`. For page commands, pass the chosen tab as `target_id` to the native
+tool. Explicit agent activation updates the live viewer unless the human has
+pinned another tab. Tabs, Chromium-managed cookies (including session cookies),
+and durable site storage survive graceful browser shutdown and restart. Saved
+tab files are preserved. Pages reload on restore; unsaved forms, running
+JavaScript, expired site sessions and state that a website deletes cannot be
+guaranteed to survive. Back up the entire state volume while stopped.
+
+Agent mouse moves use bounded intermediate CDP input events with a visible
+pointer in the viewer. Direct primary-button clicks move to the requested
+coordinate, allow 50 ms for hover handlers, and hold the press for at least
+50 ms before forwarding the requested release. Clicks are not retried or
+duplicated. This adapts the native mouse sequence in
+[jo-inc/camofox-browser](https://github.com/jo-inc/camofox-browser/blob/master/server.js)
+to CDP; the curve generator is independent. The gateway cancels pending input
+delays when a client disconnects and maintains pointer position across agent
+connections for each bot.
+
+Chromium starts with `--disable-blink-features=AutomationControlled`, which
+suppresses its native `navigator.webdriver` marker without injecting a
+JavaScript getter into pages. This is a limited Chromium compatibility setting,
+not the Firefox fingerprint system shipped by Camoufox. These remain Chromium
+input events; they do not provide
+an operating-system desktop cursor or guarantee that websites classify the
+automation as human. Camoufox is a Firefox-based system with different engine
+patches and licenses; its fingerprint patches and recorded cursor corpus are
+not bundled here. Camofox's server delegates trajectories to Camoufox with
+`humanize: true` and launches it through Playwright's Firefox driver; copying
+that launch option into Chromium would have no effect.
+
+Production uses CDP over a private pipe between the gateway and Chromium.
+The token for one bot cannot open another bot's gateway. Profile directories
+reject symlink/junction redirection during preparation. These are browser/API
+boundaries: bots with unrestricted terminal or file tools under the same OS user
+can still read each other's host files. Strong isolation for mutually untrusted
+bots requires separate OS users or containers, including access restrictions on
+the browser-state volume and gateway credentials. Profile directories are
+sensitive credential stores; this application does not add encryption at rest.
+
 The new `hermes-data` volume mounts at `/opt/data`. It contains Hermes state and
 the application's private listener credentials and operator-created bot roster
 under `.hob/`. Each enrolled bot has its own listener key. Existing configuration

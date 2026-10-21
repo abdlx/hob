@@ -120,9 +120,6 @@ function NavButton({ label, onClick, disabled, children }: {
   );
 }
 
-// The page Chromium starts on is `about:blank`; showing that as a bare white
-// rectangle is indistinguishable from a broken stream. A compact new-tab
-// surface keeps the narrow sidebar honest while the bot has opened nothing.
 function BrowserStartPage({ live }: { live: boolean }) {
   return (
     <div
@@ -311,7 +308,7 @@ export function BrowserViewer({ profile, footer }: {
     );
   }
 
-  const blankPage = !status.url || status.url === 'about:blank';
+  const blankPage = !status.url || /^(?:about:blank|chrome:\/\/(?:newtab|new-tab-page)\/?)$/.test(status.url);
   const address = status.url || 'about:blank';
   const secure = status.url.startsWith('https://');
   const off = !credentials;
@@ -420,9 +417,12 @@ export function BrowserViewer({ profile, footer }: {
               {cursor && status.viewport.w > 0 && status.viewport.h > 0 && (
                 <span
                   aria-hidden
-                  className={`pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-full ${cursor.kind === 'click' ? 'h-4 w-4 bg-accent/60' : 'h-2.5 w-2.5 bg-accent'}`}
+                  className="pointer-events-none absolute z-20 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
                   style={{ left: `${(cursor.x / status.viewport.w) * 100}%`, top: `${(cursor.y / status.viewport.h) * 100}%` }}
-                />
+                >
+                  {cursor.kind === 'click' && <span className="absolute -left-2 -top-2 h-5 w-5 rounded-full bg-accent/40 ring-1 ring-accent" />}
+                  <MousePointer2 size={22} fill="currentColor" stroke="black" strokeWidth={1.5} />
+                </span>
               )}
             </>
           ) : (
