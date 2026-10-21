@@ -262,6 +262,7 @@ export function BrowserViewer({ profile }: { profile: string }) {
     const host = stageHost.current;
     if (!host) return;
     const fit = () => {
+      if (host.clientWidth <= 0 || host.clientHeight <= 0) return;
       const width = Math.min(host.clientWidth, (host.clientHeight * 4) / 3);
       setStageBox({ width: Math.floor(width), height: Math.floor((width * 3) / 4) });
     };
