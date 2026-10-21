@@ -1292,38 +1292,54 @@ export class BrowserSession {
   }
 
   async #attachSelectedTarget(preferredTargetId, cdp) {
-    if (!cdp?.open || this.#castCdp !== cdp) return;
-    const { targetInfos = [] } = await cdp.send('Target.getTargets');
-    if (this.#castCdp !== cdp) return;
-    const pages = targetInfos.filter(isPageTarget);
-    if (pages.length === 0) {
-      this.#tabs = [];
-      this.#broadcast({ t: 'tabs', tabs: [] });
-      this.#emitState();
+    // A target can close between `Target.getTargets` and `Target.attachToTarget`
+    // — especially when a tab switch races a close. Re-list and choose again
+    // rather than leaving the screencast pinned to a page that just vanished.
+    for (let attempt = 0; ; attempt += 1) {
+      if (!cdp?.open || this.#castCdp !== cdp) return;
+      // These calls drive the viewer, not a command from the agent. Bound them
+      // so one wedged session cannot block the whole attach queue indefinitely.
+      const { targetInfos = [] } = await cdp.send('Target.getTargets', {}, { timeoutMs: 5000 });
+      if (this.#castCdp !== cdp) return;
+      const pages = targetInfos.filter(isPageTarget);
+      if (pages.length === 0) {
+        this.#tabs = [];
+        this.#broadcast({ t: 'tabs', tabs: [] });
+        this.#emitState();
+        return;
+      }
+      const target = this.#selectTarget(pages, attempt === 0 ? preferredTargetId : null);
+      await this.#detachCastSession();
+      if (this.#castCdp !== cdp) return;
+      this.#castTargetId = target.targetId;
+      let sessionId;
+      try {
+        ({ sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true }, { timeoutMs: 5000 }));
+      } catch (error) {
+        this.#castTargetId = null;
+        this.#castSessionId = null;
+        if (attempt >= 2 || !cdp.open || this.#castCdp !== cdp) throw error;
+        continue;
+      }
+      if (this.#castCdp !== cdp) return;
+      this.#castSessionId = sessionId;
+      await cdp.post('Page.enable', {}, { sessionId, timeoutMs: 5000 });
+      const metrics = await cdp.send('Page.getLayoutMetrics', {}, { sessionId, timeoutMs: 5000 }).catch(() => null);
+      if (this.#castCdp !== cdp) return;
+      const view = metrics?.cssLayoutViewport;
+      if (view?.clientWidth && view?.clientHeight) this.#viewport = { w: Math.round(view.clientWidth), h: Math.round(view.clientHeight) };
+      this.#updatePageFromTarget(target);
+      await this.#startScreencast();
+      this.#broadcast({ t: 'viewport', w: this.#viewport.w, h: this.#viewport.h });
+      await this.#refreshTabs();
+      // Attaching to a page that already navigated does not replay
+      // `Page.frameNavigated`; tell the viewer where it now is. Announce even
+      // when the URL was updated by an event during the attach, otherwise a
+      // viewer moved after its tab was closed would show the right frames with a
+      // stale location.
+      if (this.#page.url) this.#broadcast({ t: 'navigate', url: this.#page.url });
       return;
     }
-    const target = this.#selectTarget(pages, preferredTargetId);
-    await this.#detachCastSession();
-    if (this.#castCdp !== cdp) return;
-    this.#castTargetId = target.targetId;
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
-    if (this.#castCdp !== cdp) return;
-    this.#castSessionId = sessionId;
-    await cdp.post('Page.enable', {}, { sessionId });
-    const metrics = await cdp.send('Page.getLayoutMetrics', {}, { sessionId }).catch(() => null);
-    if (this.#castCdp !== cdp) return;
-    const view = metrics?.cssLayoutViewport;
-    if (view?.clientWidth && view?.clientHeight) this.#viewport = { w: Math.round(view.clientWidth), h: Math.round(view.clientHeight) };
-    this.#updatePageFromTarget(target);
-    await this.#startScreencast();
-    this.#broadcast({ t: 'viewport', w: this.#viewport.w, h: this.#viewport.h });
-    await this.#refreshTabs();
-    // Attaching to a page that already navigated does not replay
-    // `Page.frameNavigated`; tell the viewer where it now is. Announce even
-    // when the URL was updated by an event during the attach, otherwise a
-    // viewer moved after its tab was closed would show the right frames with a
-    // stale location.
-    if (this.#page.url) this.#broadcast({ t: 'navigate', url: this.#page.url });
   }
 
   /**
@@ -1349,8 +1365,8 @@ export class BrowserSession {
     const sessionId = this.#castSessionId;
     this.#castSessionId = null;
     if (!sessionId || !this.#castCdp?.open) return;
-    await this.#castCdp.post('Page.stopScreencast', {}, { sessionId }).catch(() => undefined);
-    await this.#castCdp.send('Target.detachFromTarget', { sessionId }).catch(() => undefined);
+    await this.#castCdp.post('Page.stopScreencast', {}, { sessionId, timeoutMs: 3000 }).catch(() => undefined);
+    await this.#castCdp.send('Target.detachFromTarget', { sessionId }, { timeoutMs: 3000 }).catch(() => undefined);
   }
 
   /**
@@ -1372,7 +1388,7 @@ export class BrowserSession {
       format: 'jpeg', quality: 62,
       maxWidth: this.#viewport.w, maxHeight: this.#viewport.h,
       everyNthFrame: 1,
-    }, { sessionId: this.#castSessionId });
+    }, { sessionId: this.#castSessionId, timeoutMs: 5000 });
   }
 
   async #restartScreencast() {
@@ -1440,6 +1456,12 @@ export class BrowserSession {
         // not a `targetInfo` object.
         const targetId = params?.targetId;
         if (!targetId) return;
+        // Chromium can still list a just-closed target for a moment, and an
+        // attach may be in flight when the event arrives. Re-read once the
+        // target list has settled; otherwise the viewer can stay pinned to the
+        // closed page with a stale title and no active tab.
+        const settle = setTimeout(() => { void this.#refreshTabs().catch(() => undefined); }, 250);
+        settle.unref?.();
         if (targetId !== this.#castTargetId) {
           this.#refreshTabs();
           return;
@@ -1500,7 +1522,7 @@ export class BrowserSession {
     const cdp = this.#castCdp;
     if (!cdp?.open) return;
     try {
-      const { targetInfos = [] } = await cdp.send('Target.getTargets');
+      const { targetInfos = [] } = await cdp.send('Target.getTargets', {}, { timeoutMs: 5000 });
       if (this.#castCdp !== cdp) return;
       const pages = targetInfos.filter(isPageTarget);
       this.#tabs = pages.map(target => ({
@@ -1516,6 +1538,15 @@ export class BrowserSession {
       if (active) this.#updatePageFromTarget(active);
       this.#broadcast({ t: 'tabs', tabs: this.#tabs.map(tab => ({ ...tab })) });
       this.#emitState();
+      // The screencast target can close between two snapshots — or while a tab
+      // switch is still attaching — without the destroy event seeing it as the
+      // cast target. Recover onto a surviving page instead of leaving the viewer
+      // pinned to a dead target with a stale URL and title.
+      if (this.#castTargetId && !active && this.#tabs.length) {
+        this.#castTargetId = null;
+        this.#castSessionId = null;
+        void this.#attachActiveTarget().catch(() => undefined);
+      }
     } catch { /* the next event refreshes it */ }
   }
 
@@ -1535,6 +1566,71 @@ export class BrowserSession {
       await this.#attachActiveTarget();
     } catch (error) { this.#sendTo(viewer, { t: 'error', code: 'tab_failed', message: error.message }); }
     finally { admission.release(); }
+  }
+
+  // ── dashboard tab actions ─────────────────────────────────────────────────
+  //
+  // The viewer protocol owns tab switching for its own socket, but the compact
+  // dashboard chrome renders tabs even when no viewer stream is attached. These
+  // actions therefore use the gateway's own short-lived CDP connection and obey
+  // the same lease: the route takes human control first, so a tab click can never
+  // be smuggled through while the agent is working.
+
+  async #tabAction(work) {
+    const admission = this.#lease.enterViewerMutation();
+    if (!admission.ok) {
+      throw new BrowserUnavailableError(admission.reason === 'human_has_control'
+        ? 'Another viewer holds browser control.'
+        : 'The browser is being handed over. Try again in a moment.');
+    }
+    try {
+      this.#touch();
+      const cdp = await this.#openInternalConnection({});
+      try { return await work(cdp); }
+      finally { cdp.close(); }
+    } finally { admission.release(); }
+  }
+
+  async activateTab(targetId) {
+    const id = requireTargetId(targetId);
+    await this.#tabAction(cdp => cdp.send('Target.activateTarget', { targetId: id }));
+    this.#castPinned = true;
+    this.#castTargetId = id;
+    if (this.#castCdp?.open) await this.#attachActiveTarget();
+    else await this.refresh();
+    this.#emitState();
+    return this.status();
+  }
+
+  async closeTab(targetId) {
+    const id = requireTargetId(targetId);
+    await this.#tabAction(cdp => cdp.send('Target.closeTarget', { targetId: id }));
+    if (this.#castTargetId === id) {
+      this.#castTargetId = null;
+      this.#castSessionId = null;
+      if (this.#castCdp?.open) await this.#attachActiveTarget();
+    }
+    if (this.#castCdp?.open) await this.#refreshTabs();
+    else await this.refresh();
+    this.#emitState();
+    return this.status();
+  }
+
+  async createTab(url) {
+    const target = tabUrl(url);
+    let targetId = '';
+    await this.#tabAction(async cdp => {
+      const created = await cdp.send('Target.createTarget', { url: target });
+      targetId = typeof created?.targetId === 'string' ? created.targetId : '';
+      if (targetId) await cdp.send('Target.activateTarget', { targetId }).catch(() => undefined);
+    });
+    if (!targetId) throw new BrowserUnavailableError('The browser did not confirm the new tab.');
+    this.#castPinned = true;
+    this.#castTargetId = targetId;
+    if (this.#castCdp?.open) await this.#attachActiveTarget();
+    else await this.refresh();
+    this.#emitState();
+    return { tabId: targetId, status: this.status() };
   }
 
   // ── outbound plumbing ─────────────────────────────────────────────────────
@@ -1581,4 +1677,26 @@ function isBlankUrl(value) {
 /** Chromium briefly reports a loading page's location where a title belongs. */
 function isLocationTitle(value) {
   return /^(?:https?|data|file|about|chrome|devtools):/i.test(String(value || ''));
+}
+
+/** A tab id is an opaque target id, never a URL or a path. */
+function requireTargetId(value) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value)) {
+    throw new BrowserUnavailableError('Select a valid browser tab.');
+  }
+  return value;
+}
+
+/** New tabs may only be HTTP(S) or the browser's own blank page. */
+function tabUrl(value) {
+  if (value === undefined || value === null || value === '') return 'about:blank';
+  if (typeof value !== 'string' || value.length > 4096) {
+    throw new BrowserUnavailableError('Enter a valid HTTP or HTTPS address for the new tab.');
+  }
+  let parsed;
+  try { parsed = new URL(value); } catch { throw new BrowserUnavailableError('Enter a valid HTTP or HTTPS address for the new tab.'); }
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+    throw new BrowserUnavailableError('Enter an HTTP or HTTPS address without embedded credentials.');
+  }
+  return parsed.href;
 }

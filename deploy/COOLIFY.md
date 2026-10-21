@@ -80,6 +80,50 @@ If the browser origin differs from Coolify's generated URL, set
 `MUSE_PUBLIC_URL=https://your-domain` explicitly. HTTPS access should use secure
 cookies. There is no public Hermes dashboard/API port and no host Docker socket.
 
+## Manual deploys and commit verification
+
+If **Deploy** appears to build an older commit than the one shown in GitHub,
+the running image now states exactly what it contains. The build bakes Coolify's
+`SOURCE_COMMIT` and `COOLIFY_BRANCH` into the image, and the app exposes them:
+
+```text
+GET https://hob.example.com/api/version
+{"commit":"<40-character sha>","ref":"main","builtAt":"<build timestamp>"}
+```
+
+`/healthz` includes the same fields, and the container startup log prints
+`hob <commit> (<ref>)`. Compare the reported commit with the one you intended to
+deploy before diagnosing a behavioural difference.
+
+When the reported commit is wrong:
+
+1. In the application's **General** settings, confirm **Branch** is `main` and
+   that the repository is `https://github.com/abdlx/hob`.
+2. Use **Deploy** from the application header, not a webhook replay or an older
+   deployment entry. Open the deployment's build log and confirm its checkout
+   step names the intended commit.
+3. If the UI still shows an older deployment, choose **Deploy** again and enable
+   **Force rebuild** / clear the build cache for that deployment. Coolify caches
+   `npm ci` and the frontend build layers; the source copy is invalidated by the
+   checkout, but a stale queue entry can still redeploy the previous image.
+4. Confirm the new container actually started: a failed health check or a
+   start-loop leaves the previous container serving traffic while the new
+   deployment is marked failed. Inspect the deployment logs and the `muse`
+   service logs.
+5. Re-check `/api/version`. If the commit matches but the UI is stale, hard
+   refresh the browser once; the frontend bundle is served from the new image.
+
+`unknown` means the build did not receive `SOURCE_COMMIT` (for example a local
+`docker compose build` without build args). It does not mean the checkout
+failed. Locally, pass the values explicitly:
+
+```sh
+docker compose build \
+  --build-arg HOB_GIT_COMMIT="$(git rev-parse HEAD)" \
+  --build-arg HOB_GIT_REF="$(git branch --show-current)" \
+  --build-arg HOB_BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+```
+
 ## Storage and startup
 
 The `hermes-data` volume mounts at `/opt/data`. The old OpenClaw `muse-data`

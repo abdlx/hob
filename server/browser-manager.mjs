@@ -123,6 +123,34 @@ export class BrowserManager {
     return { session, viewer: session.attachViewer(socket) };
   }
 
+  /**
+   * Tab actions in the dashboard chrome are human actions. They take control
+   * implicitly — a person clicking a tab expects to be driving — and then use
+   * the session's lease-aware tab methods.
+   */
+  async #humanSession(botId) {
+    const session = await this.ensure(botId);
+    if (session.controlHolder() !== 'human') {
+      const result = await session.requestControl(null);
+      if (!result.ok) {
+        throw Object.assign(new Error('The bot is still using the browser. Try the tab again in a moment.'), { status: 409 });
+      }
+    }
+    return session;
+  }
+
+  async activateTab(botId, tabId) {
+    return (await this.#humanSession(botId)).activateTab(tabId);
+  }
+
+  async closeTab(botId, tabId) {
+    return (await this.#humanSession(botId)).closeTab(tabId);
+  }
+
+  async createTab(botId, url) {
+    return (await this.#humanSession(botId)).createTab(url);
+  }
+
   async status(botId) {
     const session = this.#sessions.get(botId);
     if (session) return session.status();

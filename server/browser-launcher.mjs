@@ -99,18 +99,18 @@ async function clearStaleProfileState(profileDir) {
  * profile. So a launch that dies during startup is retried with backoff rather
  * than surfaced as a failure on the first attempt.
  */
-// One 4:3 viewport for every managed browser. It is the page's real layout
+// One 5:4 viewport for every managed browser. It is the page's real layout
 // viewport, not a CSS crop: screenshots, agent coordinates and the live viewer
-// all agree on the same rectangle. 1280x960 is the largest common 4:3 size that
-// still fits a laptop workspace when scaled down.
-export const BROWSER_VIEWPORT = Object.freeze({ w: 1280, h: 960 });
+// all agree on the same rectangle. 1280x1024 is the largest common 5:4 size that
+// still scales cleanly in the dashboard's browser window.
+export const BROWSER_VIEWPORT = Object.freeze({ w: 1280, h: 1024 });
 export const BROWSER_WINDOW_SIZE = `${BROWSER_VIEWPORT.w},${BROWSER_VIEWPORT.h}`;
 
 /**
  * Launch one Chromium with its profile and no DevTools TCP door in production.
  *
  * The window size is the page viewport in headless mode, so the constant above
- * is what makes the agent, screenshots and the live viewer share a 4:3 frame.
+ * is what makes the agent, screenshots and the live viewer share a 5:4 frame.
  */
 export async function launchChromium({ profileDir, executablePath, headless = true, extraArgs = [], attempts = 3, transport }) {
   const mode = transport || cdpTransportMode();

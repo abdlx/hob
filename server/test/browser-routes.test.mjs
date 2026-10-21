@@ -71,9 +71,18 @@ const getJson = async (origin, path, cookie) => {
   return { status: response.status, body: await response.json().catch(() => null) };
 };
 
+const postJson = async (origin, path, cookie, value) => {
+  const response = await fetch(`${origin}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) },
+    body: value === undefined ? undefined : JSON.stringify(value),
+  });
+  return { status: response.status, body: await response.json().catch(() => null) };
+};
+
 test('browser routes: every endpoint requires the dashboard session', async t => {
   const { origin } = await startApp(t);
-  for (const path of ['/api/hermes/browser?profile=alpha', '/api/hermes/browser/activity?profile=alpha']) {
+  for (const path of ['/api/hermes/browser?profile=alpha', '/api/hermes/browser/activity?profile=alpha', '/api/hermes/browser/tabs?profile=alpha']) {
     const { status } = await getJson(origin, path);
     assert.equal(status, 401, `${path} must not answer an unauthenticated caller`);
   }
@@ -341,6 +350,85 @@ test('browser routes: control can be taken and returned from the dashboard', asy
   });
   assert.equal(nonsense.status, 400);
   assert.equal(session.status().control.holder, 'agent');
+});
+
+test('browser routes: dashboard tab actions validate targets and forward to the manager', async t => {
+  const { origin, browser } = await startApp(t);
+  const cookie = await signIn(origin);
+  const status = {
+    bot: 'alpha', state: 'running',
+    control: { holder: 'human', since: Date.now(), inFlight: 0, pending: 0, draining: false },
+    viewers: 0, agentConnections: 1, viewport: { w: 1280, h: 1024 },
+    tabs: [{ id: 'tab-1', title: 'Example', url: 'https://example.com/', active: true }],
+    url: 'https://example.com/', title: 'Example', loading: false, lastError: null, transport: 'pipe',
+  };
+  const calls = [];
+  browser.view = async profile => ({ ...status, bot: profile });
+  browser.activateTab = async (profile, tabId) => { calls.push(['activate', profile, tabId]); return status; };
+  browser.closeTab = async (profile, tabId) => { calls.push(['close', profile, tabId]); return { ...status, tabs: [] }; };
+  browser.createTab = async (profile, url) => { calls.push(['new', profile, url]); return { tabId: 'tab-2', status }; };
+
+  const listed = await getJson(origin, '/api/hermes/browser/tabs?profile=alpha', cookie);
+  assert.equal(listed.status, 200);
+  assert.deepEqual(listed.body.tabs, status.tabs);
+  assert.equal(listed.body.viewport.w * 4, listed.body.viewport.h * 5, 'the dashboard reports the 5:4 viewport');
+
+  const activated = await postJson(origin, '/api/hermes/browser/tabs/activate?profile=alpha', cookie, { tabId: 'tab-1' });
+  assert.equal(activated.status, 200);
+  assert.equal(activated.body.control.holder, 'human');
+  const closed = await postJson(origin, '/api/hermes/browser/tabs/close?profile=alpha', cookie, { tabId: 'tab-1' });
+  assert.equal(closed.status, 200);
+  assert.deepEqual(closed.body.tabs, []);
+
+  const created = await postJson(origin, '/api/hermes/browser/tabs/new?profile=alpha', cookie, { url: 'https://example.org/' });
+  assert.equal(created.status, 200);
+  assert.equal(created.body.tabId, 'tab-2');
+  const blank = await postJson(origin, '/api/hermes/browser/tabs/new?profile=alpha', cookie, {});
+  assert.equal(blank.status, 200);
+  assert.deepEqual(calls, [
+    ['activate', 'alpha', 'tab-1'],
+    ['close', 'alpha', 'tab-1'],
+    ['new', 'alpha', 'https://example.org/'],
+    ['new', 'alpha', undefined],
+  ]);
+
+  // Unknown actions, unknown fields and malformed target ids are refused before
+  // the manager sees them.
+  assert.equal((await postJson(origin, '/api/hermes/browser/tabs/move?profile=alpha', cookie, { tabId: 'tab-1' })).status, 404);
+  assert.equal((await postJson(origin, '/api/hermes/browser/tabs/activate?profile=alpha', cookie, { tabId: 'tab 1' })).status, 400);
+  assert.equal((await postJson(origin, '/api/hermes/browser/tabs/close?profile=alpha', cookie, { tabId: 'tab-1', url: 'https://evil.test/' })).status, 400);
+  assert.equal((await postJson(origin, '/api/hermes/browser/tabs/new?profile=alpha', cookie, { url: `https://example.com/${'a'.repeat(4096)}` })).status, 400);
+
+  // A manager without tab support reports itself as unavailable rather than
+  // pretending the click succeeded.
+  browser.activateTab = undefined;
+  assert.equal((await postJson(origin, '/api/hermes/browser/tabs/activate?profile=alpha', cookie, { tabId: 'tab-1' })).status, 503);
+});
+
+test('browser routes: the manager takes human control before a tab action', async t => {
+  const { origin, browser } = await startApp(t);
+  const cookie = await signIn(origin);
+  const session = await browser.ensure('alpha');
+  const changes = [];
+  session.activateTab = async tabId => { changes.push(['activate', tabId, session.controlHolder()]); return session.status(); };
+  session.closeTab = async tabId => { changes.push(['close', tabId, session.controlHolder()]); return session.status(); };
+  session.createTab = async url => {
+    changes.push(['new', url, session.controlHolder()]);
+    return { tabId: 'tab-9', status: session.status() };
+  };
+
+  // The lease starts with the agent. Clicking a tab is a human action and must
+  // claim control first, just like a click inside the viewer.
+  assert.equal(session.status().control.holder, 'agent');
+  const activated = await postJson(origin, '/api/hermes/browser/tabs/activate?profile=alpha', cookie, { tabId: 'tab-1' });
+  assert.equal(activated.status, 200);
+  assert.equal(session.status().control.holder, 'human');
+  const created = await postJson(origin, '/api/hermes/browser/tabs/new?profile=alpha', cookie, { url: 'https://example.org/' });
+  assert.equal(created.body.tabId, 'tab-9');
+  assert.deepEqual(changes.map(item => item.slice(0, 1).concat(item[2])), [
+    ['activate', 'human'],
+    ['new', 'human'],
+  ]);
 });
 
 test('browser routes: agent activity reaches the dashboard, including live control state', async t => {

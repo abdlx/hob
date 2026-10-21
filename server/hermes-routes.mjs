@@ -46,6 +46,9 @@ export function createHermesRoutes(client, bots, { removeBot, home } = {}) {
       // credentials needs its own explicit UX, never an implicit default.
       const proposal = { name: hermesProfile(input.name) };
       if (proposal.name === 'default') throw new HermesError(400, 'The Main profile already exists.', 'INVALID_PROFILE');
+      if (input.displayName !== undefined && (typeof input.displayName !== 'string' || input.displayName.length > 64)) {
+        throw new HermesError(400, 'Enter a display name under 64 characters.', 'INVALID_REQUEST');
+      }
       for (const key of ['soul', 'description', 'provider', 'model']) {
         if (input[key] !== undefined) {
           if (typeof input[key] !== 'string' || input[key].length > 64000) {
@@ -54,7 +57,8 @@ export function createHermesRoutes(client, bots, { removeBot, home } = {}) {
           proposal[key] = input[key];
         }
       }
-      if (Object.keys(input).some(key => !['name', 'soul', 'description', 'provider', 'model'].includes(key))) {
+      if (input.displayName !== undefined) proposal.displayName = input.displayName;
+      if (Object.keys(input).some(key => !['name', 'displayName', 'soul', 'description', 'provider', 'model'].includes(key))) {
         throw new HermesError(400, 'Unsupported bot creation option.', 'INVALID_REQUEST');
       }
       return json(res, 201, await (bots ? bots.create(proposal) : client.dashboard('/api/profiles', { method, body: proposal })));
@@ -94,6 +98,13 @@ export function createHermesRoutes(client, bots, { removeBot, home } = {}) {
     if (profileMatch) {
       const name = hermesProfile(profileMatch[1]);
       const resource = profileMatch[2];
+      if (!resource && method === 'PATCH' && bots) {
+        const input = object(await body(req));
+        if (Object.keys(input).some(key => key !== 'displayName') || typeof input.displayName !== 'string') {
+          throw new HermesError(400, 'Only a bot display name can be changed here.', 'INVALID_REQUEST');
+        }
+        return json(res, 200, await bots.rename(name, input.displayName));
+      }
       if (!resource && method === 'DELETE') {
         if (name === 'default') throw new HermesError(400, 'The Main bot cannot be deleted.', 'INVALID_PROFILE');
         const remove = () => bots ? bots.remove(name) : client.dashboard(`/api/profiles/${name}`, { method });

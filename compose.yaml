@@ -3,6 +3,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # Coolify exports the checked-out commit and branch to the build. The
+        # running app reports them at /api/version, /healthz and in its startup
+        # log, so a manual deploy can be verified against the intended commit.
+        HOB_GIT_COMMIT: ${SOURCE_COMMIT:-unknown}
+        HOB_GIT_REF: ${COOLIFY_BRANCH:-unknown}
+        HOB_BUILD_TIME: ${HOB_BUILD_TIME:-unknown}
     restart: unless-stopped
     stop_grace_period: 40s
     environment:

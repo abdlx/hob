@@ -260,7 +260,7 @@ test('gateway: the viewer streams frames and drives the browser while in control
   assert.equal(hello.sessionId, 'alpha');
   assert.equal(hello.control.holder, 'agent');
   assert.ok(hello.viewport.w > 0 && hello.viewport.h > 0);
-  assert.equal(hello.viewport.w * 3, hello.viewport.h * 4, 'the managed browser viewport is 4:3');
+  assert.equal(hello.viewport.w * 4, hello.viewport.h * 5, 'the managed browser viewport is 5:4');
 
   // Frames arrive as a JSON header followed by a binary JPEG.
   await waitFor(() => viewer.received.some(message => message.t === 'frame'));
@@ -415,7 +415,9 @@ test('gateway: an agent creates multiple tabs and switches the live viewer betwe
     && session.status().title === 'FIRST-TAB');
   await agent.raw.call('Target.closeTarget', { targetId: second.result.targetId });
   await agent.raw.call('Target.closeTarget', { targetId: third.result.targetId });
-  await waitFor(() => session.status().tabs.length === 1);
+  // Closing both background tabs and re-deriving the active page are separate
+  // status updates; wait for both so this does not race the tab list.
+  await waitFor(() => session.status().tabs.length === 1 && session.status().title === 'FIRST-TAB');
   assert.equal(session.status().title, 'FIRST-TAB');
 });
 

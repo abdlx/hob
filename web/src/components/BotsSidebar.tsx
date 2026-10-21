@@ -7,6 +7,7 @@ import {
   Sparkles,
   Trash2,
   MoreHorizontal,
+  Pencil,
   Users,
   X,
 } from 'lucide-react';
@@ -51,12 +52,17 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
   const [search, setSearch] = useState('');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newBotName, setNewBotName] = useState('');
+  const [newBotDisplayName, setNewBotDisplayName] = useState('');
   const [newBotSoul, setNewBotSoul] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<{ id: string; name: string } | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
 
   // Bot groups are managed here, beside the bots they collect.
   const [isGroupFormOpen, setIsGroupFormOpen] = useState(false);
@@ -102,11 +108,16 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
     setIsSubmitting(true);
     setCreateError(null);
     try {
+      let selectedName = cleanName;
       if (runtime === 'hermes') {
-        await apiFetch('/api/hermes/profiles', {
+        const label = newBotDisplayName.trim();
+        const created = await apiFetch<{ name?: string }>('/api/hermes/profiles', {
           method: 'POST',
-          body: JSON.stringify({ name: cleanName, soul: newBotSoul.trim() }),
+          body: JSON.stringify({ name: cleanName, ...(label ? { displayName: label } : {}), soul: newBotSoul.trim() }),
         });
+        // A deleted profile id is retired, so the server may have allocated a
+        // suffixed internal id (for example `coder-2`). Select that identity.
+        if (created?.name) selectedName = created.name;
       } else {
         await apiFetch('/api/agents', {
           method: 'POST',
@@ -114,8 +125,9 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
         });
       }
       await refresh();
-      await selectAgent(cleanName);
+      await selectAgent(selectedName);
       setNewBotName('');
+      setNewBotDisplayName('');
       setNewBotSoul('');
       setIsCreateOpen(false);
     } catch (err: unknown) {
@@ -139,6 +151,32 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
       setDeleteError(err instanceof Error ? err.message : 'Failed to delete bot.');
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const openRename = (bot: { id: string; name: string }) => {
+    setRenameTarget(bot);
+    setRenameValue(bot.name);
+    setRenameError(null);
+  };
+
+  const handleRenameBot = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const label = renameValue.trim();
+    if (!renameTarget || runtime !== 'hermes' || !label || isRenaming) return;
+    setIsRenaming(true);
+    setRenameError(null);
+    try {
+      await apiFetch(`/api/hermes/profiles/${encodeURIComponent(renameTarget.id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ displayName: label }),
+      });
+      setRenameTarget(null);
+      await refresh();
+    } catch (err: unknown) {
+      setRenameError(err instanceof Error ? err.message : 'Failed to rename bot.');
+    } finally {
+      setIsRenaming(false);
     }
   };
 
@@ -457,6 +495,20 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();
+                              openRename({ id: bot.id, name: bot.name });
+                            }}
+                            className="rounded-md p-1 text-faint opacity-0 transition-opacity hover:bg-neutral hover:text-ink group-hover:opacity-100 focus-visible:opacity-100 cursor-pointer"
+                            aria-label={`Rename ${bot.name}`}
+                            title={`Rename ${bot.name}`}
+                          >
+                            <Pencil size={12} />
+                          </button>
+                        )}
+                        {runtime === 'hermes' && bot.id !== 'default' && !filteringActivity && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
                               setDeleteError(null);
                               setDeleteTarget(bot.id);
                             }}
@@ -563,6 +615,24 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
 
               <div>
                 <label className="block text-xs md:text-sm font-medium text-ink mb-1.5">
+                  Display Name (optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Coder, Researcher, Writer"
+                  value={newBotDisplayName}
+                  onChange={(e) => setNewBotDisplayName(e.target.value)}
+                  disabled={isSubmitting}
+                  maxLength={64}
+                  className="w-full bg-panel text-sm text-ink px-3.5 py-2.5 rounded-xl border border-edge focus:outline-none focus:border-accent placeholder-faint"
+                />
+                <p className="text-[11px] text-muted mt-1">
+                  Shown in the UI. You can rename the bot later without changing its internal ID.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs md:text-sm font-medium text-ink mb-1.5">
                   Personality & Instructions (optional)
                 </label>
                 <textarea
@@ -590,6 +660,85 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
                   className="px-4 py-2 rounded-xl text-xs md:text-sm font-semibold bg-accent hover:bg-accent-strong text-white transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
                 >
                   {isSubmitting ? 'Creating...' : 'Create Bot'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Rename Bot Modal Dialog */}
+      {renameTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
+          <div
+            className="w-full max-w-md bg-surface border border-edge rounded-[26px] shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="rename-bot-title"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-hair">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-full bg-accent-soft flex items-center justify-center text-accent">
+                  <Pencil size={15} />
+                </div>
+                <div>
+                  <h3 id="rename-bot-title" className="text-base font-semibold text-ink">
+                    Rename Bot
+                  </h3>
+                  <p className="text-xs text-muted">Only the display name changes.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRenameTarget(null)}
+                disabled={isRenaming}
+                className="p-1.5 rounded-full text-faint hover:text-ink hover:bg-neutral transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {renameError && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs" role="alert">
+                {renameError}
+              </div>
+            )}
+
+            <form onSubmit={handleRenameBot} className="space-y-4">
+              <div>
+                <label className="block text-xs md:text-sm font-medium text-ink mb-1.5">
+                  Display Name <span className="text-accent">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  disabled={isRenaming}
+                  maxLength={64}
+                  autoFocus
+                  required
+                  className="w-full bg-panel text-sm text-ink px-3.5 py-2.5 rounded-xl border border-edge focus:outline-none focus:border-accent placeholder-faint"
+                />
+                <p className="text-[11px] text-muted mt-1">
+                  The internal ID stays <span className="font-mono">{renameTarget.id}</span>, so the bot keeps its workspace, sessions, and browser profile.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-hair">
+                <button
+                  type="button"
+                  onClick={() => setRenameTarget(null)}
+                  disabled={isRenaming}
+                  className="px-4 py-2 rounded-xl text-xs md:text-sm font-medium text-muted hover:text-ink hover:bg-neutral transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isRenaming || !renameValue.trim() || renameValue.trim() === renameTarget.name}
+                  className="px-4 py-2 rounded-xl text-xs md:text-sm font-semibold bg-accent hover:bg-accent-strong text-white transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
+                >
+                  {isRenaming ? 'Renaming...' : 'Save name'}
                 </button>
               </div>
             </form>

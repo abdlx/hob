@@ -11,6 +11,7 @@ import { createHermesWorkspaceRoutes } from './hermes-workspace.mjs';
 import { createHermesSetupRoutes } from './hermes-setup.mjs';
 import { createHermesGroups } from './hermes-groups.mjs';
 import { createHermesMcpOAuth } from './hermes-mcp-oauth.mjs';
+import { createHermesBotRelay } from './hermes-bot-relay.mjs';
 import { createBrowserRoutes } from './browser-routes.mjs';
 
 class HttpError extends Error {
@@ -117,6 +118,9 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
     workspaceRoot: process.env.HERMES_HOME ? path.join(process.env.HERMES_HOME, 'workspaces') : undefined }) : null;
   const hermesChat = gateway?.kind === 'hermes' ? createHermesChatRoutes(gateway, bots, runJournal, { home: process.env.HERMES_HOME }) : null;
   const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat }) : null;
+  // The relay authenticates each bot with its own listener credential, not the
+  // dashboard session, so it is mounted before the `/api/*` login gate.
+  const botRelay = hermes && bots ? createHermesBotRelay({ client: hermes, bots }) : null;
   // The managed browser is only meaningful with a bot roster to scope it to.
   const browserRoutes = browser && bots ? createBrowserRoutes({
     browser, json, body, startEvents, sendEvent,
@@ -179,6 +183,17 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   gateway.on('connected', () => { for (const res of streams) sendEvent(res, 'connection', { connected: true }); });
   gateway.on('disconnected', () => { for (const res of streams) sendEvent(res, 'connection', { connected: false }); });
 
+  // Baked at image build time by the Dockerfile/Compose args. It is deliberately
+  // public and contains no credentials: the point is to answer "which commit is
+  // actually running?" after a manual deploy, from the app itself.
+  const build = {
+    commit: process.env.HOB_GIT_COMMIT || 'unknown',
+    ref: process.env.HOB_GIT_REF || 'unknown',
+    builtAt: process.env.HOB_BUILD_TIME || 'unknown',
+    startedAt: new Date().toISOString(),
+    runtime: hermes ? 'hermes' : 'openclaw',
+  };
+
   const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'same-origin');
@@ -196,8 +211,9 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
       if (mcpOAuth && route.startsWith('/api/mcp/oauth/callback/')) return await mcpOAuth.callback(req, res, url);
       if (route === '/healthz') {
         const state = typeof gateway.getServiceHealth === 'function' ? await gateway.getServiceHealth() : await startup();
-        return json(res, state.ready ? 200 : 503, { ok: state.ready, gatewayConnected: gateway.connected });
+        return json(res, state.ready ? 200 : 503, { ok: state.ready, gatewayConnected: gateway.connected, version: build });
       }
+      if (route === '/api/version' && method === 'GET') return json(res, 200, build);
       if (route === '/api/auth/status' && method === 'GET') return json(res, 200, { authenticated: Boolean(authenticated(req)), configured, gatewayConnected: gateway.connected });
       if (method !== 'GET' && method !== 'HEAD') assertOrigin(req);
       if (route === '/api/auth/login' && method === 'POST') {
@@ -216,6 +232,11 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
         const payload = Buffer.from(JSON.stringify({ exp: now + 86400000, fp: fingerprint, nonce: randomUUID() })).toString('base64url');
         setCookie(res, `${payload}.${sign(payload)}`, 86400);
         return json(res, 200, { authenticated: true });
+      }
+      // Bot-to-bot traffic is authenticated by each bot's own Hermes listener
+      // credential, so it must be admitted before the dashboard session gate.
+      if (botRelay && (route === '/api/hermes/bot-relay' || route.startsWith('/api/hermes/bot-relay/'))) {
+        return await botRelay(req, res, url, { json, body });
       }
       if (route.startsWith('/api/')) {
         if (!authenticated(req)) throw new HttpError(401, 'Sign in to hob.');

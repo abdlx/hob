@@ -176,6 +176,37 @@ export function createBrowserRoutes({
       return json(res, 200, { ok: result.ok, reason: result.reason ?? null, ...publicStatus(await browser.view(profile)) });
     }
 
+    // Tab actions from the dashboard's Chrome-like chrome. They take human
+    // control implicitly; the session enforces the same lease as a viewer click.
+    if (tail === '/tabs' && method === 'GET') {
+      return json(res, 200, publicStatus(await browser.view(profile)));
+    }
+    if (tail.startsWith('/tabs/') && method === 'POST') {
+      const action = tail.slice('/tabs/'.length);
+      if (!['activate', 'close', 'new'].includes(action)) throw new RouteError(404, 'Browser tab action not found.');
+      if (typeof browser[action === 'new' ? 'createTab' : action === 'close' ? 'closeTab' : 'activateTab'] !== 'function') {
+        throw new RouteError(503, 'Browser tab actions are unavailable.');
+      }
+      const input = await body(req);
+      const expected = action === 'new' ? ['url'] : ['tabId'];
+      if (!input || typeof input !== 'object' || Array.isArray(input)
+        || Object.keys(input).some(key => !expected.includes(key))) {
+        throw new RouteError(400, 'Unsupported browser tab request.');
+      }
+      if (action !== 'new' && (typeof input.tabId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(input.tabId))) {
+        throw new RouteError(400, 'Select a valid browser tab.');
+      }
+      if (action === 'new' && input.url !== undefined
+        && (typeof input.url !== 'string' || input.url.length > 4096)) {
+        throw new RouteError(400, 'Enter a valid address for the new tab.');
+      }
+      const result = action === 'activate' ? await browser.activateTab(profile, input.tabId)
+        : action === 'close' ? await browser.closeTab(profile, input.tabId)
+          : await browser.createTab(profile, input.url);
+      const status = result?.status ?? result;
+      return json(res, 200, { ...publicStatus(status), ...(result?.tabId ? { tabId: result.tabId } : {}) });
+    }
+
     if (tail === '/viewer' && method === 'POST') {
       // Field names match what @atriumjs/react consumes: it appends `viewerToken`
       // to `wsUrl` as the `token` query parameter, and displays `sessionId`.

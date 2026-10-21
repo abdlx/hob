@@ -206,11 +206,12 @@ export function HermesIdentity({ profile }: { profile: string }) {
 }
 
 export function HermesBrowser({ profile }: { profile: string }) {
-  const { sendMessage, setActiveNav, isLoading, isPreparing, activeSessionId, sessions } = useChat();
+  const { sendMessage, setActiveNav, isLoading, isPreparing, activeSessionId, sessions, agent, agents } = useChat();
   const { data, error } = useWorkspaceResource<{ name: string; enabled: boolean; configured: boolean }[]>(profile, 'toolsets');
   const [url, setUrl] = useState('');
   const [requestError, setRequestError] = useState('');
   const browser = data?.find(item => item.name === 'browser');
+  const current = agent?.id === profile ? agent : agents.find(item => item.id === profile);
   const browse = async () => {
     try {
       const parsed = new URL(url);
@@ -254,6 +255,8 @@ export function HermesBrowser({ profile }: { profile: string }) {
   return (
     <BrowserViewer
       profile={profile}
+      botName={current?.name}
+      avatarUrl={current?.avatarUrl}
       footer={footer}
     />
   );

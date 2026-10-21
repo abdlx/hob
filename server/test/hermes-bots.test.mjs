@@ -181,7 +181,9 @@ test('configureBrowser binds the named profile through the real dashboard client
 test('operator-created bot gets independent credentials and workspace through native owners before activation', async () => fixture(async ({ registry, root, mainApiKey, options }) => {
   const upstream = native();
   const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work') });
-  assert.deepEqual(await bots.create({ name: 'research', soul: 'Research only.' }), { ok: true, name: 'research', state: 'active' });
+  assert.deepEqual(await bots.create({ name: 'research', soul: 'Research only.' }), {
+    ok: true, name: 'research', displayName: 'research', state: 'active',
+  });
   const settings = upstream.calls.find(call => call.route === '/api/config');
   assert.deepEqual(settings.body, { profile: 'research', config: { terminal: { cwd: path.join(root, 'work', 'bots', 'research') }, auth: { adopt_external_logins: false } } });
   const credential = upstream.calls.find(call => call.route === '/api/env');
@@ -196,7 +198,7 @@ test('operator-created bot gets independent credentials and workspace through na
 test('a named bot called main cannot reuse the Main bot’s working directory', async () => fixture(async ({ registry, root }) => {
   const upstream = native();
   const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work') });
-  await bots.create({ name: 'main' });
+  await bots.create({ name: 'main', displayName: 'Second Main' });
   const config = upstream.calls.find(call => call.route === '/api/config').body.config;
   assert.equal(config.terminal.cwd, path.join(root, 'work', 'bots', 'main'));
   assert.notEqual(config.terminal.cwd, path.join(root, 'work', 'main'));
@@ -314,6 +316,90 @@ test('revocation while setup is in flight prevents credential provisioning and r
   assert.equal(upstream.calls.some(call => call.route === '/api/env'), false);
   assert.throws(() => registry.token('research'), /not in your dashboard/);
 }));
+
+test('renaming changes only the dashboard label and survives a restart', async () => fixture(async ({ registry, root, options }) => {
+  const upstream = native();
+  const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work') });
+  await bots.create({ name: 'research', displayName: 'Scout' });
+  assert.equal((await bots.list()).profiles.find(item => item.name === 'research').display_name, 'Scout');
+
+  const renamed = await bots.rename('research', '  Research   Lead  ');
+  assert.deepEqual(renamed, { ok: true, name: 'research', displayName: 'Research Lead', display_name: 'Research Lead', state: 'active', created_at: renamed.created_at });
+  assert.equal((await bots.list()).profiles.find(item => item.name === 'research').display_name, 'Research Lead');
+  assert.match(registry.token('research'), /^[a-f0-9]{64}$/, 'the internal credential is unchanged');
+  assert.equal(upstream.calls.some(call => call.method === 'POST' && call.route !== '/api/profiles'), false,
+    'renaming must not recreate or reconfigure the profile');
+
+  // Active labels stay unique case-insensitively; Main keeps its coordination name.
+  await bots.create({ name: 'writer', displayName: 'Writer' });
+  await assert.rejects(bots.rename('research', 'writer'), /already uses that name|already uses/);
+  await assert.rejects(bots.rename('default', 'Boss'), /keeps its name/);
+  await bots.rename('default', 'Main');
+  await assert.rejects(bots.rename('research', '   '), /1–64 printable characters/);
+
+  const restored = await HermesBotRegistry.open(options);
+  assert.equal(restored.list().find(item => item.name === 'research').displayName, 'Research Lead');
+  assert.match(restored.token('research'), /^[a-f0-9]{64}$/);
+}));
+
+test('a deleted display name is reusable without resurrecting the old internal id or credential', async () => fixture(async ({ registry, root }) => {
+  const upstream = native();
+  const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work') });
+  const first = await bots.create({ name: 'research', displayName: 'Scout' });
+  const oldToken = registry.token('research');
+  await bots.remove('research');
+  assert.equal(first.name, 'research');
+
+  // The tombstone still owns `research`, but its label is free again. The new
+  // bot gets a fresh internal id, token, workspace and browser profile.
+  const second = await bots.create({ name: 'research', displayName: 'Scout' });
+  assert.equal(second.name, 'research-2');
+  assert.equal(second.displayName, 'Scout');
+  assert.throws(() => registry.token('research'), /not in your dashboard/);
+  assert.notEqual(registry.token('research-2'), oldToken);
+
+  // The old native profile must never be adopted as the new bot.
+  assert.equal(upstream.calls.some(call => call.route === '/api/config'
+    && call.profile === 'research' && call.body?.config?.terminal?.cwd?.endsWith('research')), true,
+  'the first bot used its own workspace');
+  const secondWorkspace = upstream.calls.filter(call => call.route === '/api/config' && call.profile === 'research-2')
+    .at(-1)?.body?.config?.terminal?.cwd;
+  assert.ok(secondWorkspace?.endsWith(path.join('bots', 'research-2')), 'the recreated bot gets an independent workspace');
+}));
+
+test('version 1 registries migrate to display names without changing internal ids', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'hob-bot-registry-'));
+  const mainApiKey = randomBytes(32).toString('hex');
+  const createdAt = new Date().toISOString();
+  try {
+    await writeFile(path.join(root, 'bots.json'), JSON.stringify({
+      version: 1,
+      bots: [
+        { name: 'default', state: 'active', nativeCreated: true, apiKey: mainApiKey, createdAt },
+        { name: 'research', state: 'active', nativeCreated: true, apiKey: randomBytes(32).toString('hex'), createdAt },
+        { name: 'retired', state: 'revoked', nativeCreated: true, apiKey: randomBytes(32).toString('hex'), createdAt },
+        // Version 1 allowed this: the internal id is `main`, but its workspace
+        // was still `workspaces/bots/main`. Its derived label now collides with
+        // Main's, so migration must rename the label rather than refuse to boot.
+        { name: 'main', state: 'active', nativeCreated: true, apiKey: randomBytes(32).toString('hex'), createdAt },
+      ],
+    }));
+    const registry = await HermesBotRegistry.open({ stateDir: root, mainApiKey });
+    assert.deepEqual(registry.list().map(item => [item.name, item.displayName]), [
+      ['default', 'Main'],
+      ['research', 'research'],
+      ['main', 'main 2'],
+    ]);
+    const saved = JSON.parse(await readFile(path.join(root, 'bots.json'), 'utf8'));
+    assert.equal(saved.version, 2);
+    assert.deepEqual(saved.bots.map(item => item.displayName), ['Main', 'research', 'retired', 'main 2']);
+    assert.deepEqual(saved.bots.map(item => item.name), ['default', 'research', 'retired', 'main']);
+  } finally {
+    assert.equal(path.dirname(root), tmpdir());
+    assert.ok(path.basename(root).startsWith('hob-bot-registry-'));
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('transport binds each enrolled profile credential and refuses unknown profiles before network access', async () => fixture(async ({ registry, mainApiKey }) => {
   await registry.reserve('research'); await registry.update('research', { state: 'active', nativeCreated: true });

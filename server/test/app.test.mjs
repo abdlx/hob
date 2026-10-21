@@ -38,6 +38,18 @@ test('credentials stay server-side, unauthorized requests fail, cookies are Http
   const forged = await request('/api/sessions', 'GET', undefined, { Cookie: `${cookie}tampered` });
   assert.equal(forged.status, 401);
 });
+test('the running build version is public and also appears in health', async () => {
+  const response = await fetch(`${origin}/api/version`);
+  assert.equal(response.status, 200, '/api/version must not require a dashboard session');
+  const version = await response.json();
+  assert.deepEqual(Object.keys(version).sort(), ['builtAt', 'commit', 'ref', 'runtime', 'startedAt']);
+  assert.equal(typeof version.commit, 'string');
+  assert.equal(typeof version.ref, 'string');
+  assert.equal(typeof version.builtAt, 'string');
+  const health = await fetch(`${origin}/healthz`).then(item => item.json());
+  assert.deepEqual(health.version, version);
+});
+
 test('cross-origin mutations are refused before gateway side effects', async () => {
   calls.length = 0;
   const result = await request('/api/goals', 'POST', { name: 'Do work' }, { Origin: 'https://attacker.example' });

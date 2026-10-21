@@ -31,6 +31,12 @@ COPY server/package.json server/package-lock.json ./
 RUN --mount=type=cache,id=hob-npm,target=/root/.npm npm ci --omit=dev
 
 FROM ${HERMES_IMAGE} AS runtime
+# Build provenance is baked into the image so a running container can report
+# exactly which commit Coolify checked out. Compose passes these from Coolify's
+# SOURCE_COMMIT/COOLIFY_BRANCH variables; they are public and contain no secrets.
+ARG HOB_GIT_COMMIT=unknown
+ARG HOB_GIT_REF=unknown
+ARG HOB_BUILD_TIME=unknown
 # Preserve the upstream entrypoint, sealed runtime, PM tools, migrations and
 # privilege drop. Only the application CMD and its files are added.
 USER root
@@ -59,6 +65,9 @@ ENV MUSE_HOST=0.0.0.0 \
     HERMES_HOME=/opt/data \
     HERMES_EXECUTABLE=/opt/hermes/bin/hermes \
     HOB_STATE_DIR=/opt/data/.hob \
+    HOB_GIT_COMMIT=${HOB_GIT_COMMIT} \
+    HOB_GIT_REF=${HOB_GIT_REF} \
+    HOB_BUILD_TIME=${HOB_BUILD_TIME} \
     HERMES_DASHBOARD=0
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 CMD ["/usr/local/bin/node", "/app/deploy/healthcheck.mjs"]
