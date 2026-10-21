@@ -404,6 +404,19 @@ test('gateway: an agent creates multiple tabs and switches the live viewer betwe
   await agent.raw.call('Target.activateTarget', { targetId: agent.targetId });
   await waitFor(() => session.status().tabs.find(tab => tab.active)?.title === 'FIRST-TAB');
   assert.equal(session.status().tabs.length, 3);
+
+  const activations = await Promise.all([
+    agent.raw.call('Target.activateTarget', { targetId: second.result.targetId }),
+    agent.raw.call('Target.activateTarget', { targetId: third.result.targetId }),
+    agent.raw.call('Target.activateTarget', { targetId: agent.targetId }),
+  ]);
+  assert.ok(activations.every(reply => !reply.error));
+  await waitFor(() => session.status().tabs.find(tab => tab.active)?.title === 'FIRST-TAB'
+    && session.status().title === 'FIRST-TAB');
+  await agent.raw.call('Target.closeTarget', { targetId: second.result.targetId });
+  await agent.raw.call('Target.closeTarget', { targetId: third.result.targetId });
+  await waitFor(() => session.status().tabs.length === 1);
+  assert.equal(session.status().title, 'FIRST-TAB');
 });
 
 test('gateway: the last viewer leaving returns control to the agent', async t => {

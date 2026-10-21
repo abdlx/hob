@@ -445,6 +445,7 @@ export class BrowserSession {
   #activity = new Set();
   #stateListeners = new Set();
   #castCdp = null; #castSessionId = null; #castTargetId = null; #castPinned = false;
+  #castAttach = Promise.resolve();
   #frameSeq = 0; #lastFrame = null; #lastFrameAt = 0;
   #viewport = { ...BROWSER_VIEWPORT };
   #tabs = [];
@@ -1260,7 +1261,14 @@ export class BrowserSession {
     await this.#attachActiveTarget();
   }
 
-  async #attachActiveTarget() {
+  #attachActiveTarget() {
+    const preferredTargetId = this.#castTargetId;
+    const pending = this.#castAttach.then(() => this.#attachSelectedTarget(preferredTargetId));
+    this.#castAttach = pending.catch(() => undefined);
+    return pending;
+  }
+
+  async #attachSelectedTarget(preferredTargetId) {
     if (!this.#castCdp?.open) return;
     const { targetInfos = [] } = await this.#castCdp.send('Target.getTargets');
     const pages = targetInfos.filter(isPageTarget);
@@ -1270,7 +1278,7 @@ export class BrowserSession {
       this.#emitState();
       return;
     }
-    const target = this.#selectTarget(pages);
+    const target = this.#selectTarget(pages, preferredTargetId);
     await this.#detachCastSession();
     this.#castTargetId = target.targetId;
     const { sessionId } = await this.#castCdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
@@ -1300,8 +1308,8 @@ export class BrowserSession {
    * the bot works elsewhere. Prefer a real page unless someone deliberately chose
    * a tab; otherwise keep the current one.
    */
-  #selectTarget(pages) {
-    const current = pages.find(page => page.targetId === this.#castTargetId);
+  #selectTarget(pages, targetId = this.#castTargetId) {
+    const current = pages.find(page => page.targetId === targetId);
     if (this.#castPinned && current) return current;
     if (current && !isBlankUrl(current.url)) return current;
     // Prefer the newest real page: when an agent opens a tab, that is the one it
