@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '../context/ChatContext';
 import { apiFetch } from '../services/api';
 import { hermesWorkspaceApi, jsonWrite } from '../services/hermes-workspace';
@@ -205,12 +205,7 @@ export function HermesIdentity({ profile }: { profile: string }) {
   );
 }
 
-export function HermesBrowser({ profile, botName, navigation, onClose }: {
-  profile: string;
-  botName?: string;
-  navigation?: ReactNode;
-  onClose?: () => void;
-}) {
+export function HermesBrowser({ profile }: { profile: string }) {
   const { sendMessage, setActiveNav, isLoading, isPreparing, activeSessionId, sessions } = useChat();
   const { data, error } = useWorkspaceResource<{ name: string; enabled: boolean; configured: boolean }[]>(profile, 'toolsets');
   const [url, setUrl] = useState('');
@@ -226,18 +221,24 @@ export function HermesBrowser({ profile, botName, navigation, onClose }: {
   };
 
   const footer = (
-    <div className="space-y-2.5">
+    <div className="space-y-2">
       <p className="text-xs font-semibold text-ink">Ask the bot to browse</p>
-      <Field label="Website URL">
-        <input className={inputClass} value={url} onChange={event => setUrl(event.target.value)} placeholder="https://example.com" />
-      </Field>
-      <button
-        className={`${buttonClass} w-full`}
-        disabled={isLoading || isPreparing || !activeSessionId || sessions.find(item => item.id === activeSessionId)?.readOnly || !url.trim() || browser?.enabled === false}
-        onClick={browse}
-      >
-        Ask bot to browse
-      </button>
+      <div className="flex items-center gap-2">
+        <input
+          className={`${inputClass} min-w-0 flex-1`}
+          value={url}
+          onChange={event => setUrl(event.target.value)}
+          placeholder="https://example.com"
+          aria-label="Website URL"
+        />
+        <button
+          className={`${buttonClass} shrink-0 px-3`}
+          disabled={isLoading || isPreparing || !activeSessionId || sessions.find(item => item.id === activeSessionId)?.readOnly || !url.trim() || browser?.enabled === false}
+          onClick={browse}
+        >
+          Browse
+        </button>
+      </div>
       {(error || requestError) && <Notice error>{error || requestError}</Notice>}
       {browser && (!browser.enabled || !browser.configured) && (
         <p className="text-[11px] text-muted">
@@ -246,16 +247,13 @@ export function HermesBrowser({ profile, botName, navigation, onClose }: {
           <span className="font-medium text-ink">{browser.configured ? 'Configured' : 'Setup required'}</span>
         </p>
       )}
-      <p className="text-[11px] leading-relaxed text-muted">Sends a message; the page opens after the bot acts.</p>
+      <p className="text-[10px] leading-relaxed text-muted">Sends a message; the page opens when the bot acts.</p>
     </div>
   );
 
   return (
     <BrowserViewer
       profile={profile}
-      botName={botName}
-      navigation={navigation}
-      onClose={onClose}
       footer={footer}
     />
   );

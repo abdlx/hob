@@ -1,8 +1,8 @@
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { RemoteBrowser, type RemoteBrowserHandle } from '@atriumjs/react';
-import { ArrowLeft, ArrowRight, Globe2, Loader2, Lock, MousePointer2, Power, RotateCw, ShieldCheck, Square, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Globe2, Loader2, Lock, MousePointer2, Power, RotateCw, ShieldCheck, Square } from 'lucide-react';
 import { apiFetch } from '../services/api';
-import { buttonClass, Notice, StatusPill } from './WorkspaceUI';
+import { Notice, StatusPill } from './WorkspaceUI';
 import { errorText } from './workspaceUtils';
 
 // Live viewer for a bot's persistent, HOB-managed browser.
@@ -57,12 +57,12 @@ interface Cursor { x: number; y: number; kind: 'move' | 'click' }
 const POLL_MS = 2000;
 const ACTIVITY_LIMIT = 6;
 const CONNECT_HINT_MS = 8000;
-const CHROME_HEIGHT = 48;
-const RAIL_MIN_WIDTH = 230;
 
 const query = (profile: string) => `?profile=${encodeURIComponent(profile)}`;
 
-const primaryButton = 'inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-accent px-3.5 py-2 text-xs md:text-sm font-semibold text-white hover:bg-accent-strong transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer active:scale-[0.98] shadow-sm';
+const primaryButton = 'inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent-strong transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer active:scale-[0.98] shadow-sm';
+
+const quietButton = 'inline-flex w-full items-center justify-center gap-1 rounded-lg border border-hair bg-surface px-2 py-1.5 text-[11px] font-medium text-ink transition-colors hover:bg-sunken disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer';
 
 /** Turn a raw agent command into something a person can read. */
 function describe(payload: Record<string, unknown>): string | null {
@@ -101,11 +101,6 @@ function bindingLine(report: BindingReport): string {
   return `${bindingMessage(report)}${ports}`;
 }
 
-function hostLabel(url: string): string {
-  if (!url || url === 'about:blank') return 'New tab';
-  try { return new URL(url).hostname.replace(/^www\./, '') || url; } catch { return url; }
-}
-
 // The browser chrome is deliberately dark and flush with the page. It is a real
 // frame around the live Chromium viewport, not another card stacked above it.
 function NavButton({ label, onClick, disabled, children }: {
@@ -118,7 +113,7 @@ function NavButton({ label, onClick, disabled, children }: {
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
-      className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-white/10 hover:text-gray-100 disabled:cursor-not-allowed disabled:opacity-30"
+      className="inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-white/10 hover:text-gray-100 disabled:cursor-not-allowed disabled:opacity-30"
     >
       {children}
     </button>
@@ -126,44 +121,33 @@ function NavButton({ label, onClick, disabled, children }: {
 }
 
 // The page Chromium starts on is `about:blank`; showing that as a bare white
-// rectangle is indistinguishable from a broken stream. A new-tab surface keeps
-// the browser frame honest while the bot has not opened anything yet.
+// rectangle is indistinguishable from a broken stream. A compact new-tab
+// surface keeps the narrow sidebar honest while the bot has opened nothing.
 function BrowserStartPage({ live }: { live: boolean }) {
   return (
     <div
-      className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 px-6 text-center"
+      className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2.5 px-4 text-center"
       style={{ background: 'radial-gradient(ellipse at top, #EEF4FF 0%, #F8FAFC 55%, #F1F5F9 100%)' }}
     >
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-accent-line bg-surface/80 shadow-sm">
-        <Globe2 size={26} className="text-accent" />
+      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-accent-line bg-surface/80 shadow-sm">
+        <Globe2 size={20} className="text-accent" />
       </div>
-      <div className="space-y-1.5">
-        <p className="text-sm font-semibold text-ink">The bot’s browser is ready</p>
-        <p className="mx-auto max-w-sm text-xs leading-relaxed text-muted">
-          Send a message that uses the browser. Its page will appear here, and you can take over at any time.
+      <div className="space-y-1">
+        <p className="text-xs font-semibold text-ink">The bot’s browser is ready</p>
+        <p className="mx-auto max-w-[14rem] text-[10px] leading-relaxed text-muted">
+          Send a message that uses the browser. Its page will appear here.
         </p>
       </div>
-      <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] text-soft">
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-hair bg-surface/80 px-2.5 py-1">
-          <MousePointer2 size={12} /> Take control any time
-        </span>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-hair bg-surface/80 px-2.5 py-1">
-          <ShieldCheck size={12} /> Sandboxed
-        </span>
-      </div>
-      <p className="inline-flex items-center gap-1.5 text-[11px] text-faint">
-        {live ? 'Waiting for the bot to open a page.' : <><Loader2 size={11} className="animate-spin" /> Connecting to the live view…</>}
+      <p className="inline-flex items-center gap-1.5 text-[10px] text-faint">
+        {live ? 'Waiting for the bot to open a page.' : <><Loader2 size={10} className="animate-spin" /> Connecting to the live view…</>}
       </p>
     </div>
   );
 }
 
-export function BrowserViewer({ profile, botName, navigation, footer, onClose }: {
+export function BrowserViewer({ profile, footer }: {
   profile: string;
-  botName?: string;
-  navigation?: ReactNode;
   footer?: ReactNode;
-  onClose?: () => void;
 }) {
   const [status, setStatus] = useState<BrowserStatus | null>(null);
   const [error, setError] = useState('');
@@ -178,10 +162,7 @@ export function BrowserViewer({ profile, botName, navigation, footer, onClose }:
   const [live, setLive] = useState(false);
   const [slowConnect, setSlowConnect] = useState(false);
   const [addressDraft, setAddressDraft] = useState<string | null>(null);
-  const [split, setSplit] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1280px)').matches);
-  const [frame, setFrame] = useState({ width: 0, height: 0 });
   const viewer = useRef<RemoteBrowserHandle>(null);
-  const workspace = useRef<HTMLDivElement>(null);
   const sequence = useRef(0);
 
   const refresh = useCallback(async () => {
@@ -258,41 +239,6 @@ export function BrowserViewer({ profile, botName, navigation, footer, onClose }:
     return () => clearTimeout(timer);
   }, [credentials, live]);
 
-  useEffect(() => {
-    const media = window.matchMedia('(min-width: 1280px)');
-    const sync = () => setSplit(media.matches);
-    sync();
-    media.addEventListener('change', sync);
-    return () => media.removeEventListener('change', sync);
-  }, []);
-
-  // The sidebar keeps the browser at a true 4:3 and gives it every pixel of
-  // height the viewport can spare. The remaining width belongs to the controls.
-  // `ready` matters: the first render is a loading line, so the workspace ref is
-  // null until the status arrives.
-  const ready = status !== null;
-  useLayoutEffect(() => {
-    if (!split || !ready) return;
-    const host = workspace.current;
-    if (!host) return;
-    const fit = () => {
-      const height = host.clientHeight;
-      const width = host.clientWidth;
-      if (height <= 0 || width <= 0) return;
-      const fromHeight = Math.max(0, (height - CHROME_HEIGHT) * 4 / 3);
-      const browserWidth = Math.max(0, Math.min(fromHeight, width - RAIL_MIN_WIDTH));
-      if (browserWidth <= 0) return;
-      setFrame({
-        width: browserWidth,
-        height: Math.min(height, browserWidth * 3 / 4 + CHROME_HEIGHT),
-      });
-    };
-    fit();
-    const observer = new ResizeObserver(fit);
-    observer.observe(host);
-    return () => observer.disconnect();
-  }, [split, ready]);
-
   const act = useCallback(async (label: string, path: string, init: RequestInit = {}) => {
     setBusy(label);
     try {
@@ -356,39 +302,17 @@ export function BrowserViewer({ profile, botName, navigation, footer, onClose }:
 
   if (!status) {
     return (
-      <div className="flex h-full min-h-0 flex-col bg-canvas">
-        <div className="flex items-start justify-between gap-2 border-b border-line px-4 py-3">
-          <div className="min-w-0">
-            <p className="flex items-center gap-1.5 text-sm font-semibold text-ink">
-              <Globe2 size={14} className="text-accent" /> Browser
-            </p>
-            <p className="truncate text-[11px] text-muted">{botName || (profile === 'default' ? 'Main' : profile)}</p>
-          </div>
-          {onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              title="Close browser"
-              aria-label="Close browser"
-              className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted transition-colors hover:bg-black/5 hover:text-ink"
-            >
-              <X size={18} />
-            </button>
-          )}
-        </div>
-        <div className="flex flex-1 items-center justify-center p-4 md:p-6">
-          {error
-            ? <div className="w-full max-w-md"><Notice error>{error}</Notice></div>
-            : <p className="text-xs md:text-sm text-muted">Checking this bot’s browser…</p>}
-        </div>
+      <div className="space-y-3">
+        <div className="aspect-[4/3] w-full animate-pulse rounded-xl bg-sunken" />
+        {error
+          ? <Notice error>{error}</Notice>
+          : <p className="text-xs text-muted">Checking this bot’s browser…</p>}
       </div>
     );
   }
 
   const blankPage = !status.url || status.url === 'about:blank';
-  const activeTab = status.tabs.find(tab => tab.active) ?? status.tabs[0];
   const address = status.url || 'about:blank';
-  const pageTitle = activeTab?.title?.trim() || status.title?.trim() || (blankPage ? 'New tab' : hostLabel(status.url));
   const secure = status.url.startsWith('https://');
   const off = !credentials;
   const starting = busy === 'open' || status.state === 'starting';
@@ -410,278 +334,208 @@ export function BrowserViewer({ profile, botName, navigation, footer, onClose }:
     viewer.current?.navigate(target);
   };
 
-  const frameStyle = split && frame.width > 0
-    ? { width: `${frame.width}px`, height: `${frame.height}px` }
-    : undefined;
-
   return (
-    <div
-      ref={workspace}
-      className="flex h-full min-h-0 w-full flex-col overflow-y-auto xl:flex-row xl:overflow-hidden"
-    >
-      {/* Controls live beside the browser, never above or below it. */}
-      <aside className="order-2 flex w-full shrink-0 flex-col overflow-x-hidden border-t border-line bg-canvas p-3 xl:order-1 xl:min-w-[230px] xl:flex-1 xl:overflow-y-auto xl:border-r xl:border-t-0 xl:p-4">
-        <div className="mx-auto flex w-full max-w-[380px] flex-1 flex-col gap-3">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="flex items-center gap-1.5 text-sm font-semibold text-ink">
-                <Globe2 size={14} className="text-accent" /> Browser
-              </p>
-              <p className="truncate text-[11px] text-muted">{botName || (profile === 'default' ? 'Main' : profile)}</p>
-            </div>
-            {onClose && (
-              <button
-                type="button"
-                onClick={onClose}
-                title="Close browser"
-                aria-label="Close browser"
-                className="-mr-1 -mt-1 inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted transition-colors hover:bg-black/5 hover:text-ink"
-              >
-                <X size={18} />
-              </button>
-            )}
+    <div className="space-y-3">
+      {/* The browser window: one chrome bar attached to a real 4:3 viewport. */}
+      <div className="overflow-hidden rounded-xl border border-black/30 bg-[#0b0d12] shadow-sm">
+        <div className="flex h-10 shrink-0 items-center gap-1 border-b border-white/10 bg-[#171b22] px-1.5 text-gray-300">
+          <NavButton label="Back" disabled={off || busy !== ''} onClick={() => viewer.current?.back()}><ArrowLeft size={13} /></NavButton>
+          <NavButton label="Forward" disabled={off || busy !== ''} onClick={() => viewer.current?.forward()}><ArrowRight size={13} /></NavButton>
+          <NavButton label="Reload" disabled={off || busy !== ''} onClick={() => viewer.current?.reload()}><RotateCw size={12} /></NavButton>
+
+          <div
+            className={`mx-0.5 flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 ring-1 ring-inset ${off ? 'bg-black/20 ring-white/5' : 'bg-black/30 ring-white/10'}`}
+            title={off ? 'The browser is off' : interactive ? 'Type a URL and press Enter' : 'Take control to navigate'}
+          >
+            {secure && !off ? <Lock size={10} className="shrink-0 text-emerald-400" /> : <Globe2 size={10} className="shrink-0 text-gray-500" />}
+            <input
+              className={`min-w-0 flex-1 truncate bg-transparent text-[11px] outline-none ${interactive ? 'text-gray-100' : 'text-gray-500'}`}
+              value={off ? 'about:blank' : addressDraft ?? address}
+              readOnly={off || !interactive}
+              onChange={event => setAddressDraft(event.target.value)}
+              onBlur={() => setAddressDraft(null)}
+              onKeyDown={event => {
+                if (event.key === 'Enter') submitAddress();
+                else if (event.key === 'Escape') setAddressDraft(null);
+              }}
+              aria-label="Address"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            {!off && status.loading && <Loader2 size={10} className="shrink-0 animate-spin text-gray-500" aria-label="Page loading" />}
           </div>
 
-          {navigation}
-
-          <div className="rounded-2xl border border-hair bg-surface p-3 shadow-xs">
-            <StatusPill status={status.state === 'running' ? 'active' : status.state === 'starting' ? 'pending' : 'idle'} label={status.state} />
-            <p className="mt-2 text-xs text-muted">
-              {status.viewers > 0 ? `${status.viewers} watching` : 'No viewers'}
-              {' · '}
-              {credentials
-                ? holder === 'human' ? 'you have control' : 'bot control'
-                : status.state === 'running' ? 'browser running' : 'browser off'}
-            </p>
-            {(status.agentConnections > 0 || (status.state === 'running' && !credentials)) && (
-              <p className={`mt-1 text-[11px] ${status.agentConnections > 0 ? 'text-ok' : 'text-muted'}`}>
-                {status.agentConnections > 0 ? 'The bot is using this browser' : 'The bot is not connected yet'}
-              </p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            {!status.available && <Notice error>No Chromium-family browser was found on the host. Install Chromium, or set HOB_CHROMIUM_PATH.</Notice>}
-            {status.transport === 'tcp' && <Notice error>The managed browser is exposing a TCP DevTools port. Production must use the pipe transport.</Notice>}
-            {error && <Notice error>{error}</Notice>}
-            {status.lastError && <Notice error>{status.lastError}</Notice>}
-            {terminated && <Notice>{terminated}</Notice>}
-            {binding && !bindingOk && <Notice error>{bindingLine(binding)}</Notice>}
-            {repair && !repair.ok && <Notice error>Could not repair this bot’s browser binding: {repair.error ?? 'unknown error'}</Notice>}
-            {repair?.ok && repair.changed && <Notice>Repaired this bot’s browser binding. Send it a new message that uses the browser.</Notice>}
-            {credentials && status.state === 'running' && status.agentConnections === 0 && (
-              <Notice>
-                The bot isn’t connected yet. Check the connection, then send a new browser message.
-              </Notice>
-            )}
-            {credentials && slowConnect && !live && (
-              <Notice>
-                The live view has not connected. A proxy may be blocking WebSocket upgrades.{' '}
-                <button type="button" className="font-medium text-accent underline underline-offset-2" onClick={() => { setSlowConnect(false); viewer.current?.reconnect(); }}>Retry</button>
-              </Notice>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            {!credentials ? (
-              <button className={primaryButton} disabled={busy !== '' || !status.available || status.state === 'starting'} onClick={() => void openViewer()}>
-                {starting ? <Loader2 size={14} className="animate-spin" /> : <Power size={14} />}
-                {starting ? 'Starting…' : status.state === 'running' ? 'Open live view' : 'Start browser'}
-              </button>
-            ) : (
-              <>
-                {holder === 'human' ? (
-                  <button className={primaryButton} disabled={busy !== ''} onClick={() => void act('release', '/control', { body: JSON.stringify({ action: 'release' }) })}>
-                    Return control to bot
-                  </button>
-                ) : (
-                  <button className={primaryButton} disabled={busy !== ''} onClick={() => void act('take', '/control', { body: JSON.stringify({ action: 'take' }) })}>
-                    <MousePointer2 size={14} /> Take control
-                  </button>
-                )}
-                <p className="px-0.5 text-[11px] leading-relaxed text-muted">
-                  {holder === 'human' ? 'The bot is paused until you hand control back.' : 'The bot is driving. Take over to click and type yourself.'}
-                </p>
-              </>
-            )}
-            <button className={`${buttonClass} w-full`} disabled={checking} onClick={() => void diagnose(true)}>
-              {checking ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
-              {checking ? 'Checking…' : 'Check bot connection'}
-            </button>
-            {status.state !== 'stopped' && (
-              <button
-                className={`${buttonClass} w-full text-red-600 hover:bg-red-50`}
-                disabled={busy !== ''}
-                onClick={() => void act('stop', '/stop').then(stopped => { if (stopped) closeViewer(); })}
-              >
-                <Square size={12} /> Stop browser
-              </button>
-            )}
-          </div>
-
-          {credentials && activity.length > 0 && (
-            <details className="rounded-xl border border-hair bg-surface px-3 py-2">
-              <summary className="cursor-pointer text-[11px] font-medium text-muted">Recent activity</summary>
-              <ul className="mt-2 space-y-1">
-                {activity.map(entry => (
-                  <li key={entry.id} className="text-[11px] text-muted">
-                    <span className="text-faint">{new Date(entry.at).toLocaleTimeString()} · </span>{entry.text}
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-
-          {footer && <div className="mt-auto border-t border-line pt-3">{footer}</div>}
+          <span
+            className="inline-flex shrink-0 items-center gap-1 px-0.5 text-[9px] font-medium uppercase tracking-wide text-gray-500"
+            title={live ? 'Live view connected' : credentials ? 'Connecting to the live view' : status.state === 'starting' ? 'Starting the browser' : 'The browser is off'}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${live ? 'bg-emerald-400' : credentials || status.state === 'starting' ? 'animate-pulse bg-amber-400' : 'bg-gray-600'}`} />
+            {live ? 'Live' : !credentials && !starting ? 'Off' : null}
+          </span>
         </div>
-      </aside>
 
-      {/* The browser window: one chrome bar attached to a 4:3 viewport. */}
-      <div
-        className="order-1 flex w-full shrink-0 items-center justify-center bg-[#0b0d12] xl:order-2 xl:h-full"
-        style={split && frame.width > 0 ? { width: `${frame.width}px` } : undefined}
-      >
-        <div
-          className="flex w-full max-w-[calc((100dvh_-_3rem)_*_4_/_3)] flex-col overflow-hidden bg-[#0b0d12] shadow-2xl ring-1 ring-black/40"
-          style={frameStyle}
-        >
-          <div className="flex h-12 shrink-0 items-center gap-1.5 border-b border-white/10 bg-[#171b22] px-2 text-gray-300">
-            <div className="flex min-w-0 max-w-[34%] items-center gap-1.5 rounded-md bg-white/[0.06] px-2 py-1.5">
-              <Globe2 size={12} className="shrink-0 text-gray-500" />
-              <span className="truncate text-xs font-medium text-gray-200">{off ? 'Browser off' : pageTitle}</span>
-              {!off && status.loading && <Loader2 size={11} className="shrink-0 animate-spin text-gray-500" aria-label="Page loading" />}
-            </div>
-
-            <NavButton label="Back" disabled={off || busy !== ''} onClick={() => viewer.current?.back()}><ArrowLeft size={15} /></NavButton>
-            <NavButton label="Forward" disabled={off || busy !== ''} onClick={() => viewer.current?.forward()}><ArrowRight size={15} /></NavButton>
-            <NavButton label="Reload" disabled={off || busy !== ''} onClick={() => viewer.current?.reload()}><RotateCw size={14} /></NavButton>
-
-            <div
-              className={`mx-0.5 flex min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 py-1.5 ring-1 ring-inset ${off ? 'bg-black/20 ring-white/5' : 'bg-black/30 ring-white/10'}`}
-              title={off ? 'The browser is off' : interactive ? 'Type a URL and press Enter' : 'Take control to navigate'}
-            >
-              {secure && !off ? <Lock size={12} className="shrink-0 text-emerald-400" /> : <Globe2 size={12} className="shrink-0 text-gray-500" />}
-              <input
-                className={`min-w-0 flex-1 truncate bg-transparent text-xs outline-none ${interactive ? 'text-gray-100' : 'text-gray-500'}`}
-                value={off ? 'about:blank' : addressDraft ?? address}
-                readOnly={off || !interactive}
-                onChange={event => setAddressDraft(event.target.value)}
-                onBlur={() => setAddressDraft(null)}
-                onKeyDown={event => {
-                  if (event.key === 'Enter') submitAddress();
-                  else if (event.key === 'Escape') setAddressDraft(null);
+        <div className="relative aspect-[4/3] w-full overflow-hidden bg-[#0b0d12]">
+          {credentials ? (
+            <>
+              <RemoteBrowser
+                ref={viewer}
+                sessionId={credentials.sessionId}
+                viewerToken={credentials.viewerToken}
+                wsUrl={credentials.wsUrl}
+                chrome="none"
+                showSessionStatus={false}
+                interactive={interactive}
+                fullScreen={false}
+                onControlChange={value => {
+                  setLive(true);
+                  setSlowConnect(false);
+                  if (value !== 'human') setAddressDraft(null);
+                  setStatus(current => current ? { ...current, control: { ...current.control, holder: value } } : current);
                 }}
-                aria-label="Address"
-                autoComplete="off"
-                spellCheck={false}
+                onTerminated={reason => {
+                  setCredentials(null);
+                  setCursor(null);
+                  setLive(false);
+                  setSlowConnect(false);
+                  setAddressDraft(null);
+                  setTerminated(reason === 'idle'
+                    ? 'The browser was idle, so it was shut down. Its profile — logins and open pages — is kept; reopen the live view to start it again.'
+                    : `The live view ended (${reason}).`);
+                  void refresh();
+                }}
+                onError={onError}
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
               />
-            </div>
-
-            <span className="hidden shrink-0 items-center gap-1.5 px-1 text-[10px] font-medium uppercase tracking-wide text-gray-500 sm:inline-flex">
-              <span className={`h-1.5 w-1.5 rounded-full ${live ? 'bg-emerald-400' : credentials || status.state === 'starting' ? 'animate-pulse bg-amber-400' : 'bg-gray-600'}`} />
-              {live ? 'Live' : credentials ? 'Connecting' : status.state === 'starting' ? 'Starting' : 'Off'}
-            </span>
-
-            {onClose && (
-              <button
-                type="button"
-                onClick={onClose}
-                title="Close browser"
-                aria-label="Close browser"
-                className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-white/10 hover:text-gray-100 xl:hidden"
-              >
-                <X size={15} />
-              </button>
-            )}
-          </div>
-
-          <div className={`relative min-h-0 overflow-hidden bg-[#0b0d12] ${split ? 'flex-1' : 'aspect-[4/3] w-full'}`}>
-            {credentials ? (
-              <>
-                <RemoteBrowser
-                  ref={viewer}
-                  sessionId={credentials.sessionId}
-                  viewerToken={credentials.viewerToken}
-                  wsUrl={credentials.wsUrl}
-                  chrome="none"
-                  showSessionStatus={false}
-                  interactive={interactive}
-                  fullScreen={false}
-                  onControlChange={value => {
-                    setLive(true);
-                    setSlowConnect(false);
-                    if (value !== 'human') setAddressDraft(null);
-                    setStatus(current => current ? { ...current, control: { ...current.control, holder: value } } : current);
-                  }}
-                  onTerminated={reason => {
-                    setCredentials(null);
-                    setCursor(null);
-                    setLive(false);
-                    setSlowConnect(false);
-                    setAddressDraft(null);
-                    setTerminated(reason === 'idle'
-                      ? 'The browser was idle, so it was shut down. Its profile — logins and open pages — is kept; reopen the live view to start it again.'
-                      : `The live view ended (${reason}).`);
-                    void refresh();
-                  }}
-                  onError={onError}
-                  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+              {blankPage && <BrowserStartPage live={live} />}
+              {!live && !blankPage && (
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-[#0b0d12]/70">
+                  <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-3 py-1.5 text-[11px] text-gray-300">
+                    <Loader2 size={12} className="animate-spin" /> Connecting to the live view…
+                  </span>
+                </div>
+              )}
+              {/* The agent's own pointer, harvested from the mouse commands it sends.
+                  Positioned as a fraction of the browser viewport, which is what the
+                  canvas is showing at any scale. */}
+              {cursor && status.viewport.w > 0 && status.viewport.h > 0 && (
+                <span
+                  aria-hidden
+                  className={`pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-full ${cursor.kind === 'click' ? 'h-4 w-4 bg-accent/60' : 'h-2.5 w-2.5 bg-accent'}`}
+                  style={{ left: `${(cursor.x / status.viewport.w) * 100}%`, top: `${(cursor.y / status.viewport.h) * 100}%` }}
                 />
-                {blankPage && <BrowserStartPage live={live} />}
-                {!live && !blankPage && (
-                  <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-[#0b0d12]/70">
-                    <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-3 py-1.5 text-xs text-gray-300">
-                      <Loader2 size={13} className="animate-spin" /> Connecting to the live view…
-                    </span>
-                  </div>
-                )}
-                {/* The agent's own pointer, harvested from the mouse commands it sends.
-                    Positioned as a fraction of the browser viewport, which is what the
-                    canvas is showing at any scale. */}
-                {cursor && status.viewport.w > 0 && status.viewport.h > 0 && (
-                  <span
-                    aria-hidden
-                    className={`pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-full ${cursor.kind === 'click' ? 'h-4 w-4 bg-accent/60' : 'h-2.5 w-2.5 bg-accent'}`}
-                    style={{ left: `${(cursor.x / status.viewport.w) * 100}%`, top: `${(cursor.y / status.viewport.h) * 100}%` }}
-                  />
-                )}
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void openViewer()}
-                disabled={busy !== '' || !status.available || status.state === 'starting'}
-                className="group absolute inset-0 flex cursor-pointer flex-col items-center justify-center gap-4 bg-[radial-gradient(circle_at_50%_38%,rgba(59,130,246,0.10),transparent_55%),#0b0d12] text-center disabled:cursor-default"
-              >
-                <span className="flex h-16 w-16 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-gray-400 shadow-inner transition-colors group-hover:border-white/20 group-hover:text-gray-200">
-                  {starting ? <Loader2 size={26} className="animate-spin" /> : <Power size={26} />}
+              )}
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void openViewer()}
+              disabled={busy !== '' || !status.available || status.state === 'starting'}
+              className="group absolute inset-0 flex cursor-pointer flex-col items-center justify-center gap-2.5 bg-[radial-gradient(circle_at_50%_38%,rgba(59,130,246,0.10),transparent_55%),#0b0d12] px-4 text-center disabled:cursor-default"
+            >
+              <span className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-gray-400 shadow-inner transition-colors group-hover:border-white/20 group-hover:text-gray-200">
+                {starting ? <Loader2 size={20} className="animate-spin" /> : <Power size={20} />}
+              </span>
+              <span className="space-y-1">
+                <span className="block text-xs font-semibold text-gray-200">
+                  {starting
+                    ? 'Starting the browser…'
+                    : status.available
+                      ? status.state === 'running' ? 'Live view is off' : 'The browser is off'
+                      : 'No browser available'}
                 </span>
-                <span className="space-y-1.5">
-                  <span className="block text-sm font-semibold text-gray-200">
-                    {starting
-                      ? 'Starting the browser…'
-                      : status.available
-                        ? status.state === 'running' ? 'Live view is off' : 'The browser is off'
-                        : 'No browser available'}
-                  </span>
-                  <span className="mx-auto block max-w-[18rem] text-xs leading-relaxed text-gray-500">
-                    {!status.available
-                      ? 'No Chromium-family browser was found on the host. Check the server setup, then try again.'
-                      : status.state === 'running'
-                        ? 'Click the screen to watch this bot’s browser and take control when you need to.'
-                        : 'Click the screen to start this bot’s browser. Logins and open pages are kept between visits.'}
-                  </span>
+                <span className="mx-auto block max-w-[14rem] text-[10px] leading-relaxed text-gray-500">
+                  {!status.available
+                    ? 'No Chromium-family browser was found on the host.'
+                    : status.state === 'running'
+                      ? 'Click to watch this bot’s browser.'
+                      : 'Click to start this bot’s browser.'}
                 </span>
-                {status.available && !starting && (
-                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-medium text-gray-400">
-                    {status.state === 'running' ? 'Open live view' : 'Start browser'}
-                  </span>
-                )}
-              </button>
-            )}
-          </div>
+              </span>
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Status and the two things a person does with the browser. */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <StatusPill status={status.state === 'running' ? 'active' : status.state === 'starting' ? 'pending' : 'idle'} label={status.state} />
+          <span className="min-w-0 truncate text-[11px] text-muted">
+            {status.viewers > 0 ? `${status.viewers} watching` : 'No viewers'}
+            {' · '}
+            {credentials
+              ? holder === 'human' ? 'you have control' : 'bot control'
+              : status.state === 'running' ? 'browser running' : 'browser off'}
+          </span>
+        </div>
+
+        {!status.available && <Notice error>No Chromium-family browser was found on the host. Install Chromium, or set HOB_CHROMIUM_PATH.</Notice>}
+        {status.transport === 'tcp' && <Notice error>The managed browser is exposing a TCP DevTools port. Production must use the pipe transport.</Notice>}
+        {error && <Notice error>{error}</Notice>}
+        {status.lastError && <Notice error>{status.lastError}</Notice>}
+        {terminated && <Notice>{terminated}</Notice>}
+        {binding && !bindingOk && <Notice error>{bindingLine(binding)}</Notice>}
+        {repair && !repair.ok && <Notice error>Could not repair this bot’s browser binding: {repair.error ?? 'unknown error'}</Notice>}
+        {repair?.ok && repair.changed && <Notice>Repaired this bot’s browser binding. Send it a new message that uses the browser.</Notice>}
+        {credentials && status.state === 'running' && status.agentConnections === 0 && (
+          <p className="rounded-lg bg-amber-50 px-2.5 py-2 text-[11px] leading-relaxed text-amber-800">
+            The bot isn’t connected yet. Check the connection, then try again.
+          </p>
+        )}
+        {credentials && slowConnect && !live && (
+          <p className="rounded-lg bg-amber-50 px-2.5 py-2 text-[11px] leading-relaxed text-amber-800">
+            The live view has not connected. A proxy may be blocking WebSocket upgrades.{' '}
+            <button type="button" className="font-medium text-accent underline underline-offset-2" onClick={() => { setSlowConnect(false); viewer.current?.reconnect(); }}>Retry</button>
+          </p>
+        )}
+
+        {!credentials ? (
+          <button className={primaryButton} disabled={busy !== '' || !status.available || status.state === 'starting'} onClick={() => void openViewer()}>
+            {starting ? <Loader2 size={13} className="animate-spin" /> : <Power size={13} />}
+            {starting ? 'Starting…' : status.state === 'running' ? 'Open live view' : 'Start browser'}
+          </button>
+        ) : holder === 'human' ? (
+          <button className={primaryButton} disabled={busy !== ''} onClick={() => void act('release', '/control', { body: JSON.stringify({ action: 'release' }) })}>
+            Return control to bot
+          </button>
+        ) : (
+          <button className={primaryButton} disabled={busy !== ''} onClick={() => void act('take', '/control', { body: JSON.stringify({ action: 'take' }) })}>
+            <MousePointer2 size={13} /> Take control
+          </button>
+        )}
+
+        <div className={`grid gap-2 ${status.state !== 'stopped' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          <button className={quietButton} disabled={checking} onClick={() => void diagnose(true)} title="Check the bot’s browser connection">
+            {checking ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
+            {checking ? 'Checking…' : 'Check bot'}
+          </button>
+          {status.state !== 'stopped' && (
+            <button
+              className={`${quietButton} text-red-600 hover:bg-red-50`}
+              disabled={busy !== ''}
+              onClick={() => void act('stop', '/stop').then(stopped => { if (stopped) closeViewer(); })}
+              title="Stop the browser"
+            >
+              <Square size={11} /> Stop
+            </button>
+          )}
+        </div>
+      </div>
+
+      {credentials && activity.length > 0 && (
+        <details className="rounded-lg border border-hair bg-surface px-2.5 py-2">
+          <summary className="cursor-pointer text-[11px] font-medium text-muted">Recent activity</summary>
+          <ul className="mt-2 space-y-1">
+            {activity.map(entry => (
+              <li key={entry.id} className="text-[11px] text-muted">
+                <span className="text-faint">{new Date(entry.at).toLocaleTimeString()} · </span>{entry.text}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {footer && <div className="border-t border-line pt-3">{footer}</div>}
     </div>
   );
 }
