@@ -39,12 +39,16 @@ What is **not** claimed:
 
 - that a browser has been launched inside the **live production container** on the 24.04
   host;
-- that Coolify has finished replacing the running container (the push was made; the
-  health endpoint is green, §6).
+- that Coolify has replaced the running container with `2e121e84` — the push was made
+  and the health endpoint is green (§6), but it does not expose an image revision;
+- that the live viewer has been opened against the deployed build and switched off
+  `about:blank` (the container smoke proves the binding and the browser, not the
+  operator's browser session).
 
 What would move this to **READY**: one authenticated dashboard action on
-<https://hob.idkwihl.site> — open a bot's browser and confirm it starts and loads a page —
-or, with host access:
+<https://hob.idkwihl.site> — open a bot's browser, confirm **Check bot connection**
+reports a configured binding and the expected port, then send a turn and see the
+viewer leave `about:blank` — or, with host access:
 
 ```bash
 docker compose exec --user hermes --env HOME=/opt/data muse \
@@ -427,6 +431,20 @@ throwaway browser; the white canvas came from the untouched HOB one. The existin
 test suite missed this because its fake client parsed the query string itself
 instead of enforcing the real client's path contract.
 
+The container smoke then exposed a second defect in the same read path. Hermes'
+`GET /api/config` answers with the profile's settings object itself:
+
+```json
+{ "model": "…", "browser": { "backend": "off", "cdp_url": "…" }, … }
+```
+
+It is not wrapped in `{ "config": … }`. `configureBrowser` and `browserBinding`
+read `current?.config?.browser`, so `browser` was always `{}`: the branch that
+recognises an already-correct binding never ran, the diagnostic always reported
+`missing`, and every boot rewrote a profile that was already bound. The write was
+working; the proof was looking in the wrong place. The first container smoke run
+therefore failed its binding assertion even though the profile had been written.
+
 A second, independent viewer bug could produce the same white page: a viewer that
 attached before the bot's first navigation stayed pinned to the launch target even
 when the agent opened its work in a new tab. Closing the watched tab had a related
@@ -434,12 +452,16 @@ defect: `Target.targetDestroyed` carries a bare `targetId`, but the gateway read
 `targetInfo`, so a destroyed target never matched and the viewer froze on its last
 frame.
 
-### Fix (deployed in `e729e19a`, smoke coverage in `45df72f9`)
+### Fix (deployed in `e729e19a`, response-shape fix in `2e121e84`, smoke coverage in `45df72f9`)
 
 - `configureBrowser` now calls `dashboard('/api/config', { profile: name })`. The
   client appends the selector to the dashboard URL, so the GET and the PUT both
   read and write the named profile. A new test drives the **real** `HermesClient`
   (a stub `fetch`) and would fail on the old query-in-path form.
+- Both `configureBrowser` and `browserBinding` read the flat settings object
+  (`current.browser`), matching the route's real response. The real-client test
+  now returns that shape and asserts a second bind is a no-op, so an
+  envelope-shaped fake cannot hide the mistake again.
 - `HermesBots.reconcileBrowsers()` binds every active bot on boot, with per-bot
   failure isolation. `server/index.mjs` retries it briefly while the private Hermes
   dashboard comes up. The browser route repairs the binding before `/start`, before
@@ -465,29 +487,32 @@ and viewer selection only.
 
 - Full server suite: **286 tests, 285 passed, 1 skipped** (the Windows resolver
   skip), **0 failed**.
-- New regression tests cover: the real client's path/profile contract, boot
-  reconciliation for a pre-existing active bot, failure isolation and idempotence,
-  viewer- and `/viewer`-triggered repair, read-only diagnosis versus repairing POST,
-  visible repair failures without token leakage, following the agent's new tab from a
-  blank launch page, not hijacking a watched page, and moving off a watched tab that
-  was destroyed.
+- New regression tests cover: the real client's path/profile contract, a second bind
+  against the real response shape being a no-op, boot reconciliation for a
+  pre-existing active bot, failure isolation and idempotence, viewer- and
+  `/viewer`-triggered repair, read-only diagnosis versus repairing POST, visible
+  repair failures without token leakage, following the agent's new tab from a blank
+  launch page, not hijacking a watched page, and moving off a watched tab that was
+  destroyed.
 - Web build and lint pass.
-- The real container smoke in `45df72f9` now asserts the authenticated binding report
-  for Main on first boot, for a newly created bot, and for both after container
-  recreation. It checks the `off` backend, matching configured/expected ports, the
-  absence of `BROWSER_CDP_URL`, and that neither response carries the CDP URL or
-  gateway token. This is the end-to-end proof the unit fake could not provide.
-- Main image smoke run `39421191783` (final code commit `a10beb9f`): **success**.
-  This rebuilds the production image and reruns the sandboxed container probe and
-  persistence checks; the earlier run `39420273669` did the same for `ad20299d` +
-  `0ba926b1`. The `45df72f9` image smoke is the next run to check.
+- The real container smoke asserts the authenticated binding report for Main on
+  first boot, for a newly created bot, and for both after container recreation. It
+  checks the `off` backend, matching configured/expected ports, the absence of
+  `BROWSER_CDP_URL`, and that neither response carries the CDP URL or gateway token.
+  This is the end-to-end proof the unit fake could not provide.
+- Main image smoke run `39574614430` (code commit `2e121e84`): **success**, including
+  the binding checks on first boot, a new bot, and after recreation. The preceding
+  run `39430409024` failed only the first-boot binding assertion, which is how the
+  envelope misread was found. Earlier runs `39421191783` and `39420273669` passed
+  the sandbox, first-boot and persistence tiers before the binding assertions
+  existed.
 - `https://hob.idkwihl.site/healthz` returned `200 {"ok":true,"gatewayConnected":true}`.
 
 ### What the operator should see
 
-After Coolify recreates the stack from `main` with `45df72f9`, the boot log should
-contain `Pointed … at their managed browsers: …` (the previous builds could only log
-failures). Opening a bot's live view should show a binding line; **Check bot
+After Coolify recreates the stack from current `main`, a profile that still needs a
+binding logs `Pointed … at their managed browsers: …`; an already-bound profile is
+left untouched. Opening a bot's live view should show a binding line; **Check bot
 connection** should report a configured binding and the expected port. Send a new
 turn after that: the viewer should switch from `about:blank` to the bot's real page.
 No bot needs to be recreated. If the view is still blank, the same panel now names
