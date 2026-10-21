@@ -434,4 +434,17 @@ test('load: a crash under a watching viewer is reported and the browser comes ba
   await again.navigate(ANIMATION);
   await waitFor(() => viewer.frames > before, { timeoutMs: 30000 });
   t.diagnostic(`viewer survived the crash and resumed at frame ${viewer.frames}`);
+
+  assert.ok(crashBrowser(session.status().profileDir) > 0);
+  again.close();
+  await waitFor(() => viewer.messages.filter(message => message.t === 'error' && message.code === 'browser_crashed').length === 2,
+    { timeoutMs: 20000 });
+  await waitFor(() => session.status().state === 'running', { timeoutMs: 30000 });
+  const recovered = await agentFor(session);
+  t.after(() => recovered.close());
+  const framesBeforeRecovery = viewer.frames;
+  await recovered.navigate(ANIMATION);
+  await waitFor(() => viewer.frames > framesBeforeRecovery, { timeoutMs: 30000 });
+  assert.equal(viewerClosed, false);
+  assert.equal(session.cdpUrl, endpoint);
 });

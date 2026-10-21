@@ -446,6 +446,8 @@ export class BrowserSession {
   #stateListeners = new Set();
   #castCdp = null; #castSessionId = null; #castTargetId = null; #castPinned = false;
   #castAttach = Promise.resolve();
+  #castStarting = null;
+  #castEpoch = 0;
   #frameSeq = 0; #lastFrame = null; #lastFrameAt = 0;
   #viewport = { ...BROWSER_VIEWPORT };
   #tabs = [];
@@ -1251,10 +1253,30 @@ export class BrowserSession {
       if (!this.#castSessionId) await this.#attachActiveTarget();
       return;
     }
-    const cdp = await this.#openInternalConnection({
-      onEvent: message => this.#onCastEvent(message),
-      onClose: () => { this.#castCdp = null; this.#castSessionId = null; },
+    if (!this.#castStarting) {
+      const pending = this.#openScreencast(this.#castEpoch);
+      this.#castStarting = pending;
+      void pending.finally(() => {
+        if (this.#castStarting === pending) this.#castStarting = null;
+      }).catch(() => undefined);
+    }
+    return this.#castStarting;
+  }
+
+  async #openScreencast(epoch) {
+    let cdp;
+    cdp = await this.#openInternalConnection({
+      onEvent: message => { if (this.#castCdp === cdp) this.#onCastEvent(message); },
+      onClose: () => {
+        if (this.#castCdp !== cdp) return;
+        this.#castCdp = null;
+        this.#castSessionId = null;
+      },
     });
+    if (epoch !== this.#castEpoch || this.#viewers.size === 0) {
+      cdp.close();
+      return;
+    }
     this.#castCdp = cdp;
     await cdp.post('Target.setDiscoverTargets', { discover: true });
     await cdp.post('Page.enable');
@@ -1263,14 +1285,16 @@ export class BrowserSession {
 
   #attachActiveTarget() {
     const preferredTargetId = this.#castTargetId;
-    const pending = this.#castAttach.then(() => this.#attachSelectedTarget(preferredTargetId));
+    const cdp = this.#castCdp;
+    const pending = this.#castAttach.then(() => this.#attachSelectedTarget(preferredTargetId, cdp));
     this.#castAttach = pending.catch(() => undefined);
     return pending;
   }
 
-  async #attachSelectedTarget(preferredTargetId) {
-    if (!this.#castCdp?.open) return;
-    const { targetInfos = [] } = await this.#castCdp.send('Target.getTargets');
+  async #attachSelectedTarget(preferredTargetId, cdp) {
+    if (!cdp?.open || this.#castCdp !== cdp) return;
+    const { targetInfos = [] } = await cdp.send('Target.getTargets');
+    if (this.#castCdp !== cdp) return;
     const pages = targetInfos.filter(isPageTarget);
     if (pages.length === 0) {
       this.#tabs = [];
@@ -1280,11 +1304,14 @@ export class BrowserSession {
     }
     const target = this.#selectTarget(pages, preferredTargetId);
     await this.#detachCastSession();
+    if (this.#castCdp !== cdp) return;
     this.#castTargetId = target.targetId;
-    const { sessionId } = await this.#castCdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
+    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
+    if (this.#castCdp !== cdp) return;
     this.#castSessionId = sessionId;
-    await this.#castCdp.post('Page.enable', {}, { sessionId });
-    const metrics = await this.#castCdp.send('Page.getLayoutMetrics', {}, { sessionId }).catch(() => null);
+    await cdp.post('Page.enable', {}, { sessionId });
+    const metrics = await cdp.send('Page.getLayoutMetrics', {}, { sessionId }).catch(() => null);
+    if (this.#castCdp !== cdp) return;
     const view = metrics?.cssLayoutViewport;
     if (view?.clientWidth && view?.clientHeight) this.#viewport = { w: Math.round(view.clientWidth), h: Math.round(view.clientHeight) };
     this.#updatePageFromTarget(target);
@@ -1355,6 +1382,8 @@ export class BrowserSession {
   }
 
   #stopScreencast() {
+    this.#castEpoch += 1;
+    this.#castStarting = null;
     this.#castCdp?.close();
     this.#castCdp = null;
     this.#castSessionId = null;
@@ -1468,9 +1497,11 @@ export class BrowserSession {
   }
 
   async #refreshTabs() {
-    if (!this.#castCdp?.open) return;
+    const cdp = this.#castCdp;
+    if (!cdp?.open) return;
     try {
-      const { targetInfos = [] } = await this.#castCdp.send('Target.getTargets');
+      const { targetInfos = [] } = await cdp.send('Target.getTargets');
+      if (this.#castCdp !== cdp) return;
       const pages = targetInfos.filter(isPageTarget);
       this.#tabs = pages.map(target => ({
         id: target.targetId,
