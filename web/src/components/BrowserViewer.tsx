@@ -54,7 +54,7 @@ interface ViewerCredentials { sessionId: string; viewerToken: string; wsUrl: str
 interface Activity { id: number; at: number; text: string }
 interface Cursor { x: number; y: number; kind: 'move' | 'click' }
 
-const POLL_MS = 3000;
+const POLL_MS = 2000;
 const ACTIVITY_LIMIT = 6;
 const CONNECT_HINT_MS = 8000;
 
@@ -166,6 +166,7 @@ export function BrowserViewer({ profile }: { profile: string }) {
   const [live, setLive] = useState(false);
   const [slowConnect, setSlowConnect] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [addressDraft, setAddressDraft] = useState<string | null>(null);
   const viewer = useRef<RemoteBrowserHandle>(null);
   const shell = useRef<HTMLDivElement>(null);
   const stageHost = useRef<HTMLDivElement>(null);
@@ -279,7 +280,7 @@ export function BrowserViewer({ profile }: { profile: string }) {
   }, [profile, refresh]);
 
   const openViewer = async () => {
-    setBusy('open'); setTerminated(''); setError(''); setLive(false); setSlowConnect(false);
+    setBusy('open'); setTerminated(''); setError(''); setLive(false); setSlowConnect(false); setAddressDraft(null);
     try {
       if (status?.state !== 'running') {
         const started = await apiFetch<Diagnosis>(`/api/hermes/browser/start${query(profile)}`, { method: 'POST' });
@@ -320,6 +321,7 @@ export function BrowserViewer({ profile }: { profile: string }) {
     setCursor(null);
     setLive(false);
     setSlowConnect(false);
+    setAddressDraft(null);
     if (fullscreen) void exitFullscreen();
   };
 
@@ -336,6 +338,7 @@ export function BrowserViewer({ profile }: { profile: string }) {
       setLive(false);
       setSlowConnect(false);
       setFullscreen(false);
+      setAddressDraft(null);
       if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
       setTerminated('The live view lost its connection to the server. Reopen it to continue watching.');
     }
@@ -349,6 +352,23 @@ export function BrowserViewer({ profile }: { profile: string }) {
   const address = status.url || 'about:blank';
   const pageTitle = activeTab?.title?.trim() || status.title?.trim() || (blankPage ? 'New tab' : hostLabel(status.url));
   const secure = status.url.startsWith('https://');
+
+  const submitAddress = () => {
+    if (!interactive) return;
+    const raw = (addressDraft ?? address).trim();
+    if (!raw) return;
+    const target = /^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : `https://${raw}`;
+    try {
+      const parsed = new URL(target);
+      if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error('invalid address');
+    } catch {
+      setError('Enter an HTTP or HTTPS address without embedded credentials.');
+      return;
+    }
+    setError('');
+    setAddressDraft(null);
+    viewer.current?.navigate(target);
+  };
 
   return (
     <div
@@ -435,9 +455,22 @@ export function BrowserViewer({ profile }: { profile: string }) {
               <NavButton label="Back" disabled={busy !== ''} onClick={() => viewer.current?.back()}><ArrowLeft size={15} /></NavButton>
               <NavButton label="Forward" disabled={busy !== ''} onClick={() => viewer.current?.forward()}><ArrowRight size={15} /></NavButton>
               <NavButton label="Reload" disabled={busy !== ''} onClick={() => viewer.current?.reload()}><RotateCw size={14} /></NavButton>
-              <div className="mx-1 flex min-w-0 flex-1 items-center gap-2 rounded-full border border-edge bg-surface px-3 py-1.5" title={address}>
+              <div className="mx-1 flex min-w-0 flex-1 items-center gap-2 rounded-full border border-edge bg-surface px-3 py-1.5" title={interactive ? 'Type a URL and press Enter' : 'Take control to navigate'}>
                 {secure ? <Lock size={12} className="shrink-0 text-ok" /> : <Globe2 size={12} className="shrink-0 text-faint" />}
-                <input className="min-w-0 flex-1 truncate bg-transparent text-xs text-soft outline-none" readOnly value={address} aria-label="Current page" />
+                <input
+                  className={`min-w-0 flex-1 truncate bg-transparent text-xs outline-none ${interactive ? 'text-ink' : 'text-soft'}`}
+                  value={addressDraft ?? address}
+                  readOnly={!interactive}
+                  onChange={event => setAddressDraft(event.target.value)}
+                  onBlur={() => setAddressDraft(null)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter') submitAddress();
+                    else if (event.key === 'Escape') setAddressDraft(null);
+                  }}
+                  aria-label="Address"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
               </div>
             </div>
 
@@ -461,6 +494,7 @@ export function BrowserViewer({ profile }: { profile: string }) {
                   onControlChange={value => {
                     setLive(true);
                     setSlowConnect(false);
+                    if (value !== 'human') setAddressDraft(null);
                     setStatus(current => current ? { ...current, control: { ...current.control, holder: value } } : current);
                   }}
                   onTerminated={reason => {
@@ -468,6 +502,7 @@ export function BrowserViewer({ profile }: { profile: string }) {
                     setCursor(null);
                     setLive(false);
                     setSlowConnect(false);
+                    setAddressDraft(null);
                     if (fullscreen) void exitFullscreen();
                     setTerminated(reason === 'idle'
                       ? 'The browser was idle, so it was shut down. Its profile — logins and open pages — is kept; reopen the live view to start it again.'
