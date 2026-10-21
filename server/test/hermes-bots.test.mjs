@@ -67,7 +67,7 @@ test('boot reconciliation binds pre-existing active bots and isolates failures',
       // embedded in the path (the real client rejects that before sending).
       if (route.includes('?')) throw new Error('profile must use the bound selector');
       const profile = request.profile ?? 'default';
-      return { config: configs.get(profile) ?? {} };
+      return configs.get(profile) ?? {};
     }
     return { ok: true };
   } };
@@ -127,7 +127,10 @@ test('configureBrowser binds the named profile through the real dashboard client
         stored = JSON.parse(options.body).config;
         return Response.json({ ok: true });
       }
-      return Response.json({ config: stored });
+      // `/api/config` answers with the settings object itself, not a
+      // `{ config }` envelope. An envelope-shaped fake let the binding read
+      // past the real response and report every profile as unbound.
+      return Response.json(stored);
     },
   });
   const token = 'a'.repeat(32);
@@ -150,6 +153,10 @@ test('configureBrowser binds the named profile through the real dashboard client
     profile: 'research',
     config: { browser: { backend: 'off', cdp_url: `http://127.0.0.1:32101/${token}` } },
   });
+  // Reading the profile's own settings is what makes binding idempotent. If the
+  // response shape is misread, this second call writes the same profile again.
+  assert.equal(await bots.configureBrowser('research'), false);
+  assert.equal(calls.filter(call => call.method === 'PUT').length, 1);
 
   const bound = await bots.browserBinding('research');
   assert.deepEqual(bound, {

@@ -144,7 +144,10 @@ export class HermesBots {
     // dashboard URL itself and rejects a query embedded in a path. Passing
     // `?profile=` here made every bind throw before it could read the profile.
     const current = await this.#client.dashboard('/api/config', { profile: name });
-    const browser = current?.config?.browser ?? {};
+    // `/api/config` answers with the profile's settings object itself, not a
+    // `{ config }` envelope. Reading the envelope reported every bound profile as
+    // unbound, so the dashboard showed a broken binding and boot rewrote it.
+    const browser = current?.browser ?? {};
     if (browser.cdp_url === cdpUrl && browser.backend === 'off') return false;
     await this.#client.dashboard('/api/config', { profile: name, method: 'PUT',
       body: { profile: name, config: { browser: { backend: 'off', cdp_url: cdpUrl } } } });
@@ -169,7 +172,7 @@ export class HermesBots {
     const expectedUrl = `http://127.0.0.1:${record.gatewayPort}/${record.gatewayToken}`;
     try {
       const current = await this.#client.dashboard('/api/config', { profile: name });
-      const browser = current?.config?.browser ?? {};
+      const browser = current?.browser ?? {};
       let configuredPort = null;
       try { configuredPort = Number(new URL(String(browser.cdp_url ?? '')).port) || null; } catch { /* not a URL */ }
       const configured = browser.cdp_url === expectedUrl && browser.backend === 'off';
