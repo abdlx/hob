@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import {
   Globe,
   FileText,
@@ -456,11 +456,76 @@ function OpenClawIdentityPanel() {
   );
 }
 
-function BrowserPanel() {
+const RIGHT_PANEL_TABS = [
+  { id: 'tasks', label: 'Info', icon: Info },
+  { id: 'security', label: 'Skills', icon: Sliders },
+  { id: 'browser', label: 'Web', icon: Globe },
+  { id: 'identity', label: 'Files', icon: FileText },
+  { id: 'goals', label: 'Settings', icon: Settings },
+] as const;
+
+// The browser takes over the right side of the screen. Its own tab strip lives
+// in the control rail so nothing is stacked above the browser chrome.
+function BrowserWorkspaceNav({ activeTab, onSelect }: {
+  activeTab: RightPanelTab;
+  onSelect: (tab: RightPanelTab) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 rounded-2xl border border-line bg-panel p-1.5" role="tablist" aria-label="Agent panel">
+      {RIGHT_PANEL_TABS.map(({ id, label, icon: Icon }) => {
+        const isActive = activeTab === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            aria-label={label}
+            onClick={() => onSelect(id as RightPanelTab)}
+            className={`flex cursor-pointer items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors ${
+              isActive ? 'bg-accent-soft text-accent' : 'text-code hover:bg-black/[0.02] hover:text-ink'
+            }`}
+          >
+            <Icon size={15} strokeWidth={isActive ? 2.2 : 1.8} />
+            <span className={`text-xs font-medium ${isActive ? 'text-accent' : 'text-muted'}`}>{label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function BrowserPanel({ navigation, onClose, botName }: {
+  navigation?: ReactNode;
+  onClose?: () => void;
+  botName?: string;
+}) {
   const { agent } = useChat();
   const runtime = useRuntime();
-  if (!agent) return <div className="space-y-3"><Skeleton className="h-9 w-full" /><Skeleton className="h-40 w-full" /></div>;
-  return runtime === 'hermes' ? <HermesBrowser key={agent.id} profile={agent.id} /> : <OpenClawBrowserPanel />;
+  if (!agent) {
+    return (
+      <div className="space-y-3 p-3">
+        {onClose && (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              title="Close browser"
+              aria-label="Close browser"
+              className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-muted transition-colors hover:bg-black/5 hover:text-ink"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        )}
+        <Skeleton className="h-9 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    );
+  }
+  return runtime === 'hermes'
+    ? <HermesBrowser key={agent.id} profile={agent.id} botName={botName ?? agent.name} navigation={navigation} onClose={onClose} />
+    : <OpenClawBrowserPanel />;
 }
 
 function IdentityPanel() {
@@ -510,20 +575,27 @@ export function RightPanel() {
     toggleRightPanel,
     resolveApproval,
   } = useChat();
+  const runtime = useRuntime();
 
   const [error, setError] = useState('');
   const [approvalBusy, setApprovalBusy] = useState<string | null>(null);
 
   if (!isRightPanelOpen) return null;
 
-  // The 5 Tabs matching the reference image: Info, Skills, Web, Files, Settings
-  const tabs = [
-    { id: 'tasks', label: 'Info', icon: Info },
-    { id: 'security', label: 'Skills', icon: Sliders },
-    { id: 'browser', label: 'Web', icon: Globe },
-    { id: 'identity', label: 'Files', icon: FileText },
-    { id: 'goals', label: 'Settings', icon: Settings },
-  ] as const;
+  if (activeTab === 'browser' && runtime === 'hermes') {
+    return (
+      <div className="fixed inset-0 z-[60] flex justify-end bg-black/30">
+        <button type="button" className="absolute inset-0 cursor-default" aria-label="Close browser" onClick={toggleRightPanel} />
+        <section className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-canvas shadow-2xl lg:w-[96vw] lg:rounded-l-[34px] lg:border-l lg:border-line">
+          <BrowserPanel
+            botName={agent?.name}
+            navigation={<BrowserWorkspaceNav activeTab={activeTab} onSelect={tab => setActiveTab(tab)} />}
+            onClose={toggleRightPanel}
+          />
+        </section>
+      </div>
+    );
+  }
 
   const decide = async (id: string, decision: 'approved' | 'rejected') => {
     setApprovalBusy(id);
@@ -608,7 +680,7 @@ export function RightPanel() {
           role="tablist"
           aria-label="Agent panel"
         >
-          {tabs.map(({ id, label, icon: Icon }) => {
+          {RIGHT_PANEL_TABS.map(({ id, label, icon: Icon }) => {
             const isActive = activeTab === id;
             return (
               <button

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '../context/ChatContext';
 import { apiFetch } from '../services/api';
 import { hermesWorkspaceApi, jsonWrite } from '../services/hermes-workspace';
@@ -205,7 +205,12 @@ export function HermesIdentity({ profile }: { profile: string }) {
   );
 }
 
-export function HermesBrowser({ profile }: { profile: string }) {
+export function HermesBrowser({ profile, botName, navigation, onClose }: {
+  profile: string;
+  botName?: string;
+  navigation?: ReactNode;
+  onClose?: () => void;
+}) {
   const { sendMessage, setActiveNav, isLoading, isPreparing, activeSessionId, sessions } = useChat();
   const { data, error } = useWorkspaceResource<{ name: string; enabled: boolean; configured: boolean }[]>(profile, 'toolsets');
   const [url, setUrl] = useState('');
@@ -219,17 +224,40 @@ export function HermesBrowser({ profile }: { profile: string }) {
       await sendMessage(`Use your browser tools to open ${parsed.href} and summarize what you find. Ask me for any required approval.`);
     } catch (error) { setRequestError(errorText(error)); }
   };
-  return (
-    <div className="space-y-3.5 pt-1">
-      <h3 className="text-sm md:text-base font-semibold text-ink">Browse with this bot</h3>
-      <BrowserViewer profile={profile} />
-      <p className="text-xs md:text-sm text-muted">Or ask the bot to browse for you. It drives the same browser shown above, so you can watch it work and take over at any point.</p>
+
+  const footer = (
+    <div className="space-y-2.5">
+      <p className="text-xs font-semibold text-ink">Ask the bot to browse</p>
+      <Field label="Website URL">
+        <input className={inputClass} value={url} onChange={event => setUrl(event.target.value)} placeholder="https://example.com" />
+      </Field>
+      <button
+        className={`${buttonClass} w-full`}
+        disabled={isLoading || isPreparing || !activeSessionId || sessions.find(item => item.id === activeSessionId)?.readOnly || !url.trim() || browser?.enabled === false}
+        onClick={browse}
+      >
+        Ask bot to browse
+      </button>
       {(error || requestError) && <Notice error>{error || requestError}</Notice>}
-      {browser && <p className="text-xs md:text-sm text-muted">Browser tools: <span className="font-medium text-ink">{browser.enabled ? 'Enabled' : 'Disabled'}</span> · <span className="font-medium text-ink">{browser.configured ? 'Configured' : 'Setup required'}</span></p>}
-      <Field label="Website URL"><input className={inputClass} value={url} onChange={event => setUrl(event.target.value)} placeholder="https://example.com" /></Field>
-      <button className={buttonClass} disabled={isLoading || isPreparing || !activeSessionId || sessions.find(item => item.id === activeSessionId)?.readOnly || !url.trim() || browser?.enabled === false} onClick={browse}>Ask bot to browse</button>
-      <p className="text-xs text-muted leading-relaxed">Browser providers and credentials can be configured in Settings. This sends an agent request; it does not claim a tab opened before the bot executes it.</p>
+      {browser && (!browser.enabled || !browser.configured) && (
+        <p className="text-[11px] text-muted">
+          Browser tools: <span className="font-medium text-ink">{browser.enabled ? 'Enabled' : 'Disabled'}</span>
+          {' · '}
+          <span className="font-medium text-ink">{browser.configured ? 'Configured' : 'Setup required'}</span>
+        </p>
+      )}
+      <p className="text-[11px] leading-relaxed text-muted">Sends a message; the page opens after the bot acts.</p>
     </div>
+  );
+
+  return (
+    <BrowserViewer
+      profile={profile}
+      botName={botName}
+      navigation={navigation}
+      onClose={onClose}
+      footer={footer}
+    />
   );
 }
 
