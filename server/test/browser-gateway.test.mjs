@@ -472,7 +472,7 @@ test('gateway: bots get separate ports, tokens, profiles and pages', async t => 
   assert.equal(betaTargets.result.targetInfos.some(info => info.title === 'ALPHA-PAGE'), false);
 });
 
-test('gateway: agent pointer jumps reach the page as trusted, progressive mouse events', async t => {
+test('gateway: agent pointer coordinates reach the page unchanged', async t => {
   const started = await startManager(t);
   if (!started) return;
   const { manager } = started;
@@ -498,12 +498,12 @@ test('gateway: agent pointer jumps reach the page as trusted, progressive mouse 
     trusted: pointerEvents.every(event => event.trusted),
     last: pointerEvents.at(-1)
   })`);
-  assert.ok(observed.result?.result?.value.count >= 4, 'the page should receive a progressive trajectory');
+  assert.ok(observed.result?.result?.value.count >= 1, 'the page should receive the pointer event');
   assert.equal(observed.result.result.value.trusted, true, 'CDP input must remain browser-trusted');
   assert.deepEqual(observed.result.result.value.last, { x: 800, y: 600, trusted: true });
 });
 
-test('gateway: direct CDP clicks move to the element, hover and hold before release', async t => {
+test('gateway: direct CDP clicks pass through without a synthesized trajectory', async t => {
   const started = await startManager(t);
   if (!started) return;
   const session = await started.manager.ensure('alpha');
@@ -539,10 +539,9 @@ test('gateway: direct CDP clicks move to the element, hover and hold before rele
   const up = events.find(event => event.type === 'mouseup');
   const moves = events.filter(event => event.type === 'mousemove');
   const clicks = events.filter(event => event.type === 'click');
-  assert.ok(moves.length >= 4);
-  assert.deepEqual({ x: moves.at(-1).x, y: moves.at(-1).y }, { x: 760, y: 540 });
-  assert.ok(down.time - moves.at(-1).time >= 35, 'the pointer must hover before pressing');
-  assert.ok(up.time - down.time >= 35, 'the press must be held before release');
+  assert.equal(moves.length, 0, 'the gateway must forward the commands as-is, not synthesize movement');
+  assert.equal(down.target, 'BUTTON');
+  assert.equal(up.target, 'BUTTON');
   assert.ok(events.every(event => event.trusted));
   assert.equal(clicks.length, 1, 'one request must not produce duplicate clicks');
   assert.equal(clicks[0].target, 'BUTTON');
@@ -573,12 +572,12 @@ test('gateway: agent mouse commands are reported as viewer cursor activity', asy
   // agent works invisibly no matter how healthy the screencast is.
   const cursors = seen.filter(event => event.type === 'cursor');
   const clicks = seen.filter(event => event.type === 'click');
-  assert.ok(cursors.length >= 2, `expected moving cursor events, saw ${JSON.stringify(seen)}`);
-  // The trajectory is humanised, so it starts wherever the pointer was and lands
-  // exactly on the agent's target.
+  assert.ok(cursors.length >= 1, `expected a cursor event, saw ${JSON.stringify(seen)}`);
+  // Coordinates are forwarded verbatim; the viewer animates its own pointer
+  // towards them instead of waiting for the gateway to synthesize a path.
   const landedOnMove = cursors.find(event => event.x === 800 && event.y === 600);
   assert.ok(landedOnMove, `the move must land on the agent's point, saw ${JSON.stringify(cursors)}`);
-  assert.deepEqual({ x: cursors.at(-1).x, y: cursors.at(-1).y }, { x: 240, y: 168 });
+  assert.deepEqual({ x: cursors.at(-1).x, y: cursors.at(-1).y }, { x: 800, y: 600 });
   assert.deepEqual(clicks.map(event => event.phase), ['down', 'up']);
   assert.ok(clicks.every(event => event.x === 240 && event.y === 168));
 });
@@ -605,7 +604,13 @@ test('gateway: a scripted agent action points the viewer cursor at the focused e
   // `agent-browser` fills fields through the DOM, which never dispatches a mouse
   // event. Without the focus probe those steps would be invisible in the viewer.
   await evaluate(agent, `document.getElementById('field').focus()`);
-  const focused = await waitFor(() => seen.find(event => event.type === 'cursor' && event.source === 'focus'));
+  let focused;
+  try {
+    focused = await waitFor(() => seen.find(event => event.type === 'cursor' && event.source === 'focus'));
+  } catch {
+    assert.fail(`no focus cursor event; seen=${JSON.stringify(seen)} pointer=${JSON.stringify(session.pointer)}`);
+  }
+  assert.ok(focused);
   assert.ok(Math.abs(focused.x - 300) <= 1, `expected the field's centre x, got ${focused.x}`);
   assert.ok(Math.abs(focused.y - 120) <= 1, `expected the field's centre y, got ${focused.y}`);
 });

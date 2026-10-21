@@ -354,6 +354,15 @@ export function BrowserViewer({ profile, botName, avatarUrl, footer }: {
   const interactive = credentials !== null && holder === 'human';
   const bindingOk = Boolean(binding?.configured && !binding.envOverride);
 
+  // The agent's pointer stays on screen for as long as the bot holds control:
+  // mouse commands and scripted actions both move it, and if the bot has not
+  // acted yet it waits in the middle instead of appearing from nowhere.
+  const viewport = status?.viewport;
+  const showCursor = Boolean(credentials) && holder === 'agent' && (viewport?.w ?? 0) > 0 && (viewport?.h ?? 0) > 0;
+  const pointer: Cursor | null = showCursor && viewport
+    ? cursor ?? { x: viewport.w / 2, y: viewport.h / 2, kind: 'move' }
+    : null;
+
   const onError = useCallback((problem: unknown) => {
     // The viewer gives up reconnecting eventually; say so instead of leaving a
     // frozen canvas that looks like the browser is merely quiet.
@@ -384,14 +393,6 @@ export function BrowserViewer({ profile, botName, avatarUrl, footer }: {
   const off = !credentials;
   const starting = busy === 'open' || status.state === 'starting';
   const tabs = status.tabs;
-
-  // The agent's pointer stays on screen for as long as the bot holds control:
-  // mouse commands and scripted actions both move it, and if the bot has not
-  // acted yet it waits in the middle instead of appearing from nowhere.
-  const showCursor = Boolean(credentials) && holder === 'agent' && status.viewport.w > 0 && status.viewport.h > 0;
-  const pointer: Cursor | null = showCursor
-    ? cursor ?? { x: status.viewport.w / 2, y: status.viewport.h / 2, kind: 'move' }
-    : null;
 
   const submitAddress = () => {
     if (!interactive) return;
@@ -554,7 +555,8 @@ export function BrowserViewer({ profile, botName, avatarUrl, footer }: {
             {/* The agent's own pointer, harvested from the mouse commands it sends
                 and from the focused element of scripted actions. Positioned as a
                 fraction of the browser viewport, which is what the canvas is
-                showing at any scale. */}
+                showing at any scale. The CSS transition is purely visual: CDP has
+                already run by the time this moves. */}
             {pointer && (
               <span
                 aria-hidden
@@ -562,11 +564,11 @@ export function BrowserViewer({ profile, botName, avatarUrl, footer }: {
                 style={{
                   left: `${(pointer.x / status.viewport.w) * 100}%`,
                   top: `${(pointer.y / status.viewport.h) * 100}%`,
-                  transition: 'left 110ms linear, top 110ms linear',
+                  transition: 'left 190ms cubic-bezier(0.16, 1, 0.3, 1), top 190ms cubic-bezier(0.16, 1, 0.3, 1)',
                 }}
               >
                 {pointer.kind === 'click' && (
-                  <span key={pointer.n} className="hob-agent-click absolute -left-1 -top-1 h-4 w-4 rounded-full bg-accent/50 ring-1 ring-accent" />
+                  <span key={pointer.n} className="hob-agent-click absolute -left-1 -top-1 h-4 w-4 rounded-full bg-accent/60" />
                 )}
                 <MousePointer2 size={22} fill="currentColor" stroke="black" strokeWidth={1.5} />
                 <span className="absolute left-4 top-4 rounded-full bg-black/75 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-white">

@@ -22,7 +22,6 @@ import { ControlLease, AGENT, HUMAN } from './browser-lease.mjs';
 import { CdpConnection } from './browser-cdp-client.mjs';
 import { PipeCdpConnection } from './browser-pipe.mjs';
 import { ModifierState, inputCommands } from './browser-input.mjs';
-import { humanizedMouseMove } from './browser-human-input.mjs';
 import { BROWSER_VIEWPORT, closeBrowserGracefully, closePipeGracefully, cdpTransportMode, launchChromium, probeCdp, probePipe, resolveChromiumExecutable, markProfileOwned, stopChromium } from './browser-launcher.mjs';
 
 // CDP error code for a command the gateway refused to forward. Hermes surfaces
@@ -255,64 +254,15 @@ class AgentProxy {
       return;
     }
     this.#track(id, admission.release, 0, message);
-    if (method === 'Input.dispatchMouseEvent' && params?.type === 'mouseMoved') {
-      await this.#forwardHumanizedMouse(message, text);
-      return;
-    }
-    if (method === 'Input.dispatchMouseEvent' && params?.type === 'mousePressed'
-      && params.button === 'left' && (!params.pointerType || params.pointerType === 'mouse')
-      && Number.isFinite(params.x) && Number.isFinite(params.y) && !this.#session.mouseButtons) {
-      await this.#forwardHumanizedMouse({ ...message, params: {
-        type: 'mouseMoved', x: params.x, y: params.y, button: 'none', buttons: 0,
-        modifiers: params.modifiers ?? 0,
-      } }, null, { internal: true });
-      await this.#pause(50);
-    }
-    if (method === 'Input.dispatchMouseEvent' && params?.type === 'mouseReleased') {
-      const pressedAt = this.#session.buttonPressedAt(params.button);
-      if (pressedAt !== null) await this.#pause(Math.max(0, 50 - (performance.now() - pressedAt)));
-    }
     if (this.#closed) return;
+    // The agent's CDP traffic is forwarded untouched and immediately: the live
+    // viewer animates its own pointer towards the coordinates reported here, so
+    // the page never waits on a visual effect.
     const sampleFocus = this.#session.noteAgentActivity(method, params, {
       targetId: this.#targetId || this.#attachedTargets.get(message.sessionId) || null,
     });
     if (sampleFocus) this.#focusAfterReply.add(id);
     this.#forward(text);
-  }
-
-  async #pause(delayMs) {
-    if (delayMs <= 0 || this.#closed) return;
-    await new Promise(resolve => {
-      const finish = () => {
-        clearTimeout(timer);
-        this.#abort.signal.removeEventListener('abort', finish);
-        resolve();
-      };
-      const timer = setTimeout(finish, delayMs);
-      this.#abort.signal.addEventListener('abort', finish, { once: true });
-    });
-  }
-
-  async #forwardHumanizedMouse(message, originalText, { internal = false } = {}) {
-    const points = humanizedMouseMove(this.#session.pointer, message.params, { viewport: this.#session.viewport });
-    if (points.length === 1 && !internal) {
-      this.#session.noteAgentActivity(message.method, message.params, { force: true });
-      this.#forward(originalText);
-      return;
-    }
-    for (let index = 0; index < points.length; index += 1) {
-      const point = points[index];
-      await this.#pause(point.delayMs);
-      if (this.#closed) return;
-      this.#session.noteAgentActivity(message.method, point.params, { force: index === points.length - 1 });
-      if (index === points.length - 1 && !internal) {
-        this.#forward(originalText);
-        return;
-      }
-      const id = INTERNAL_ID_BASE - (this.#internalSeq += 1);
-      this.#internal.add(id);
-      this.#forward(JSON.stringify({ ...message, id, params: point.params }));
-    }
   }
 
   // Non-flattened session traffic hides the real command inside a JSON string
@@ -470,7 +420,6 @@ export class BrowserSession {
   #destroyed = false;
   #minFrameIntervalMs;
   #pointer = { x: 0, y: 0 };
-  #pressedButtons = new Map();
   #focusSampling = false;
   #focusSampleAt = 0;
 
@@ -501,8 +450,6 @@ export class BrowserSession {
   get lastActiveAt() { return this.#lastActiveAt; }
   get viewport() { return { ...this.#viewport }; }
   get pointer() { return { ...this.#pointer }; }
-  get mouseButtons() { return this.#pressedButtons.size; }
-  buttonPressedAt(button) { return this.#pressedButtons.get(button) ?? null; }
 
   #touch() { this.#lastActiveAt = Date.now(); }
 
@@ -762,7 +709,6 @@ export class BrowserSession {
     this.#launchEpoch += 1;
     if (this.#starting) await this.#starting.catch(() => undefined);
     this.#stopScreencast();
-    this.#pressedButtons.clear();
     for (const viewer of [...this.#viewers.values()]) {
       this.#sendTo(viewer, { t: 'bye', reason });
       try { viewer.socket.close(1000, reason); } catch { /* already closed */ }
@@ -820,7 +766,6 @@ export class BrowserSession {
   #onChromiumExit(code, signal) {
     // An exit we asked for is not a crash, and must not be reported as one.
     if (this.#stopping) return;
-    this.#pressedButtons.clear();
     this.#chromium = null;
     this.#chromiumPort = null;
     this.#pipe?.close('The browser exited.');
@@ -1032,9 +977,6 @@ export class BrowserSession {
       if (params.type === 'mouseMoved' || params.type === 'mouseWheel') {
         this.#emitActivity({ type: 'cursor', x, y, source: 'agent' }, { force });
       } else if (params.type === 'mousePressed' || params.type === 'mouseReleased') {
-        const button = params.button || 'left';
-        if (params.type === 'mousePressed') this.#pressedButtons.set(button, performance.now());
-        else this.#pressedButtons.delete(button);
         this.#emitActivity({ type: 'click', x, y, button: params.button || 'left', phase: params.type === 'mousePressed' ? 'down' : 'up' });
       }
       return;
@@ -1045,9 +987,14 @@ export class BrowserSession {
     // ask the page where the agent's focus landed. This is best-effort and never
     // blocks the command on its way to Chromium.
     const onWatchedTab = !targetId || targetId === this.#castTargetId;
+    const interactive = /\.(?:click|focus|select)\s*\(|dispatchEvent\s*\(|\.value\s*=/;
+    const scripted = method === 'Runtime.evaluate'
+      ? interactive.test(String(params?.expression || ''))
+      : method === 'Runtime.callFunctionOn'
+        ? interactive.test(String(params?.functionDeclaration || ''))
+        : false;
     const focusAction = method === 'Input.dispatchKeyEvent' || method === 'Input.insertText'
-      || method === 'DOM.focus' || method === 'Runtime.callFunctionOn'
-      || (method === 'Runtime.evaluate' && /\.(?:click|focus|select)\s*\(|dispatchEvent\s*\(/.test(String(params?.expression || '')));
+      || method === 'DOM.focus' || scripted;
     if (method === 'Input.dispatchKeyEvent') this.#emitActivity({ type: 'action', kind: 'key', method });
     else if (method === 'Input.insertText') this.#emitActivity({ type: 'action', kind: 'type', method });
     else this.#emitActivity({ type: 'action', kind: 'command', method });
