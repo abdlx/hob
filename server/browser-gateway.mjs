@@ -93,6 +93,7 @@ class AgentProxy {
   #internalSeq = 0;
   #attachRequests = new Map();
   #attachedTargets = new Map();
+  #focusAfterReply = new Set();
   label;
 
   constructor(session, client, { kind, targetId, label }) {
@@ -272,7 +273,10 @@ class AgentProxy {
       if (pressedAt !== null) await this.#pause(Math.max(0, 50 - (performance.now() - pressedAt)));
     }
     if (this.#closed) return;
-    this.#session.noteAgentActivity(method, params);
+    const sampleFocus = this.#session.noteAgentActivity(method, params, {
+      targetId: this.#targetId || this.#attachedTargets.get(message.sessionId) || null,
+    });
+    if (sampleFocus) this.#focusAfterReply.add(id);
     this.#forward(text);
   }
 
@@ -360,6 +364,7 @@ class AgentProxy {
         // The reply to a neutralizing command belongs to nobody: it must not be
         // relayed to a client that never asked for it.
         if (this.#internal.delete(id)) return;
+        if (this.#focusAfterReply.delete(id)) this.#session.sampleFocusPoint();
         if (this.#attachRequests.has(id)) {
           const targetId = this.#attachRequests.get(id);
           this.#attachRequests.delete(id);
@@ -466,6 +471,8 @@ export class BrowserSession {
   #minFrameIntervalMs;
   #pointer = { x: 0, y: 0 };
   #pressedButtons = new Map();
+  #focusSampling = false;
+  #focusSampleAt = 0;
 
   constructor({ botId, record, options = {} }) {
     this.#botId = botId;
@@ -1013,15 +1020,18 @@ export class BrowserSession {
   /**
    * The agent's own input commands are the only honest source of "where is the
    * agent pointing right now": they pass through this process on their way to
-   * Chromium, in the same viewport coordinates the stream is drawn in.
+   * Chromium, in the same viewport coordinates the stream is drawn in. Scripted
+   * actions return `true` so the caller can sample the page's focus once the
+   * command has actually landed.
    */
-  noteAgentActivity(method, params, { force = false } = {}) {
+  noteAgentActivity(method, params, { force = false, targetId = null } = {}) {
     this.#touch();
     if (method === 'Input.dispatchMouseEvent' && params && typeof params === 'object') {
       const x = Number(params.x) || 0; const y = Number(params.y) || 0;
       this.#pointer = { x, y };
-      if (params.type === 'mouseMoved') this.#emitActivity({ type: 'cursor', x, y, source: 'agent' }, { force });
-      else if (params.type === 'mousePressed' || params.type === 'mouseReleased') {
+      if (params.type === 'mouseMoved' || params.type === 'mouseWheel') {
+        this.#emitActivity({ type: 'cursor', x, y, source: 'agent' }, { force });
+      } else if (params.type === 'mousePressed' || params.type === 'mouseReleased') {
         const button = params.button || 'left';
         if (params.type === 'mousePressed') this.#pressedButtons.set(button, performance.now());
         else this.#pressedButtons.delete(button);
@@ -1029,9 +1039,62 @@ export class BrowserSession {
       }
       return;
     }
-    if (method === 'Input.dispatchKeyEvent') { this.#emitActivity({ type: 'action', kind: 'key', method }); return; }
-    if (method === 'Input.insertText') { this.#emitActivity({ type: 'action', kind: 'type', method }); return; }
-    this.#emitActivity({ type: 'action', kind: 'command', method });
+
+    // A DOM-level action (typing into a field, a scripted click or a focus call)
+    // carries no coordinates of its own. The dashboard still needs a pointer, so
+    // ask the page where the agent's focus landed. This is best-effort and never
+    // blocks the command on its way to Chromium.
+    const onWatchedTab = !targetId || targetId === this.#castTargetId;
+    const focusAction = method === 'Input.dispatchKeyEvent' || method === 'Input.insertText'
+      || method === 'DOM.focus' || method === 'Runtime.callFunctionOn'
+      || (method === 'Runtime.evaluate' && /\.(?:click|focus|select)\s*\(|dispatchEvent\s*\(/.test(String(params?.expression || '')));
+    if (method === 'Input.dispatchKeyEvent') this.#emitActivity({ type: 'action', kind: 'key', method });
+    else if (method === 'Input.insertText') this.#emitActivity({ type: 'action', kind: 'type', method });
+    else this.#emitActivity({ type: 'action', kind: 'command', method });
+    return focusAction && onWatchedTab && this.#activity.size > 0;
+  }
+
+  /**
+   * Report the centre of the focused element as the agent's pointer. Scripted
+   * actions have no mouse position, and a viewer that only ever sees cursor
+   * events would look like the bot is working invisibly.
+   */
+  sampleFocusPoint(attempt = 0) {
+    const cdp = this.#castCdp;
+    const sessionId = this.#castSessionId;
+    // The viewer may be between attach cycles (a navigation briefly detaches the
+    // cast session), so wait for one rather than dropping the pointer.
+    if (!cdp?.open || !sessionId) {
+      if (attempt < 40) {
+        const retry = setTimeout(() => this.sampleFocusPoint(attempt + 1), 150);
+        retry.unref?.();
+      }
+      return;
+    }
+    if (this.#focusSampling) return;
+    if (this.#focusSampleAt && Date.now() - this.#focusSampleAt < 100) return;
+    this.#focusSampling = true;
+    this.#focusSampleAt = Date.now();
+    const expression = `(() => {
+      const element = document.activeElement;
+      if (!element || element === document.body || element === document.documentElement) return null;
+      const rect = element.getBoundingClientRect();
+      if (!rect || rect.width < 2 || rect.height < 2) return null;
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    })()`;
+    cdp.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: false },
+      { sessionId, timeoutMs: 500 })
+      .then(result => {
+        if (this.#castCdp !== cdp || this.#castSessionId !== sessionId) return;
+        const point = result?.result?.value;
+        if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+        const x = Math.max(0, Math.min(this.#viewport.w - 1, point.x));
+        const y = Math.max(0, Math.min(this.#viewport.h - 1, point.y));
+        this.#pointer = { x, y };
+        this.#emitActivity({ type: 'cursor', x, y, source: 'focus' }, { force: true });
+      })
+      .catch(() => undefined)
+      .finally(() => { this.#focusSampling = false; });
   }
 
   async agentActivatedTarget(targetId) {

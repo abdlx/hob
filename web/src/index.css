@@ -254,6 +254,17 @@ textarea:focus-visible {
   50% { opacity: 0.35; }
 }
 
+/* One click of the bot's pointer: a ring that blooms out from the click point. */
+@keyframes hob-agent-click {
+  0% { transform: scale(0.35); opacity: 0.9; }
+  70% { transform: scale(1.7); opacity: 0.3; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+.hob-agent-click {
+  animation: hob-agent-click 480ms ease-out forwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

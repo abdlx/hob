@@ -67,7 +67,7 @@ interface Diagnosis extends BrowserStatus {
 interface ViewerCredentials { sessionId: string; viewerToken: string; wsUrl: string }
 
 interface Activity { id: number; at: number; text: string }
-interface Cursor { x: number; y: number; kind: 'move' | 'click' }
+interface Cursor { x: number; y: number; kind: 'move' | 'click'; n?: number }
 
 const POLL_MS = 2000;
 const ACTIVITY_LIMIT = 6;
@@ -243,7 +243,7 @@ export function BrowserViewer({ profile, botName, avatarUrl, footer }: {
         return;
       }
       if (payload.type === 'click' && typeof payload.x === 'number' && typeof payload.y === 'number') {
-        setCursor({ x: payload.x, y: payload.y, kind: 'click' });
+        setCursor({ x: payload.x, y: payload.y, kind: 'click', n: Date.now() });
         const entry = { id: ++counter, at: Date.now(), text: `Clicked ${String(payload.button ?? 'left')}` };
         setActivity(previous => [entry, ...previous].slice(0, ACTIVITY_LIMIT));
         return;
@@ -384,6 +384,14 @@ export function BrowserViewer({ profile, botName, avatarUrl, footer }: {
   const off = !credentials;
   const starting = busy === 'open' || status.state === 'starting';
   const tabs = status.tabs;
+
+  // The agent's pointer stays on screen for as long as the bot holds control:
+  // mouse commands and scripted actions both move it, and if the bot has not
+  // acted yet it waits in the middle instead of appearing from nowhere.
+  const showCursor = Boolean(credentials) && holder === 'agent' && status.viewport.w > 0 && status.viewport.h > 0;
+  const pointer: Cursor | null = showCursor
+    ? cursor ?? { x: status.viewport.w / 2, y: status.viewport.h / 2, kind: 'move' }
+    : null;
 
   const submitAddress = () => {
     if (!interactive) return;
@@ -543,17 +551,27 @@ export function BrowserViewer({ profile, botName, avatarUrl, footer }: {
                 </span>
               </div>
             )}
-            {/* The agent's own pointer, harvested from the mouse commands it sends.
-                Positioned as a fraction of the browser viewport, which is what the
-                canvas is showing at any scale. */}
-            {cursor && status.viewport.w > 0 && status.viewport.h > 0 && (
+            {/* The agent's own pointer, harvested from the mouse commands it sends
+                and from the focused element of scripted actions. Positioned as a
+                fraction of the browser viewport, which is what the canvas is
+                showing at any scale. */}
+            {pointer && (
               <span
                 aria-hidden
                 className="pointer-events-none absolute z-20 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
-                style={{ left: `${(cursor.x / status.viewport.w) * 100}%`, top: `${(cursor.y / status.viewport.h) * 100}%` }}
+                style={{
+                  left: `${(pointer.x / status.viewport.w) * 100}%`,
+                  top: `${(pointer.y / status.viewport.h) * 100}%`,
+                  transition: 'left 110ms linear, top 110ms linear',
+                }}
               >
-                {cursor.kind === 'click' && <span className="absolute -left-2 -top-2 h-5 w-5 rounded-full bg-accent/40 ring-1 ring-accent" />}
+                {pointer.kind === 'click' && (
+                  <span key={pointer.n} className="hob-agent-click absolute -left-1 -top-1 h-4 w-4 rounded-full bg-accent/50 ring-1 ring-accent" />
+                )}
                 <MousePointer2 size={22} fill="currentColor" stroke="black" strokeWidth={1.5} />
+                <span className="absolute left-4 top-4 rounded-full bg-black/75 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-white">
+                  Bot
+                </span>
               </span>
             )}
           </>

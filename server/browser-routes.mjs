@@ -221,9 +221,19 @@ export function createBrowserRoutes({
     }
 
     if (tail === '/activity' && method === 'GET') {
-      const unsubscribe = await browser.activity(profile, payload => sendEvent(res, 'browser', payload));
+      // Announce the stream before anything can subscribe: a listener that fires
+      // while this handler is still awaiting would otherwise write into a response
+      // whose SSE headers have not been sent yet.
       startEvents(res);
       sendEvent(res, 'ready', { bot: profile });
+      let unsubscribe = () => {};
+      try {
+        unsubscribe = await browser.activity(profile, payload => sendEvent(res, 'browser', payload));
+      } catch (problem) {
+        sendEvent(res, 'browser', { type: 'browser', state: 'crashed', message: problem.message });
+        res.end();
+        return true;
+      }
       // The heartbeat is a liveness trickle for a connected dashboard, never a
       // reason for the server to stay alive: an SSE client that vanishes without
       // a clean close must not be able to pin the process open with a timer.

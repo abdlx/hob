@@ -548,6 +548,68 @@ test('gateway: direct CDP clicks move to the element, hover and hold before rele
   assert.equal(clicks[0].target, 'BUTTON');
 });
 
+test('gateway: agent mouse commands are reported as viewer cursor activity', async t => {
+  const started = await startManager(t);
+  if (!started) return;
+  const session = await started.manager.ensure('alpha');
+  const agent = await agentClient(session);
+  t.after(() => agent.raw.close());
+
+  const seen = [];
+  const unsubscribe = session.onActivity(payload => seen.push(payload));
+  t.after(unsubscribe);
+
+  await agent.raw.call('Page.navigate', { url: dataUrl('<title>ACTIVITY</title><button style="margin:120px">go</button>') }, agent.sessionId);
+  await waitFor(async () => (await titleOf(agent)) === 'ACTIVITY');
+
+  await agent.raw.call('Input.dispatchMouseEvent',
+    { type: 'mouseMoved', x: 800, y: 600, button: 'none', buttons: 0 }, agent.sessionId);
+  await agent.raw.call('Input.dispatchMouseEvent',
+    { type: 'mousePressed', x: 240, y: 168, button: 'left', buttons: 1, clickCount: 1 }, agent.sessionId);
+  await agent.raw.call('Input.dispatchMouseEvent',
+    { type: 'mouseReleased', x: 240, y: 168, button: 'left', buttons: 0, clickCount: 1 }, agent.sessionId);
+
+  // The dashboard paints the pointer from exactly these events; without them the
+  // agent works invisibly no matter how healthy the screencast is.
+  const cursors = seen.filter(event => event.type === 'cursor');
+  const clicks = seen.filter(event => event.type === 'click');
+  assert.ok(cursors.length >= 2, `expected moving cursor events, saw ${JSON.stringify(seen)}`);
+  // The trajectory is humanised, so it starts wherever the pointer was and lands
+  // exactly on the agent's target.
+  const landedOnMove = cursors.find(event => event.x === 800 && event.y === 600);
+  assert.ok(landedOnMove, `the move must land on the agent's point, saw ${JSON.stringify(cursors)}`);
+  assert.deepEqual({ x: cursors.at(-1).x, y: cursors.at(-1).y }, { x: 240, y: 168 });
+  assert.deepEqual(clicks.map(event => event.phase), ['down', 'up']);
+  assert.ok(clicks.every(event => event.x === 240 && event.y === 168));
+});
+
+test('gateway: a scripted agent action points the viewer cursor at the focused element', async t => {
+  const started = await startManager(t);
+  if (!started) return;
+  const session = await started.manager.ensure('alpha');
+  const viewer = await createViewer(session);
+  t.after(() => viewer.close());
+  await waitFor(() => viewer.hello());
+  const agent = await agentClient(session);
+  t.after(() => agent.raw.close());
+
+  const seen = [];
+  const unsubscribe = session.onActivity(payload => seen.push(payload));
+  t.after(unsubscribe);
+
+  await agent.raw.call('Page.navigate', {
+    url: dataUrl('<title>FOCUS</title><input id="field" style="position:absolute;left:200px;top:100px;width:200px;height:40px">'),
+  }, agent.sessionId);
+  await waitFor(async () => (await titleOf(agent)) === 'FOCUS');
+
+  // `agent-browser` fills fields through the DOM, which never dispatches a mouse
+  // event. Without the focus probe those steps would be invisible in the viewer.
+  await evaluate(agent, `document.getElementById('field').focus()`);
+  const focused = await waitFor(() => seen.find(event => event.type === 'cursor' && event.source === 'focus'));
+  assert.ok(Math.abs(focused.x - 300) <= 1, `expected the field's centre x, got ${focused.x}`);
+  assert.ok(Math.abs(focused.y - 120) <= 1, `expected the field's centre y, got ${focused.y}`);
+});
+
 test('gateway: automation marker suppression remains native across tabs and frames', async t => {
   const started = await startManager(t);
   if (!started) return;
