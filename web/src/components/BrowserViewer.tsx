@@ -267,7 +267,7 @@ export function BrowserViewer({ profile, footer }: {
       if (minted.binding) setBinding(minted.binding);
       if (minted.repair) setRepair(minted.repair);
       const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      setCredentials({ sessionId: minted.sessionId, viewerToken: minted.viewerToken, wsUrl: `${scheme}//${window.location.host}${minted.wsPath}` });
+      setCredentials({ sessionId: minted.sessionId, viewerToken: minted.viewerToken, wsUrl: `${scheme}//${window.location.host}${minted.wsPath}${query(profile)}` });
       await refresh();
     } catch (problem) { setError(errorText(problem)); } finally { setBusy(''); }
   };

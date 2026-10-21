@@ -215,6 +215,7 @@ export function createBrowserRoutes({
     try { url = new URL(req.url, 'http://muse.local'); } catch { socket.destroy(); return false; }
     if (url.pathname !== STREAM) return false;
     if (req.method !== 'GET') { socket.destroy(); return true; }
+    if (url.searchParams.getAll('profile').length !== 1) { socket.destroy(); return true; }
     // Cross-site WebSocket hijacking is the whole threat model here: a page on
     // another origin must not be able to open this socket with the user's cookie
     // attached. `assertOrigin` rejects a mismatched or cross-site origin.

@@ -140,6 +140,8 @@ test('browser routes: a viewer socket needs a real ticket or a real session', as
   assert.match(ticket.wsPath, /^\/api\/hermes\/browser\/stream$/);
 
   const stream = origin.replace('http:', 'ws:') + ticket.wsPath;
+  await refused(`${stream}?token=${ticket.viewerToken}`, { headers: { Cookie: cookie }, origin });
+  await refused(`${stream}?profile=alpha&profile=beta&token=${ticket.viewerToken}`, { headers: { Cookie: cookie }, origin });
   // No credential at all.
   await refused(`${stream}?profile=${profile}`);
   // A forged ticket of the right shape.
