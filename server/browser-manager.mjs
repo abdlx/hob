@@ -11,7 +11,7 @@
 
 import { join } from 'node:path';
 import { BrowserSession } from './browser-gateway.mjs';
-import { resolveChromiumExecutable } from './browser-launcher.mjs';
+import { BROWSER_VIEWPORT, resolveChromiumExecutable } from './browser-launcher.mjs';
 
 const DEFAULT_IDLE_MS = 10 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 30 * 1000;
@@ -127,7 +127,7 @@ export class BrowserManager {
       bot: botId, state: 'stopped', cdpUrl: `http://127.0.0.1:${record.gatewayPort}/${record.gatewayToken}`,
       port: record.gatewayPort, viewers: 0, agentConnections: 0,
       control: { holder: 'agent', since: null, inFlight: 0, pending: 0, draining: false },
-      viewport: { w: 1280, h: 800 }, tabs: [], url: '', title: '', loading: false,
+      viewport: { ...BROWSER_VIEWPORT }, tabs: [], url: '', title: '', loading: false,
       profileDir: this.#registry.profileDir(this.#stateDir, botId), lastError: null,
     };
   }

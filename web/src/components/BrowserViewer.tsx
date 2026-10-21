@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { RemoteBrowser, type RemoteBrowserHandle } from '@atriumjs/react';
+import { ArrowLeft, ArrowRight, EyeOff, Globe2, Loader2, Lock, Maximize2, Minimize2, MousePointer2, RotateCw, ShieldCheck, Square } from 'lucide-react';
 import { apiFetch } from '../services/api';
-import { buttonClass, inputClass, Notice, StatusPill } from './WorkspaceUI';
+import { buttonClass, Notice, StatusPill } from './WorkspaceUI';
 import { errorText } from './workspaceUtils';
 
 // Live viewer for a bot's persistent, HOB-managed browser.
@@ -96,6 +97,61 @@ function bindingLine(report: BindingReport): string {
   return `${bindingMessage(report)}${ports}`;
 }
 
+function hostLabel(url: string): string {
+  if (!url || url === 'about:blank') return 'New tab';
+  try { return new URL(url).hostname.replace(/^www\./, '') || url; } catch { return url; }
+}
+
+function NavButton({ label, onClick, disabled, children }: {
+  label: string; onClick: () => void; disabled?: boolean; children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-soft transition-colors hover:bg-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-35"
+    >
+      {children}
+    </button>
+  );
+}
+
+// The page Chromium starts on is `about:blank`; showing that as a bare white
+// rectangle is indistinguishable from a broken stream. A new-tab surface keeps
+// the browser frame honest while the bot has not opened anything yet.
+function BrowserStartPage({ live }: { live: boolean }) {
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 px-6 text-center"
+      style={{ background: 'radial-gradient(ellipse at top, #EEF4FF 0%, #F8FAFC 55%, #F1F5F9 100%)' }}
+    >
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-accent-line bg-surface/80 shadow-sm">
+        <Globe2 size={26} className="text-accent" />
+      </div>
+      <div className="space-y-1.5">
+        <p className="text-sm font-semibold text-ink">The bot’s browser is ready</p>
+        <p className="mx-auto max-w-sm text-xs leading-relaxed text-muted">
+          Send a message that uses the browser. Its page will appear here, and you can take over at any time.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] text-soft">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-hair bg-surface/80 px-2.5 py-1">
+          <MousePointer2 size={12} /> Take control any time
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-hair bg-surface/80 px-2.5 py-1">
+          <ShieldCheck size={12} /> Sandboxed
+        </span>
+      </div>
+      <p className="inline-flex items-center gap-1.5 text-[11px] text-faint">
+        {live ? 'Waiting for the bot to open a page.' : <><Loader2 size={11} className="animate-spin" /> Connecting to the live view…</>}
+      </p>
+    </div>
+  );
+}
+
 export function BrowserViewer({ profile }: { profile: string }) {
   const [status, setStatus] = useState<BrowserStatus | null>(null);
   const [error, setError] = useState('');
@@ -112,6 +168,8 @@ export function BrowserViewer({ profile }: { profile: string }) {
   const [fullscreen, setFullscreen] = useState(false);
   const viewer = useRef<RemoteBrowserHandle>(null);
   const shell = useRef<HTMLDivElement>(null);
+  const stageHost = useRef<HTMLDivElement>(null);
+  const [stageBox, setStageBox] = useState<{ width: number; height: number } | null>(null);
   const sequence = useRef(0);
 
   const refresh = useCallback(async () => {
@@ -196,6 +254,22 @@ export function BrowserViewer({ profile }: { profile: string }) {
     return () => document.removeEventListener('fullscreenchange', sync);
   }, []);
 
+  // Fullscreen gives the stage all remaining height. Fit a true 4:3 rectangle
+  // inside it instead of stretching the page into whatever shape the window is.
+  useLayoutEffect(() => {
+    if (!fullscreen || !credentials) return;
+    const host = stageHost.current;
+    if (!host) return;
+    const fit = () => {
+      const width = Math.min(host.clientWidth, (host.clientHeight * 4) / 3);
+      setStageBox({ width: Math.floor(width), height: Math.floor((width * 3) / 4) });
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [fullscreen, credentials]);
+
   const act = useCallback(async (label: string, path: string, init: RequestInit = {}) => {
     setBusy(label);
     try {
@@ -270,6 +344,12 @@ export function BrowserViewer({ profile }: { profile: string }) {
   if (error && !status) return <Notice error>{error}</Notice>;
   if (!status) return <p className="text-xs md:text-sm text-muted">Checking this bot’s browser…</p>;
 
+  const blankPage = !status.url || status.url === 'about:blank';
+  const activeTab = status.tabs.find(tab => tab.active) ?? status.tabs[0];
+  const address = status.url || 'about:blank';
+  const pageTitle = activeTab?.title?.trim() || status.title?.trim() || (blankPage ? 'New tab' : hostLabel(status.url));
+  const secure = status.url.startsWith('https://');
+
   return (
     <div
       ref={shell}
@@ -283,7 +363,6 @@ export function BrowserViewer({ profile }: { profile: string }) {
           <span className="text-xs text-muted">
             {status.viewers > 0 ? `${status.viewers} watching` : 'nobody watching'} · {holder === 'human' ? 'you have control' : 'the bot has control'}
           </span>
-          {fullscreen && <button type="button" className={buttonClass} onClick={() => void exitFullscreen()}>Exit fullscreen</button>}
         </div>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
@@ -334,64 +413,102 @@ export function BrowserViewer({ profile }: { profile: string }) {
 
       {credentials && (
         <div className={fullscreen ? 'flex min-h-0 flex-1 flex-col gap-2' : 'space-y-2.5'}>
-          <div className="flex flex-wrap items-center gap-2">
-            <button className={buttonClass} disabled={holder !== 'agent' || busy !== ''} onClick={() => void act('take', '/control', { body: JSON.stringify({ action: 'take' }) })}>Take control</button>
-            <button className={buttonClass} disabled={holder !== 'human' || busy !== ''} onClick={() => void act('release', '/control', { body: JSON.stringify({ action: 'release' }) })}>Return control</button>
-            <button className={buttonClass} disabled={busy !== ''} onClick={() => viewer.current?.back()}>Back</button>
-            <button className={buttonClass} disabled={busy !== ''} onClick={() => viewer.current?.forward()}>Forward</button>
-            <button className={buttonClass} disabled={busy !== ''} onClick={() => viewer.current?.reload()}>Reload</button>
-            <button className={buttonClass} disabled={checking} onClick={() => void diagnose(true)}>{checking ? 'Checking…' : 'Check bot connection'}</button>
-            <button className={buttonClass} onClick={() => void (fullscreen ? exitFullscreen() : enterFullscreen())}>{fullscreen ? 'Exit fullscreen' : 'Fullscreen'}</button>
-            <button className={buttonClass} disabled={busy !== ''} onClick={() => void act('stop', '/stop').then(closeViewer)}>Stop browser</button>
-            <button className={buttonClass} onClick={closeViewer}>Hide view</button>
-          </div>
-          <input className={inputClass} readOnly value={status.url || 'about:blank'} aria-label="Current page" />
+          <div className={`flex min-h-0 flex-col overflow-hidden bg-panel ${fullscreen ? 'flex-1 border-0' : 'rounded-xl border border-edge shadow-sm'}`}>
+            <div className="flex shrink-0 items-end gap-1 border-b border-hair bg-neutral px-2 pt-2">
+              <div className="flex min-w-0 max-w-[min(24rem,78%)] items-center gap-2 rounded-t-lg border border-b-0 border-edge bg-surface px-3 py-1.5">
+                <Globe2 size={13} className="shrink-0 text-faint" />
+                <span className="truncate text-xs font-medium text-ink">{pageTitle}</span>
+                {status.loading && <Loader2 size={12} className="shrink-0 animate-spin text-faint" aria-label="Page loading" />}
+              </div>
+              {status.tabs.length > 1 && (
+                <span className="mb-1 rounded-full border border-hair bg-surface px-2 py-0.5 text-[10px] font-medium text-muted">
+                  {status.tabs.length} tabs
+                </span>
+              )}
+              <span className="mb-1 ml-auto inline-flex items-center gap-1.5 px-1 text-[10px] font-medium uppercase tracking-wide text-faint">
+                <span className={`h-1.5 w-1.5 rounded-full ${live ? 'bg-ok-dot' : 'bg-faint'}`} />
+                {live ? 'Live' : 'Connecting'}
+              </span>
+            </div>
 
-          <div
-            className={fullscreen
-              ? 'relative min-h-0 flex-1 overflow-hidden rounded-xl border border-hair bg-sunken'
-              : 'relative overflow-hidden rounded-xl border border-hair bg-sunken'}
-            style={fullscreen ? undefined : { minHeight: 280 }}
-          >
-            <RemoteBrowser
-              ref={viewer}
-              sessionId={credentials.sessionId}
-              viewerToken={credentials.viewerToken}
-              wsUrl={credentials.wsUrl}
-              chrome="none"
-              showSessionStatus={false}
-              interactive={interactive}
-              fullScreen={fullscreen}
-              onExitFullScreen={() => { void exitFullscreen(); }}
-              onControlChange={value => {
-                setLive(true);
-                setSlowConnect(false);
-                setStatus(current => current ? { ...current, control: { ...current.control, holder: value } } : current);
-              }}
-              onTerminated={reason => {
-                setCredentials(null);
-                setCursor(null);
-                setLive(false);
-                setSlowConnect(false);
-                if (fullscreen) void exitFullscreen();
-                setTerminated(reason === 'idle'
-                  ? 'The browser was idle, so it was shut down. Its profile — logins and open pages — is kept; reopen the live view to start it again.'
-                  : `The live view ended (${reason}).`);
-                void refresh();
-              }}
-              onError={onError}
-              style={fullscreen ? { width: '100%', height: '100%' } : { width: '100%', minHeight: 280 }}
-            />
-            {/* The agent's own pointer, harvested from the mouse commands it sends.
-                Positioned as a fraction of the browser viewport, which is what the
-                canvas is showing at any scale. */}
-            {cursor && status.viewport.w > 0 && status.viewport.h > 0 && (
-              <span
-                aria-hidden
-                className={`pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-1/2 rounded-full ${cursor.kind === 'click' ? 'h-4 w-4 bg-accent/60' : 'h-2.5 w-2.5 bg-accent'}`}
-                style={{ left: `${(cursor.x / status.viewport.w) * 100}%`, top: `${(cursor.y / status.viewport.h) * 100}%` }}
-              />
-            )}
+            <div className="flex shrink-0 items-center gap-1 border-b border-hair bg-panel px-2 py-1.5">
+              <NavButton label="Back" disabled={busy !== ''} onClick={() => viewer.current?.back()}><ArrowLeft size={15} /></NavButton>
+              <NavButton label="Forward" disabled={busy !== ''} onClick={() => viewer.current?.forward()}><ArrowRight size={15} /></NavButton>
+              <NavButton label="Reload" disabled={busy !== ''} onClick={() => viewer.current?.reload()}><RotateCw size={14} /></NavButton>
+              <div className="mx-1 flex min-w-0 flex-1 items-center gap-2 rounded-full border border-edge bg-surface px-3 py-1.5" title={address}>
+                {secure ? <Lock size={12} className="shrink-0 text-ok" /> : <Globe2 size={12} className="shrink-0 text-faint" />}
+                <input className="min-w-0 flex-1 truncate bg-transparent text-xs text-soft outline-none" readOnly value={address} aria-label="Current page" />
+              </div>
+            </div>
+
+            <div
+              ref={stageHost}
+              className={fullscreen ? 'flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#0b0d12]' : 'bg-[#0b0d12]'}
+            >
+              <div
+                className={fullscreen ? 'relative shrink-0 overflow-hidden' : 'relative aspect-[4/3] w-full overflow-hidden'}
+                style={fullscreen ? { width: stageBox?.width ?? '100%', height: stageBox?.height ?? '100%' } : undefined}
+              >
+                <RemoteBrowser
+                  ref={viewer}
+                  sessionId={credentials.sessionId}
+                  viewerToken={credentials.viewerToken}
+                  wsUrl={credentials.wsUrl}
+                  chrome="none"
+                  showSessionStatus={false}
+                  interactive={interactive}
+                  fullScreen={false}
+                  onControlChange={value => {
+                    setLive(true);
+                    setSlowConnect(false);
+                    setStatus(current => current ? { ...current, control: { ...current.control, holder: value } } : current);
+                  }}
+                  onTerminated={reason => {
+                    setCredentials(null);
+                    setCursor(null);
+                    setLive(false);
+                    setSlowConnect(false);
+                    if (fullscreen) void exitFullscreen();
+                    setTerminated(reason === 'idle'
+                      ? 'The browser was idle, so it was shut down. Its profile — logins and open pages — is kept; reopen the live view to start it again.'
+                      : `The live view ended (${reason}).`);
+                    void refresh();
+                  }}
+                  onError={onError}
+                  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+                />
+                {blankPage && <BrowserStartPage live={live} />}
+                {/* The agent's own pointer, harvested from the mouse commands it sends.
+                    Positioned as a fraction of the browser viewport, which is what the
+                    canvas is showing at any scale. */}
+                {cursor && status.viewport.w > 0 && status.viewport.h > 0 && (
+                  <span
+                    aria-hidden
+                    className={`pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-full ${cursor.kind === 'click' ? 'h-4 w-4 bg-accent/60' : 'h-2.5 w-2.5 bg-accent'}`}
+                    style={{ left: `${(cursor.x / status.viewport.w) * 100}%`, top: `${(cursor.y / status.viewport.h) * 100}%` }}
+                  />
+                )}
+              </div>
+            </div>
+
+            <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-t border-hair bg-surface px-2 py-2">
+              <button className={buttonClass} disabled={holder !== 'agent' || busy !== ''} onClick={() => void act('take', '/control', { body: JSON.stringify({ action: 'take' }) })}>
+                <MousePointer2 size={13} /> Take control
+              </button>
+              <button className={buttonClass} disabled={holder !== 'human' || busy !== ''} onClick={() => void act('release', '/control', { body: JSON.stringify({ action: 'release' }) })}>Return control</button>
+              <button className={buttonClass} disabled={checking} onClick={() => void diagnose(true)}>
+                {checking ? <><Loader2 size={13} className="animate-spin" /> Checking…</> : 'Check bot connection'}
+              </button>
+              <button className={buttonClass} onClick={() => void (fullscreen ? exitFullscreen() : enterFullscreen())}>
+                {fullscreen ? <><Minimize2 size={13} /> Exit fullscreen</> : <><Maximize2 size={13} /> Fullscreen</>}
+              </button>
+              <button className={buttonClass} disabled={busy !== ''} onClick={() => void act('stop', '/stop').then(closeViewer)}>
+                <Square size={12} /> Stop browser
+              </button>
+              <button className={buttonClass} onClick={closeViewer}>
+                <EyeOff size={13} /> Hide view
+              </button>
+            </div>
           </div>
 
           {!fullscreen && !interactive && <p className="text-xs text-muted">The bot is driving. Take control to click and type yourself; the bot’s changes are held until you hand it back.</p>}

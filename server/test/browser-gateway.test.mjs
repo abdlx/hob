@@ -260,6 +260,7 @@ test('gateway: the viewer streams frames and drives the browser while in control
   assert.equal(hello.sessionId, 'alpha');
   assert.equal(hello.control.holder, 'agent');
   assert.ok(hello.viewport.w > 0 && hello.viewport.h > 0);
+  assert.equal(hello.viewport.w * 3, hello.viewport.h * 4, 'the managed browser viewport is 4:3');
 
   // Frames arrive as a JSON header followed by a binary JPEG.
   await waitFor(() => viewer.received.some(message => message.t === 'frame'));

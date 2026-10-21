@@ -22,7 +22,7 @@ import { ControlLease, AGENT, HUMAN } from './browser-lease.mjs';
 import { CdpConnection } from './browser-cdp-client.mjs';
 import { PipeCdpConnection } from './browser-pipe.mjs';
 import { ModifierState, inputCommands } from './browser-input.mjs';
-import { closeBrowserGracefully, closePipeGracefully, cdpTransportMode, launchChromium, probeCdp, probePipe, resolveChromiumExecutable, markProfileOwned, stopChromium } from './browser-launcher.mjs';
+import { BROWSER_VIEWPORT, closeBrowserGracefully, closePipeGracefully, cdpTransportMode, launchChromium, probeCdp, probePipe, resolveChromiumExecutable, markProfileOwned, stopChromium } from './browser-launcher.mjs';
 
 // CDP error code for a command the gateway refused to forward. Hermes surfaces
 // the message verbatim to the model, so it names the reason and the remedy.
@@ -366,7 +366,7 @@ export class BrowserSession {
   #stateListeners = new Set();
   #castCdp = null; #castSessionId = null; #castTargetId = null; #castPinned = false;
   #frameSeq = 0; #lastFrame = null; #lastFrameAt = 0;
-  #viewport = { w: 1280, h: 800 };
+  #viewport = { ...BROWSER_VIEWPORT };
   #tabs = [];
   #page = { url: '', title: '', loading: false };
   #lastError = null;

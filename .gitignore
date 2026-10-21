@@ -23,3 +23,6 @@ web/.env.*
 hermes/
 openclaw-halfway-modified/
 __pycache__/
+stale-harnesses/
+browser_integration/
+docs/
