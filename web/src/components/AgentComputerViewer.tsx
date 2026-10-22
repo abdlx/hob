@@ -78,6 +78,7 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
       if (!mountedRef.current) return;
       setStatus(data);
       if (data.error) setError(data.error);
+      else setError('');
       if (data.computer?.id && !selectedCompId) {
         setSelectedCompId(data.computer.id);
       }

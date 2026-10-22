@@ -2,6 +2,33 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 
+function normalizeMcpUrl(rawUrl, defaultOrigin = 'https://agentcomputer.idkwihl.site') {
+  if (!rawUrl || typeof rawUrl !== 'string') return `${defaultOrigin}/mcp`;
+  let str = rawUrl.trim().replace(/\/+$/, '');
+  try {
+    const u = new URL(str);
+    if (!u.pathname || u.pathname === '/' || u.pathname === '') {
+      u.pathname = '/mcp';
+      return u.href;
+    }
+    if (!u.pathname.endsWith('/mcp')) {
+      u.pathname = u.pathname.replace(/\/+$/, '') + '/mcp';
+      return u.href;
+    }
+    return u.href;
+  } catch {
+    return `${defaultOrigin}/mcp`;
+  }
+}
+
+function getOrigin(rawUrl, defaultOrigin = 'https://agentcomputer.idkwihl.site') {
+  try {
+    return new URL(rawUrl).origin;
+  } catch {
+    return defaultOrigin;
+  }
+}
+
 export function createAgentComputerRoutes({ client, hermesHome } = {}) {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -18,36 +45,52 @@ export function createAgentComputerRoutes({ client, hermesHome } = {}) {
       try {
         if (fs.existsSync(filePath)) {
           const raw = fs.readFileSync(filePath, 'utf8');
-          // Parse lines directly without fragile regex
-          const lines = raw.split(/\r?\n/);
-          let inAgentComputer = false;
-          let mcpUrl = '';
-          let token = '';
+          let parsedUrl = '';
+          let parsedToken = '';
 
-          for (const line of lines) {
-            if (/agent_computer|agent-computer/i.test(line)) {
-              inAgentComputer = true;
-            } else if (inAgentComputer && /^[\s]*[a-zA-Z0-9_-]+:/i.test(line) && !/^[\s]{4,}/.test(line)) {
-              inAgentComputer = false;
+          // 1a. Try JSON parse if config is stored as JSON
+          try {
+            const jsonMatch = raw.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const parsed = JSON.parse(jsonMatch[0]);
+              const srv = parsed.mcp_servers?.agent_computer || parsed.mcp_servers?.['agent-computer'];
+              if (srv) {
+                parsedUrl = srv.url || '';
+                const auth = srv.headers?.Authorization || srv.headers?.authorization || '';
+                const m = /Bearer\s+([^\s"']+)/i.exec(auth);
+                if (m) parsedToken = m[1];
+              }
             }
+          } catch {}
 
-            if (inAgentComputer) {
-              const urlMatch = /url:\s*["']?([^"'\s]+)/i.exec(line);
-              if (urlMatch) mcpUrl = urlMatch[1];
-              const authMatch = /(?:Authorization:\s*["']?Bearer\s+|bearer_token:\s*["']?)([^"'\s}]+)/i.exec(line);
-              if (authMatch) token = authMatch[1];
+          // 1b. Line-by-line regex with robust quote and format handling
+          if (!parsedUrl) {
+            const lines = raw.split(/\r?\n/);
+            let inAgent = false;
+            for (const line of lines) {
+              if (/["']?agent[-_]computer["']?\s*:/i.test(line)) {
+                inAgent = true;
+              } else if (inAgent && /^\s*["']?[a-zA-Z0-9_-]+["']?\s*:/i.test(line) && !/^\s{4,}/.test(line)) {
+                inAgent = false;
+              }
+              if (inAgent) {
+                const u = /["']?url["']?\s*:\s*["']?([^"'\s,]+)/i.exec(line);
+                if (u) parsedUrl = u[1];
+                const t = /(?:Authorization["']?\s*:\s*["']?Bearer\s+|bearer_token["']?\s*:\s*["']?)([^"'\s},]+)/i.exec(line);
+                if (t) parsedToken = t[1];
+              }
             }
           }
 
-          if (mcpUrl) {
-            let origin = 'https://agentcomputer.idkwihl.site';
-            try { origin = new URL(mcpUrl).origin; } catch {}
+          if (parsedUrl) {
+            const mcpUrl = normalizeMcpUrl(parsedUrl);
+            const origin = getOrigin(mcpUrl);
             return {
               connected: true,
               serverName: 'agent_computer',
               mcpUrl,
               origin,
-              token: token || process.env.AGENT_COMPUTER_TOKEN || 'acp_mkNFbFRcWxE0H2jkuMaG7sfsN7OBGaSb',
+              token: parsedToken || process.env.AGENT_COMPUTER_TOKEN || 'acp_mkNFbFRcWxE0H2jkuMaG7sfsN7OBGaSb',
               source: filePath,
             };
           }
@@ -69,9 +112,9 @@ export function createAgentComputerRoutes({ client, hermesHome } = {}) {
             (srv.name && srv.name.toLowerCase().includes('computer'))
           );
           if (s && s.enabled !== false) {
-            const mcpUrl = s.url || process.env.AGENT_COMPUTER_URL || 'https://agentcomputer.idkwihl.site/mcp';
-            let origin = 'https://agentcomputer.idkwihl.site';
-            try { origin = new URL(mcpUrl).origin; } catch {}
+            const rawUrl = s.url || process.env.AGENT_COMPUTER_URL || 'https://agentcomputer.idkwihl.site/mcp';
+            const mcpUrl = normalizeMcpUrl(rawUrl);
+            const origin = getOrigin(mcpUrl);
             const token = process.env.AGENT_COMPUTER_TOKEN || 'acp_mkNFbFRcWxE0H2jkuMaG7sfsN7OBGaSb';
             return {
               connected: true,
@@ -90,9 +133,8 @@ export function createAgentComputerRoutes({ client, hermesHome } = {}) {
 
     // 3. Fallback to process.env if explicitly set or default if connected
     if (process.env.AGENT_COMPUTER_URL || process.env.AGENT_COMPUTER_TOKEN) {
-      const mcpUrl = process.env.AGENT_COMPUTER_URL || 'https://agentcomputer.idkwihl.site/mcp';
-      let origin = 'https://agentcomputer.idkwihl.site';
-      try { origin = new URL(mcpUrl).origin; } catch {}
+      const mcpUrl = normalizeMcpUrl(process.env.AGENT_COMPUTER_URL);
+      const origin = getOrigin(mcpUrl);
       return {
         connected: true,
         serverName: 'agent_computer',
@@ -104,45 +146,126 @@ export function createAgentComputerRoutes({ client, hermesHome } = {}) {
     }
 
     // 4. Default fallback: user indicated agent_computer is registered in /opt/data/config.yaml
+    const defaultUrl = normalizeMcpUrl('https://agentcomputer.idkwihl.site/mcp');
     return {
       connected: true,
       serverName: 'agent_computer',
-      mcpUrl: 'https://agentcomputer.idkwihl.site/mcp',
-      origin: 'https://agentcomputer.idkwihl.site',
+      mcpUrl: defaultUrl,
+      origin: getOrigin(defaultUrl),
       token: 'acp_mkNFbFRcWxE0H2jkuMaG7sfsN7OBGaSb',
       source: 'default-mcp',
     };
   }
 
   async function callMcpTool(cfg, toolName, args = {}) {
-    const res = await fetch(cfg.mcpUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(cfg.token ? { 'Authorization': 'Bearer ' + cfg.token } : {}),
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: Date.now(),
-        method: 'tools/call',
-        params: {
-          name: toolName,
-          arguments: args,
-        },
-      }),
-    });
-    if (!res.ok) {
-      throw new Error('MCP tool call ' + toolName + ' failed: HTTP ' + res.status);
+    const normalizedUrl = normalizeMcpUrl(cfg.mcpUrl, cfg.origin || 'https://agentcomputer.idkwihl.site');
+    const endpointsToTry = [
+      normalizedUrl,
+      (cfg.origin ? `${cfg.origin.replace(/\/+$/, '')}/mcp` : 'https://agentcomputer.idkwihl.site/mcp'),
+    ];
+
+    let lastError = null;
+    const uniqueEndpoints = [...new Set(endpointsToTry)];
+
+    for (const targetUrl of uniqueEndpoints) {
+      try {
+        const res = await fetch(targetUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(cfg.token ? { 'Authorization': 'Bearer ' + cfg.token } : {}),
+          },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: Date.now(),
+            method: 'tools/call',
+            params: {
+              name: toolName,
+              arguments: args,
+            },
+          }),
+        });
+
+        if (res.status === 404) {
+          lastError = new Error(`MCP tool call ${toolName} failed (${targetUrl}): HTTP 404`);
+          continue;
+        }
+
+        if (!res.ok) {
+          throw new Error(`MCP tool call ${toolName} failed: HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        if (data.error) {
+          throw new Error(data.error.message || (`MCP error in ${toolName}`));
+        }
+        const textContent = data.result?.content?.[0]?.text;
+        if (textContent) {
+          try { return JSON.parse(textContent); } catch { return textContent; }
+        }
+        return data.result;
+      } catch (err) {
+        lastError = err;
+      }
     }
-    const data = await res.json();
-    if (data.error) {
-      throw new Error(data.error.message || ('MCP error in ' + toolName));
+
+    // Direct REST API fallback on the control plane if MCP call encounters 404
+    const origin = (cfg.origin || 'https://agentcomputer.idkwihl.site').replace(/\/+$/, '');
+    if (toolName === 'computer_list') {
+      try {
+        const res = await fetch(`${origin}/api/computers`, {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(cfg.token ? { 'Authorization': 'Bearer ' + cfg.token } : {}),
+          },
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (Array.isArray(json.computers)) return json.computers;
+        }
+      } catch {}
+    } else if (toolName === 'computer_status' && args.computer) {
+      try {
+        const res = await fetch(`${origin}/api/computers/${encodeURIComponent(args.computer)}`, {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(cfg.token ? { 'Authorization': 'Bearer ' + cfg.token } : {}),
+          },
+        });
+        if (res.ok) {
+          const json = await res.json();
+          return json.computer || json;
+        }
+      } catch {}
+    } else if (toolName === 'computer_wake' && args.computer) {
+      try {
+        const res = await fetch(`${origin}/api/computers/${encodeURIComponent(args.computer)}/wake`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(cfg.token ? { 'Authorization': 'Bearer ' + cfg.token } : {}),
+          },
+        });
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch {}
+    } else if (toolName === 'computer_sleep' && args.computer) {
+      try {
+        const res = await fetch(`${origin}/api/computers/${encodeURIComponent(args.computer)}/sleep`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(cfg.token ? { 'Authorization': 'Bearer ' + cfg.token } : {}),
+          },
+        });
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch {}
     }
-    const textContent = data.result?.content?.[0]?.text;
-    if (textContent) {
-      try { return JSON.parse(textContent); } catch { return textContent; }
-    }
-    return data.result;
+
+    throw lastError || new Error(`MCP tool call ${toolName} failed`);
   }
 
   async function route(req, res, url, { json, body }) {
@@ -168,6 +291,7 @@ export function createAgentComputerRoutes({ client, hermesHome } = {}) {
           connected: true,
           serverName: cfg.serverName,
           origin: cfg.origin,
+          mcpUrl: cfg.mcpUrl,
           computers: Array.isArray(computers) ? computers : [],
           computer: detailedStatus || activeComp,
         });
@@ -176,6 +300,7 @@ export function createAgentComputerRoutes({ client, hermesHome } = {}) {
           connected: true,
           serverName: cfg.serverName,
           origin: cfg.origin,
+          mcpUrl: cfg.mcpUrl,
           error: err.message,
         });
       }
