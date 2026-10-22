@@ -48,6 +48,9 @@ interface AgentComputerStatus {
   connected: boolean;
   serverName?: string;
   origin?: string;
+  mcpUrl?: string;
+  vncToken?: string;
+  directWsUrl?: string;
   computers?: Computer[];
   computer?: Computer | null;
   error?: string;
@@ -72,6 +75,7 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
   const computerRef = useRef<Computer | null>(null);
   const prevRunningRef = useRef(false);
   const currentComputerIdRef = useRef('');
+  const useProxyRef = useRef(false);
 
   // Load status from HOB server
   const loadStatus = useCallback(async (silent = false) => {
@@ -142,7 +146,7 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
       }
     };
 
-    const pumpInterval = setInterval(triggerUpdate, 150);
+    const pumpInterval = setInterval(triggerUpdate, 40);
     const onVisibility = () => {
       if (document.visibilityState === 'visible') triggerUpdate();
     };
@@ -176,7 +180,14 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
     }
 
     const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${scheme}//${window.location.host}/api/hermes/agent-computer/vnc?profile=${encodeURIComponent(profile)}&computerId=${encodeURIComponent(comp.id)}`;
+    const proxyUrl = `${scheme}//${window.location.host}/api/hermes/agent-computer/vnc?profile=${encodeURIComponent(profile)}&computerId=${encodeURIComponent(comp.id)}`;
+
+    const directOrigin = status?.origin ? status.origin.replace(/^http/, 'ws').replace(/\/+$/, '') : 'wss://agentcomputer.idkwihl.site';
+    const token = status?.vncToken;
+    const directWsUrl = token ? `${directOrigin}/api/computers/${encodeURIComponent(comp.id)}/vnc?token=${encodeURIComponent(token)}` : '';
+
+    // Connect directly to Agent Computer control plane for zero-hop low latency & smooth 60fps streaming!
+    const wsUrl = (!useProxyRef.current && directWsUrl) ? directWsUrl : proxyUrl;
 
     intentionalCloseRef.current = false;
     isConnectingRef.current = true;
@@ -189,7 +200,10 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
         wsProtocols: ['binary'],
       });
       rfb.scaleViewport = true;
+      rfb.clipViewport = false;
       rfb.background = '#000000';
+      rfb.qualityLevel = 6;
+      rfb.compressionLevel = 2;
 
       // Override encodings to fix the frozen view:
       // 1. Omit continuous updates (-313) which desyncs with TigerVNC
@@ -239,6 +253,13 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
         if (intentionalCloseRef.current) {
           intentionalCloseRef.current = false;
           setConnState('idle');
+          return;
+        }
+
+        // If direct connection failed or dropped, gracefully fall back to server proxy
+        if (!useProxyRef.current && directWsUrl) {
+          useProxyRef.current = true;
+          connect(true);
           return;
         }
 
@@ -429,7 +450,7 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
           <>
             <div
               ref={screenRef}
-              className="w-full h-full cursor-default select-none overflow-hidden"
+              className="w-full h-full cursor-default select-none overflow-hidden [&>div]:w-full [&>div]:h-full [&_canvas]:w-full [&_canvas]:h-full [&_canvas]:object-contain"
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             />
             {connState === 'connecting' && (

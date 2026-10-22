@@ -304,11 +304,14 @@ export function createAgentComputerRoutes({ client, hermesHome } = {}) {
             detailedStatus = await callMcpTool(cfg, 'computer_status', { computer: activeComp.id });
           } catch {}
         }
+        const activeCompId = detailedStatus?.id || activeComp?.id || 'main-agent-153436';
         return json(res, 200, {
           connected: true,
           serverName: cfg.serverName,
           origin: cfg.origin,
           mcpUrl: cfg.mcpUrl,
+          vncToken: cfg.token,
+          directWsUrl: `${cfg.origin.replace(/^http/, 'ws')}/api/computers/${encodeURIComponent(activeCompId)}/vnc?token=${encodeURIComponent(cfg.token)}`,
           computers: Array.isArray(computers) ? computers : [],
           computer: detailedStatus || activeComp,
         });
