@@ -22,11 +22,13 @@ import { ControlLease, AGENT, HUMAN } from './browser-lease.mjs';
 import { CdpConnection } from './browser-cdp-client.mjs';
 import { PipeCdpConnection } from './browser-pipe.mjs';
 import { ModifierState, inputCommands } from './browser-input.mjs';
+import { PrecisionError, isPrecisionMethod, precisionHelp, runPrecisionMethod } from './browser-precision.mjs';
 import { BROWSER_VIEWPORT, closeBrowserGracefully, closePipeGracefully, cdpTransportMode, launchChromium, probeCdp, probePipe, resolveChromiumExecutable, markProfileOwned, stopChromium } from './browser-launcher.mjs';
 
 // CDP error code for a command the gateway refused to forward. Hermes surfaces
 // the message verbatim to the model, so it names the reason and the remedy.
 const CDP_DENIED = -32001;
+const CDP_FAILED = -32000;
 const MAX_VIEWER_BUFFER = 8 * 1024 * 1024;
 // The legacy, non-flattened `Target.sendMessageToTarget` tunnel gives no reply
 // we can correlate, so it holds the drain barrier for a bounded window instead.
@@ -255,6 +257,10 @@ class AgentProxy {
     }
     this.#track(id, admission.release, 0, message);
     if (this.#closed) return;
+    if (isPrecisionMethod(method)) {
+      await this.#runPrecision(message);
+      return;
+    }
     // The agent's CDP traffic is forwarded untouched and immediately: the live
     // viewer animates its own pointer towards the coordinates reported here, so
     // the page never waits on a visual effect.
@@ -263,6 +269,49 @@ class AgentProxy {
     });
     if (sampleFocus) this.#focusAfterReply.add(id);
     this.#forward(text);
+  }
+
+  /**
+   * Gateway-side precision input: the caller gets the element that was actually
+   * under the point, and a verified click never presses unless that element is
+   * the one it asked for. The action runs on a page-bound connection so it is
+   * ordered independently of any other client's CDP session.
+   */
+  async #runPrecision(message) {
+    const { id, method, params } = message;
+    try {
+      if (method === 'Hob.input.help') {
+        this.#sendClient({ id, result: precisionHelp() });
+        return;
+      }
+      const targetId = this.#targetId || this.#attachedTargets.get(message.sessionId) || null;
+      const result = await this.#session.runPreciseInput(targetId, method, params, {
+        signal: this.#abort.signal,
+        onInput: (inputMethod, inputParams) => this.#session.noteAgentActivity(inputMethod, inputParams, { targetId }),
+        onTyping: () => this.#session.sampleFocusPoint(),
+      });
+      this.#sendClient({ id, result });
+    } catch (error) {
+      const denial = error instanceof PrecisionError ? error : null;
+      this.#sendClient({
+        id,
+        error: {
+          code: CDP_FAILED,
+          message: denial?.message || error?.message || 'Precision input failed.',
+          ...(denial?.hit ? { data: { hit: denial.hit } } : {}),
+        },
+      });
+    } finally {
+      this.#settle(id);
+    }
+  }
+
+  #settle(id) {
+    const entry = this.#inFlight.get(id);
+    if (!entry) return;
+    this.#inFlight.delete(id);
+    if (entry.timer) clearTimeout(entry.timer);
+    entry.release();
   }
 
   // Non-flattened session traffic hides the real command inside a JSON string
@@ -1073,6 +1122,21 @@ export class BrowserSession {
     return new WebSocket(url, { maxPayload: MAX_CDP_FRAME, perMessageDeflate: false });
   }
 
+  /**
+   * Run one exact-coordinate action against a page. This opens a page-bound CDP
+   * connection (or a page channel over a pipe) so the action cannot interleave
+   * with the caller's own session, and closes it when the action is done.
+   */
+  async runPreciseInput(targetId, method, params, hooks = {}) {
+    if (!targetId) throw new BrowserUnavailableError('Attach to a page before using Hob.input.*.');
+    const cdp = await this.#openPageConnection(targetId);
+    try {
+      return await runPrecisionMethod(cdp, method, params, hooks);
+    } finally {
+      cdp.close();
+    }
+  }
+
   /** HOB's own long-lived CDP connection (tab discovery, screencast, viewer input). */
   async #openInternalConnection({ onEvent, onClose }) {
     await this.#ensureChromium();
@@ -1083,6 +1147,24 @@ export class BrowserSession {
     const version = await probeCdp(this.#chromiumPort, { timeoutMs: 2000 });
     if (!version?.webSocketDebuggerUrl) throw new BrowserUnavailableError('The browser did not report a WebSocket endpoint.');
     const cdp = new CdpConnection(version.webSocketDebuggerUrl, { onEvent, onClose });
+    await cdp.connect();
+    return cdp;
+  }
+
+  /** A short-lived page-level connection for a single verified input action. */
+  async #openPageConnection(targetId) {
+    await this.#ensureChromium();
+    if (this.#pipe) {
+      if (this.#pipe.closed) throw new BrowserUnavailableError('The browser connection closed.');
+      const channel = await this.#pipe.createChannel({ kind: 'page', targetId, label: 'precision' });
+      return new PipeCdpConnection(channel, { onEvent: () => undefined, onClose: () => undefined });
+    }
+    const version = await probeCdp(this.#chromiumPort, { timeoutMs: 2000 });
+    if (!version?.webSocketDebuggerUrl) throw new BrowserUnavailableError('The browser did not report a WebSocket endpoint.');
+    const cdp = new CdpConnection(
+      `ws://127.0.0.1:${this.#chromiumPort}/devtools/page/${encodeURIComponent(targetId)}`,
+      { onEvent: () => undefined, onClose: () => undefined },
+    );
     await cdp.connect();
     return cdp;
   }

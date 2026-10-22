@@ -156,14 +156,44 @@ tab files are preserved. Pages reload on restore; unsaved forms, running
 JavaScript, expired site sessions and state that a website deletes cannot be
 guaranteed to survive. Back up the entire state volume while stopped.
 
-Agent mouse moves use bounded intermediate CDP input events with a visible
-pointer in the viewer. Direct primary-button clicks move to the requested
-coordinate, allow 50 ms for hover handlers, and hold the press for at least
-50 ms before forwarding the requested release. Clicks are not retried or
-duplicated. This adapts the native mouse sequence in
-[jo-inc/camofox-browser](https://github.com/jo-inc/camofox-browser/blob/master/server.js)
-to CDP; the curve generator is independent. The gateway cancels pending input
-delays when a client disconnects and maintains pointer position across agent
+Agent input is forwarded to Chromium immediately and unchanged: the gateway
+does not synthesize a trajectory or insert hover/press delays. The viewer
+pointer animates towards each reported coordinate on its own, so the visible
+cursor glides while the page receives the exact event with no added latency.
+Click indicators are visual only; they never gate or retry the input.
+
+For coordinate work that must not miss, the gateway also exposes exact
+precision methods through `browser_cdp`. Coordinates are viewport CSS pixels.
+A verified click hit-tests the point first and refuses to press unless the
+element actually under it matches `expected`:
+
+| Method | Parameters |
+| --- | --- |
+| `Hob.input.move` | `x`, `y`, optional `modifiers` |
+| `Hob.input.click` | `x`, `y`, `button`, `clickCount`, `delayMs`, `verify` (default true), `expected` |
+| `Hob.input.drag` | `from`, `to`, `button`, `steps`, optional start-point `expected` |
+| `Hob.input.type` | `text`, optional `x`/`y` to click first, `replace` |
+| `Hob.input.key` | `key` (`Enter`, `Tab`, `Control+a`, `Shift+ArrowDown`, ...) |
+| `Hob.input.scroll` | `x`, `y`, `deltaY`, optional `deltaX` |
+| `Hob.input.hitTest` | `x`, `y`, optional `expected` |
+
+`expected` is either a case-insensitive string matched against the hit
+element's tag, id, class, role or own text, or an object such as
+`{ "tag": "button", "text": "Sign in" }`. A mismatch returns an error and the
+click does not happen. `Hob.input.help` returns the full parameter list.
+Precision actions act on a page, so pass the tab as `target_id` on the
+`browser_cdp` call; `Hob.input.help` works without one.
+
+```json
+{"method":"Hob.input.click","params":{"x":760,"y":540,"expected":{"tag":"button","text":"Sign in"}}}
+{"method":"Hob.input.drag","params":{"from":{"x":100,"y":300},"to":{"x":400,"y":300},"steps":12}}
+{"method":"Hob.input.scroll","params":{"x":640,"y":512,"deltaY":600}}
+```
+
+These actions obey the same control lease as raw CDP: while a person holds
+control, an agent request waits and is then refused rather than mutating the
+page. They emit normal input activity, so the viewer pointer and click
+indicator follow them. The gateway maintains pointer position across agent
 connections for each bot.
 
 Chromium starts with `--disable-blink-features=AutomationControlled`, which

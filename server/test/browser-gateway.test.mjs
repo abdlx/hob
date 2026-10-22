@@ -547,6 +547,151 @@ test('gateway: direct CDP clicks pass through without a synthesized trajectory',
   assert.equal(clicks[0].target, 'BUTTON');
 });
 
+test('gateway: precision click verifies the hit element and reports cursor activity', async t => {
+  const started = await startManager(t);
+  if (!started) return;
+  const session = await started.manager.ensure('alpha');
+  const agent = await agentClient(session);
+  t.after(() => agent.raw.close());
+
+  await agent.raw.call('Page.navigate', { url: dataUrl(`
+    <title>PRECISION</title>
+    <button id="target" style="position:absolute;left:700px;top:500px;width:120px;height:80px">Target</button>
+    <script>
+      window.clicks = 0;
+      document.getElementById('target').addEventListener('click', () => { window.clicks += 1; });
+    </script>
+  `) }, agent.sessionId);
+  await waitFor(async () => (await titleOf(agent)) === 'PRECISION');
+
+  const seen = [];
+  const unsubscribe = session.onActivity(payload => seen.push(payload));
+  t.after(unsubscribe);
+
+  const reply = await agent.raw.call('Hob.input.click', {
+    x: 760, y: 540, expected: { tag: 'button', text: 'Target' },
+  }, agent.sessionId);
+  assert.equal(reply.error, undefined, reply.error?.message);
+  assert.equal(reply.result.ok, true);
+  assert.equal(reply.result.hit.tag, 'button');
+  assert.equal(reply.result.hit.id, 'target');
+  assert.ok(reply.result.hit.box, 'the hit element must report its box');
+  assert.equal((await evaluate(agent, 'window.clicks')).result.result.value, 1);
+
+  // The viewer cursor is driven by the same exact coordinates as the click.
+  assert.ok(seen.some(event => event.type === 'cursor' && event.x === 760 && event.y === 540));
+  assert.deepEqual(seen.filter(event => event.type === 'click').map(event => event.phase), ['down', 'up']);
+});
+
+test('gateway: precision click refuses a point that hits the wrong element', async t => {
+  const started = await startManager(t);
+  if (!started) return;
+  const session = await started.manager.ensure('alpha');
+  const agent = await agentClient(session);
+  t.after(() => agent.raw.close());
+
+  await agent.raw.call('Page.navigate', { url: dataUrl(`
+    <title>REFUSE</title>
+    <button id="target" style="position:absolute;left:700px;top:500px;width:120px;height:80px">Target</button>
+    <script>
+      window.clicks = 0;
+      document.getElementById('target').addEventListener('click', () => { window.clicks += 1; });
+    </script>
+  `) }, agent.sessionId);
+  await waitFor(async () => (await titleOf(agent)) === 'REFUSE');
+
+  const reply = await agent.raw.call('Hob.input.click', {
+    x: 20, y: 20, expected: 'Target',
+  }, agent.sessionId);
+  assert.ok(reply.error, 'a point over the wrong element must not be clicked');
+  assert.match(reply.error.message, /does not match/);
+  assert.equal((await evaluate(agent, 'window.clicks')).result.result.value, 0);
+});
+
+test('gateway: precision keyboard, drag and scroll use exact coordinates', async t => {
+  const started = await startManager(t);
+  if (!started) return;
+  const session = await started.manager.ensure('alpha');
+  const agent = await agentClient(session);
+  t.after(() => agent.raw.close());
+
+  await agent.raw.call('Page.navigate', { url: dataUrl(`
+    <title>INPUTS</title>
+    <input id="field" style="position:absolute;left:100px;top:80px;width:240px;height:40px">
+    <div id="track" style="position:absolute;left:100px;top:300px;width:300px;height:60px;background:#eee"></div>
+    <div style="height:2000px"></div>
+    <script>
+      window.trackEvents = [];
+      window.keyEvents = [];
+      for (const type of ['mousedown', 'mousemove', 'mouseup']) {
+        document.getElementById('track').addEventListener(type, event => {
+          window.trackEvents.push({ type, x: event.clientX, y: event.clientY });
+        });
+      }
+      addEventListener('keydown', event => window.keyEvents.push({ key: event.key, code: event.code, ctrl: event.ctrlKey }));
+    </script>
+  `) }, agent.sessionId);
+  await waitFor(async () => (await titleOf(agent)) === 'INPUTS');
+
+  let reply = await agent.raw.call('Hob.input.click', { x: 200, y: 100 }, agent.sessionId);
+  assert.equal(reply.error, undefined, reply.error?.message);
+  reply = await agent.raw.call('Hob.input.type', { text: 'hello' }, agent.sessionId);
+  assert.equal(reply.error, undefined, reply.error?.message);
+  assert.equal((await evaluate(agent, `document.getElementById('field').value`)).result.result.value, 'hello');
+
+  reply = await agent.raw.call('Hob.input.type', { text: 'bye', replace: true }, agent.sessionId);
+  assert.equal(reply.error, undefined, reply.error?.message);
+  assert.equal((await evaluate(agent, `document.getElementById('field').value`)).result.result.value, 'bye');
+
+  reply = await agent.raw.call('Hob.input.key', { key: 'Enter' }, agent.sessionId);
+  assert.equal(reply.error, undefined, reply.error?.message);
+  const keys = (await evaluate(agent, 'window.keyEvents')).result.result.value;
+  assert.equal(keys.at(-1).key, 'Enter');
+  assert.equal(keys.at(-1).code, 'Enter');
+
+  reply = await agent.raw.call('Hob.input.key', { key: 'Shift+a' }, agent.sessionId);
+  assert.equal(reply.error, undefined, reply.error?.message);
+  assert.equal((await evaluate(agent, 'window.keyEvents')).result.result.value.at(-1).key, 'A');
+  assert.equal((await evaluate(agent, `document.getElementById('field').value`)).result.result.value, 'byeA');
+
+  reply = await agent.raw.call('Hob.input.drag', {
+    from: { x: 150, y: 330 }, to: { x: 350, y: 330 }, steps: 5,
+  }, agent.sessionId);
+  assert.equal(reply.error, undefined, reply.error?.message);
+  const events = (await evaluate(agent, 'window.trackEvents')).result.result.value;
+  const down = events.find(event => event.type === 'mousedown');
+  const up = [...events].reverse().find(event => event.type === 'mouseup');
+  assert.deepEqual({ x: down.x, y: down.y }, { x: 150, y: 330 });
+  assert.deepEqual({ x: up.x, y: up.y }, { x: 350, y: 330 });
+  assert.ok(events.filter(event => event.type === 'mousemove').length >= 5);
+
+  reply = await agent.raw.call('Hob.input.scroll', { x: 400, y: 400, deltaY: 400 }, agent.sessionId);
+  assert.equal(reply.error, undefined, reply.error?.message);
+  await waitFor(async () => (await evaluate(agent, 'window.scrollY')).result.result.value > 0);
+});
+
+test('gateway: precision input exposes its methods and obeys the human lease', async t => {
+  const started = await startManager(t);
+  if (!started) return;
+  const session = await started.manager.ensure('alpha');
+  const agent = await agentClient(session);
+  t.after(() => agent.raw.close());
+
+  const help = await agent.raw.call('Hob.input.help', {}, agent.sessionId);
+  assert.equal(help.error, undefined);
+  assert.ok(help.result.methods['Hob.input.click']);
+
+  const viewer = await createViewer(session);
+  t.after(() => viewer.close());
+  await waitFor(() => viewer.hello());
+  viewer.send({ t: 'request_control' });
+  await waitFor(() => session.status().control.holder === 'human');
+
+  const blocked = await agent.raw.call('Hob.input.click', { x: 20, y: 20, verify: false }, agent.sessionId);
+  assert.ok(blocked.error, 'precision input must not bypass human control');
+  assert.equal(blocked.error.code, -32001);
+});
+
 test('gateway: agent mouse commands are reported as viewer cursor activity', async t => {
   const started = await startManager(t);
   if (!started) return;
