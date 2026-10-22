@@ -69,6 +69,9 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
   const retryTimeoutRef = useRef<any>(null);
   const retryCountRef = useRef(0);
   const mountedRef = useRef(true);
+  const computerRef = useRef<Computer | null>(null);
+  const prevRunningRef = useRef(false);
+  const currentComputerIdRef = useRef('');
 
   // Load status from HOB server
   const loadStatus = useCallback(async (silent = false) => {
@@ -106,6 +109,7 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
   }, [loadStatus]);
 
   const activeComputer = status?.computers?.find(c => c.id === selectedCompId) || status?.computer || null;
+  computerRef.current = activeComputer;
   const isRunning = activeComputer?.state === 'ready';
 
   // Active streaming pump: requests 150ms incremental updates so live desktop never freezes
@@ -150,11 +154,10 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('focus', onVisibility);
     };
-  }, []);
-
-  // Connect to noVNC stream
+  }, []);  // Connect to noVNC stream
   const connect = useCallback((force = false) => {
-    if (!screenRef.current || !activeComputer || !isRunning) return;
+    const comp = computerRef.current;
+    if (!screenRef.current || !comp || comp.state !== 'ready') return;
     if (!force && (isConnectedRef.current || isConnectingRef.current) && rfbRef.current) {
       return;
     }
@@ -173,7 +176,7 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
     }
 
     const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${scheme}//${window.location.host}/api/hermes/agent-computer/vnc?profile=${encodeURIComponent(profile)}&computerId=${encodeURIComponent(activeComputer.id)}`;
+    const wsUrl = `${scheme}//${window.location.host}/api/hermes/agent-computer/vnc?profile=${encodeURIComponent(profile)}&computerId=${encodeURIComponent(comp.id)}`;
 
     intentionalCloseRef.current = false;
     isConnectingRef.current = true;
@@ -239,7 +242,10 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
           return;
         }
 
-        if (isRunning) {
+        const currComp = computerRef.current;
+        const stillRunning = currComp && currComp.state === 'ready';
+
+        if (stillRunning) {
           retryCountRef.current += 1;
           setConnState('connecting');
           const delay = Math.min(500 * Math.pow(1.5, Math.min(retryCountRef.current - 1, 4)), 2000);
@@ -259,13 +265,23 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
       setConnState('failed');
       setError(err?.message || 'Failed to initialize RFB viewer');
     }
-  }, [activeComputer, isRunning, profile]);
+  }, [profile]);
 
-  // Trigger connect / disconnect based on running state
+  // Trigger connect / disconnect based on running state and computerId transitions
   useEffect(() => {
-    if (isRunning) {
-      connect();
+    if (!activeComputer) return;
+    const running = activeComputer.state === 'ready';
+    const compId = activeComputer.id;
+
+    if (running) {
+      const compChanged = currentComputerIdRef.current !== compId;
+      if (!prevRunningRef.current || compChanged || (!isConnectedRef.current && !isConnectingRef.current && !rfbRef.current)) {
+        prevRunningRef.current = true;
+        currentComputerIdRef.current = compId;
+        connect();
+      }
     } else {
+      prevRunningRef.current = false;
       if (rfbRef.current) {
         intentionalCloseRef.current = true;
         try { rfbRef.current.disconnect(); } catch {}
@@ -275,15 +291,20 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
       isConnectingRef.current = false;
       setConnState('idle');
     }
-    return () => {
-      clearTimeout(retryTimeoutRef.current);
-      if (rfbRef.current) {
-        intentionalCloseRef.current = true;
-        try { rfbRef.current.disconnect(); } catch {}
-        rfbRef.current = null;
-      }
-    };
-  }, [isRunning, connect]);
+  }, [activeComputer?.state, activeComputer?.id, connect]);
+
+  // Teardown RFB strictly on unmount
+  useEffect(() => () => {
+    intentionalCloseRef.current = true;
+    clearTimeout(retryTimeoutRef.current);
+    retryTimeoutRef.current = null;
+    isConnectingRef.current = false;
+    isConnectedRef.current = false;
+    if (rfbRef.current) {
+      try { rfbRef.current.disconnect(); } catch {}
+      rfbRef.current = null;
+    }
+  }, []);
 
   // Actions: Wake & Sleep
   const handleWake = async () => {

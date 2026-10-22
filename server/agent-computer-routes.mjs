@@ -373,9 +373,22 @@ export function createAgentComputerRoutes({ client, hermesHome } = {}) {
           },
         });
 
+        const pendingFromClient = [];
+        let upstreamOpen = false;
+
         clientWs.on('message', (msg, isBinary) => {
-          if (upstreamWs.readyState === WebSocket.OPEN) {
+          if (upstreamOpen && upstreamWs.readyState === WebSocket.OPEN) {
             upstreamWs.send(msg, { binary: isBinary });
+          } else if (upstreamWs.readyState === WebSocket.CONNECTING) {
+            pendingFromClient.push({ msg, isBinary });
+          }
+        });
+
+        upstreamWs.on('open', () => {
+          upstreamOpen = true;
+          while (pendingFromClient.length > 0) {
+            const item = pendingFromClient.shift();
+            try { upstreamWs.send(item.msg, { binary: item.isBinary }); } catch {}
           }
         });
 
@@ -385,18 +398,17 @@ export function createAgentComputerRoutes({ client, hermesHome } = {}) {
           }
         });
 
-        clientWs.on('close', () => {
+        const cleanup = () => {
           try { upstreamWs.close(); } catch {}
-        });
-        upstreamWs.on('close', () => {
           try { clientWs.close(); } catch {}
-        });
-        clientWs.on('error', () => {
-          try { upstreamWs.close(); } catch {}
-        });
+        };
+
+        clientWs.on('close', cleanup);
+        upstreamWs.on('close', cleanup);
+        clientWs.on('error', cleanup);
         upstreamWs.on('error', (err) => {
           console.warn('[agent-computer-vnc-proxy] upstream error:', err.message);
-          try { clientWs.close(1011, 'upstream error'); } catch {}
+          cleanup();
         });
       });
     })();
