@@ -1,10 +1,35 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { isSafeImageSource } from '../services/media';
+
+function ChatImage({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  if (failed) return <span className="text-xs text-muted">{alt || 'Image'} is unavailable.</span>;
+  const image = (
+    <img
+      src={src}
+      alt={alt || 'Attached image'}
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+      className="my-2 block max-h-[420px] max-w-full rounded-2xl border border-hair bg-canvas object-contain md:max-h-[520px]"
+    />
+  );
+  return /^data:/i.test(src) ? image : (
+    <a href={src} target="_blank" rel="noreferrer" className="inline-block max-w-full" title="Open image">
+      {image}
+    </a>
+  );
+}
 
 function inline(text: string): React.ReactNode[] {
-  return text.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\)|\*[^*]+\*)/g).map((part, index) => {
+  return text.split(/(\*\*[^*]+\*\*|`[^`]+`|!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\)|\*[^*]+\*)/g).map((part, index) => {
     if (part.startsWith('**')) return <strong key={index} className="font-semibold text-ink">{part.slice(2, -2)}</strong>;
     if (part.startsWith('`')) return <code key={index} className="rounded-md bg-code-soft px-1.5 py-0.5 text-xs md:text-[13px] text-ink border border-hair font-mono">{part.slice(1, -1)}</code>;
     if (part.startsWith('*')) return <em key={index}>{part.slice(1, -1)}</em>;
+    const image = part.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+    if (image && isSafeImageSource(image[2])) return <ChatImage key={index} src={image[2]} alt={image[1]} />;
     const link = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (link && /^(https?:\/\/|mailto:)/i.test(link[2])) return <a key={index} href={link[2]} target="_blank" rel="noreferrer" className="text-accent hover:underline underline-offset-2">{link[1]}</a>;
     return part;

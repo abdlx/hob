@@ -24,8 +24,8 @@ export class ConversationWork {
 
   begin(profile: string, sessionId: string, content: string, userId: string, replyId: string, timestamp: string, history: ChatMessage[]) {
     if (this.active.has(sessionId)) throw new Error('This conversation already has a response in progress.');
-    const work: Work = { profile, sessionId, user: { id: userId, role: 'user', content, timestamp, status: 'sending' },
-      reply: { id: replyId, role: 'assistant', content: '', timestamp, status: 'streaming' }, historyIds: new Set(history.map(message => message.id)) };
+    const work: Work = { profile, sessionId, user: { id: userId, role: 'user', content, timestamp, status: 'sending', profile },
+      reply: { id: replyId, role: 'assistant', content: '', timestamp, status: 'streaming', profile }, historyIds: new Set(history.map(message => message.id)) };
     this.active.set(sessionId, work); this.errors.delete(sessionId);
     this.versions.set(sessionId, this.version(sessionId) + 1);
     return work;

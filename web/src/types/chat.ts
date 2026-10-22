@@ -16,6 +16,8 @@ export interface ChatMessage {
   status?: 'sending' | 'streaming' | 'complete' | 'error';
   /** Who answered; shown above the bubble when several members share a conversation. */
   sender?: string;
+  /** Hermes profile that owns local media referenced by this message. */
+  profile?: string;
   toolCalls?: ToolCall[];
 }
 

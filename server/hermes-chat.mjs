@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { HermesError, hermesProfile, hermesResource, hermesSessionKey, parseHermesSessionKey } from './hermes-client.mjs';
 import { avatarUrl } from './hermes-avatars.mjs';
+import { messageContentText } from './hermes-content.mjs';
 import { HermesRunJournal, TERMINAL_RUNS, runFingerprint } from './hermes-run-journal.mjs';
 
 function iso(value) {
@@ -11,11 +12,6 @@ function iso(value) {
 function sessionView(session, profile) {
   return { id: hermesSessionKey(profile, session.id), agentId: profile,
     title: session.title || 'New conversation', createdAt: iso(session.started_at), lastMessageSnippet: session.preview || '' };
-}
-
-function textContent(value) {
-  if (typeof value === 'string') return value;
-  return Array.isArray(value) ? value.filter(part => part.type === 'text').map(part => part.text || '').join('\n') : '';
 }
 
 function rows(value) {
@@ -233,7 +229,8 @@ export function createHermesChatRoutes(client, bots, journal = new HermesRunJour
       const messages = rows(await client.runtime(`${sessionPath}/messages`, { profile: owner.profile }));
       json(res, 200, messages.filter(message => ['user', 'assistant', 'system'].includes(message.role)).map((message, index) => ({
         id: String(message.id ?? `${owner.sessionId}-${index}`), role: message.role,
-        content: textContent(message.content), timestamp: iso(message.timestamp), status: 'complete',
+        content: messageContentText(message.content), timestamp: iso(message.timestamp), status: 'complete',
+        profile: owner.profile,
       }))); return true;
     }
     if (match[2] === 'abort' && method === 'POST') {
@@ -290,8 +287,9 @@ export function createHermesChatRoutes(client, bots, journal = new HermesRunJour
         } else if (event.event === 'run.completed') {
           terminal = true;
           await clearRun(key, { ...run, id: accepted.run_id }, 'completed');
-          sendEvent(res, 'done', { message: { id: accepted.run_id, role: 'assistant', content: typeof event.output === 'string' ? event.output : text,
-            timestamp: iso(event.timestamp), status: 'complete' } });
+          sendEvent(res, 'done', { message: { id: accepted.run_id, role: 'assistant',
+            content: typeof event.output === 'string' ? event.output : messageContentText(event.output) || text,
+            timestamp: iso(event.timestamp), status: 'complete', profile: owner.profile } });
           break;
         } else if (['run.failed', 'run.cancelled', 'run.interrupted', 'run.unknown'].includes(event.event)) {
           reportedError = true;

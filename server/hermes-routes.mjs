@@ -1,6 +1,8 @@
+import nodePath from 'node:path';
 import { HermesError, hermesProfile, hermesResource } from './hermes-client.mjs';
 import { containsStoredSecret, redactHermesSettings } from './hermes-settings.mjs';
 import { clearAvatar, readAvatar, setAvatar, streamAvatar } from './hermes-avatars.mjs';
+import { serveHermesMedia } from './hermes-media.mjs';
 
 // Explicit public operations, rather than an arbitrary upstream-URL proxy.
 const MANAGEMENT = new Map([
@@ -25,7 +27,7 @@ function object(value) {
   return value;
 }
 
-export function createHermesRoutes(client, bots, { removeBot, home } = {}) {
+export function createHermesRoutes(client, bots, { removeBot, home, stateDir } = {}) {
   return async (req, res, url, { json, body, startEvents, sendEvent }) => {
     const method = req.method;
     const path = url.pathname.slice('/api/hermes/'.length);
@@ -34,6 +36,18 @@ export function createHermesRoutes(client, bots, { removeBot, home } = {}) {
     const profile = hermesProfile(profiles[0] ?? 'default');
     const options = { profile, method };
 
+    if (path === 'media' && ['GET', 'HEAD'].includes(method)) {
+      if (bots && !bots.has(profile)) throw new HermesError(404, 'This bot no longer exists.', 'BOT_NOT_FOUND');
+      const values = url.searchParams.getAll('path');
+      if (values.length !== 1) throw new HermesError(400, 'Select one media path.', 'INVALID_REQUEST');
+      return await serveHermesMedia(req, res, {
+        home,
+        workspaces: home ? nodePath.join(home, 'workspaces') : undefined,
+        stateDir,
+        profile,
+        value: values[0],
+      });
+    }
     if (path === 'capabilities' && method === 'GET') {
       return json(res, 200, await client.runtime('/v1/capabilities', options));
     }

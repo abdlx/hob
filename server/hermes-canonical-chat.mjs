@@ -1,13 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { HermesError, hermesProfile, hermesResource, hermesSessionKey, hermesNativeSessionKey, parseHermesSessionKey } from './hermes-client.mjs';
+import { messageContentText } from './hermes-content.mjs';
 import { TERMINAL_RUNS, runFingerprint } from './hermes-run-journal.mjs';
 
 const iso = value => {
   const date = new Date(typeof value === 'number' ? value * 1000 : value);
   return value && Number.isFinite(date.getTime()) ? date.toISOString() : '';
 };
-const text = value => typeof value === 'string' ? value : Array.isArray(value)
-  ? value.filter(part => part.type === 'text').map(part => part.text || '').join('\n') : '';
 const nativeStatus = receipt => {
   if (receipt.status === 'terminal') {
     if (!TERMINAL_RUNS.has(receipt.outcome)) throw new HermesError(502, 'Hermes returned an unknown terminal outcome.', 'HERMES_PROTOCOL_ERROR');
@@ -204,7 +203,8 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
       const { snapshot } = await refresh(key);
       json(res, 200, snapshot.messages.filter(message => ['user', 'assistant', 'system'].includes(message.role))
         .map((message, index) => ({ id: String(message.row_id ?? message.id ?? `${owner.sessionId}-${index}`), role: message.role,
-          content: text(message.content), timestamp: iso(message.timestamp), status: 'complete' }))); return true;
+          content: messageContentText(message.content), timestamp: iso(message.timestamp), status: 'complete',
+          profile: owner.profile }))); return true;
     }
     if (match[2] === 'run' && method === 'GET') { json(res, 200, { run: (await refresh(key)).run }); return true; }
     if (match[2] === 'recover' && method === 'POST') {
@@ -297,7 +297,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
               const final = state.receipt?.result?.final_response ?? completedText;
               if (typeof final !== 'string') throw new HermesError(502, 'The completed native result is unavailable. Refresh history.', 'HERMES_PROTOCOL_ERROR');
               sendEvent(res, 'done', { message: { id: accepted.admission_id, role: 'assistant', content: final,
-                timestamp: new Date().toISOString(), status: 'complete' } });
+                timestamp: new Date().toISOString(), status: 'complete', profile: owner.profile } });
             } else {
               const reason = failureReason(state.receipt);
               console.log('[RAW_TURN_FAILURE]', JSON.stringify({ status: state.record.status, reason }));

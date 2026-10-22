@@ -2,6 +2,8 @@ import React from 'react';
 import { CheckCheck } from 'lucide-react';
 import type { ChatMessage } from '../types/chat';
 import { displayGatewayNotice } from '../services/errors';
+import { renderMediaDirectives } from '../services/media';
+import { chatApi } from '../services/api';
 import { MarkdownView } from './MarkdownView';
 
 interface ChatMessageItemProps {
@@ -22,8 +24,9 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
 
   if (!message.content.trim()) return null;
 
+  const content = isUser ? message.content : displayGatewayNotice(message.content);
   const renderedContent = (
-    <MarkdownView content={isUser ? message.content : displayGatewayNotice(message.content)} />
+    <MarkdownView content={renderMediaDirectives(content, message.profile || chatApi.getProfile())} />
   );
 
   const timeString = formatMessageTime(message.timestamp);
