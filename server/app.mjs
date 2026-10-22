@@ -13,6 +13,7 @@ import { createHermesGroups } from './hermes-groups.mjs';
 import { createHermesMcpOAuth } from './hermes-mcp-oauth.mjs';
 import { createHermesBotRelay } from './hermes-bot-relay.mjs';
 import { createBrowserRoutes } from './browser-routes.mjs';
+import { createAgentComputerRoutes } from './agent-computer-routes.mjs';
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -111,7 +112,15 @@ async function browserImage(stateDir, filename) {
 export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gateway : undefined, bots, browser, runJournal, nativeSessions, password = process.env.MUSE_PASSWORD, accessToken = process.env.MUSE_ACCESS_TOKEN, sessionSecret = process.env.MUSE_SESSION_SECRET, publicUrl = process.env.MUSE_PUBLIC_URL, secureCookies = process.env.MUSE_SECURE_COOKIES === 'true', stateDir = process.env.OPENCLAW_STATE_DIR, viewerTicketTtlMs, staticDir = fileURLToPath(new URL('../web/dist', import.meta.url)) }) {
   if (nativeSessions && !runJournal) throw new Error('Native chat requires a durable admission journal.');
   const hermesGroups = hermes && nativeSessions ? createHermesGroups({ client: hermes, bridge: nativeSessions, bots, home: process.env.HERMES_HOME }) : null;
-  const hermesRoutes = hermes ? createHermesRoutes(hermes, bots, { ...(hermesGroups ? { removeBot: hermesGroups.removeBot } : {}), home: process.env.HERMES_HOME }) : null;
+  // Agent-written media lives beside the Hermes profile, in its workspace, or
+  // in HOB's managed-browser capture directory. The media route reads only
+  // those roots after realpath validation.
+  const hermesMediaState = process.env.HOB_STATE_DIR || stateDir;
+  const hermesRoutes = hermes ? createHermesRoutes(hermes, bots, {
+    ...(hermesGroups ? { removeBot: hermesGroups.removeBot } : {}),
+    home: process.env.HERMES_HOME,
+    stateDir: hermesMediaState,
+  }) : null;
   const mcpOAuth = hermes ? createHermesMcpOAuth(hermes, { publicUrl }) : null;
   const hermesSetup = hermes ? createHermesSetupRoutes(hermes, { mcpOAuth }) : null;
   const hermesWorkspace = hermes ? createHermesWorkspaceRoutes({ client: hermes, bridge: nativeSessions,
@@ -130,6 +139,10 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
     authenticated: req => authenticated(req),
     assertOrigin: req => assertOrigin(req),
     ...(viewerTicketTtlMs ? { ticketTtlMs: viewerTicketTtlMs } : {}),
+  }) : null;
+  const agentComputerRoutes = hermes ? createAgentComputerRoutes({
+    client: hermes,
+    hermesHome: process.env.HERMES_HOME,
   }) : null;
   const configured = Boolean(password || accessToken);
   const secret = sessionSecret || createHash('sha256').update(`muse-session:${password || accessToken || randomBytes(32).toString('hex')}`).digest();
@@ -244,6 +257,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
         // Before the Hermes catch-all: the managed browser is a Hermes-runtime
         // surface, but it is HOB's own, not a passthrough to Hermes.
         if (browserRoutes && await browserRoutes.route(req, res, url)) return;
+        if (agentComputerRoutes && await agentComputerRoutes.route(req, res, url, { json, body })) return;
         if (route.startsWith('/api/hermes/')) {
           if (!hermesRoutes) throw new HttpError(503, 'Hermes has not been connected to this server.');
           if (route === '/api/hermes/groups' || route.startsWith('/api/hermes/groups/')) {
@@ -499,8 +513,9 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   server.on('close', () => { for (const res of streams) res.end(); streams.clear(); });
   // Viewer streams are WebSockets, so they never reach the request handler above.
   // Anything that is not a browser stream is refused here rather than left open.
-  if (browserRoutes) server.on('upgrade', (req, socket, head) => {
-    if (browserRoutes.upgrade(req, socket, head)) return;
+  if (browserRoutes || agentComputerRoutes) server.on('upgrade', (req, socket, head) => {
+    if (browserRoutes && browserRoutes.upgrade(req, socket, head)) return;
+    if (agentComputerRoutes && agentComputerRoutes.upgrade(req, socket, head)) return;
     socket.destroy();
   });
   return server;

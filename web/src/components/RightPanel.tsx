@@ -25,6 +25,7 @@ import { DogeshAvatar } from './DogeshAvatar';
 import { MarkdownView } from './MarkdownView';
 import { DailyGoals } from '../pages/WorkspaceViews';
 import { HermesBrowser, HermesIdentity } from '../pages/HermesWorkspace';
+import { AgentComputerViewer } from './AgentComputerViewer';
 import { buttonClass, Field, inputClass, Notice, Skeleton } from './WorkspaceUI';
 import { errorText } from './workspaceUtils';
 import { MobileDock } from './MobileDock';
@@ -475,9 +476,18 @@ function BrowserPanel() {
       </div>
     );
   }
-  return runtime === 'hermes'
-    ? <HermesBrowser key={agent.id} profile={agent.id} />
-    : <OpenClawBrowserPanel />;
+  return (
+    <div className="space-y-4">
+      {runtime === 'hermes' ? (
+        <HermesBrowser key={agent.id} profile={agent.id} />
+      ) : (
+        <OpenClawBrowserPanel />
+      )}
+      {runtime === 'hermes' && (
+        <AgentComputerViewer key={`comp-${agent.id}`} profile={agent.id} />
+      )}
+    </div>
+  );
 }
 
 function IdentityPanel() {
