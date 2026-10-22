@@ -186,13 +186,11 @@ export function createAgentComputerRoutes({ client, hermesHome } = {}) {
           }),
         });
 
-        if (res.status === 404) {
-          lastError = new Error(`MCP tool call ${toolName} failed (${targetUrl}): HTTP 404`);
-          continue;
-        }
-
         if (!res.ok) {
-          throw new Error(`MCP tool call ${toolName} failed: HTTP ${res.status}`);
+          let errBody = '';
+          try { errBody = await res.text(); } catch {}
+          lastError = new Error(`MCP tool call ${toolName} failed (${targetUrl}): HTTP ${res.status}${errBody ? ' - ' + errBody.slice(0, 100) : ''}`);
+          continue;
         }
 
         const data = await res.json();
@@ -209,7 +207,7 @@ export function createAgentComputerRoutes({ client, hermesHome } = {}) {
       }
     }
 
-    // Direct REST API fallback on the control plane if MCP call encounters 404
+    // Direct REST API fallback on the control plane if MCP call encounters ANY error (404, 405, network, etc.)
     const origin = (cfg.origin || 'https://agentcomputer.idkwihl.site').replace(/\/+$/, '');
     if (toolName === 'computer_list') {
       try {

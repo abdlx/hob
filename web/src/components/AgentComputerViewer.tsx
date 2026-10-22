@@ -77,8 +77,11 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
       const data = await apiFetch<AgentComputerStatus>(`/api/hermes/agent-computer/status?profile=${encodeURIComponent(profile)}`);
       if (!mountedRef.current) return;
       setStatus(data);
-      if (data.error) setError(data.error);
-      else setError('');
+      if (data.error && (!data.computers || data.computers.length === 0) && !data.computer) {
+        setError(data.error);
+      } else {
+        setError('');
+      }
       if (data.computer?.id && !selectedCompId) {
         setSelectedCompId(data.computer.id);
       }
