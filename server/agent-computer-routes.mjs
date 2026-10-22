@@ -2,8 +2,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 
+function isAgentComputerUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  const lower = url.toLowerCase();
+  if (lower.includes('openrouter') || lower.includes('openai') || lower.includes('anthropic') || lower.includes('deepseek') || lower.includes('together') || lower.includes('groq')) {
+    return false;
+  }
+  return true;
+}
+
 function normalizeMcpUrl(rawUrl, defaultOrigin = 'https://agentcomputer.idkwihl.site') {
-  if (!rawUrl || typeof rawUrl !== 'string') return `${defaultOrigin}/mcp`;
+  if (!rawUrl || typeof rawUrl !== 'string' || !isAgentComputerUrl(rawUrl)) {
+    return `${defaultOrigin}/mcp`;
+  }
   let str = rawUrl.trim().replace(/\/+$/, '');
   try {
     const u = new URL(str);
@@ -23,7 +34,9 @@ function normalizeMcpUrl(rawUrl, defaultOrigin = 'https://agentcomputer.idkwihl.
 
 function getOrigin(rawUrl, defaultOrigin = 'https://agentcomputer.idkwihl.site') {
   try {
-    return new URL(rawUrl).origin;
+    const origin = new URL(rawUrl).origin;
+    if (isAgentComputerUrl(origin)) return origin;
+    return defaultOrigin;
   } catch {
     return defaultOrigin;
   }
@@ -55,7 +68,7 @@ export function createAgentComputerRoutes({ client, hermesHome } = {}) {
               const parsed = JSON.parse(jsonMatch[0]);
               const srv = parsed.mcp_servers?.agent_computer || parsed.mcp_servers?.['agent-computer'];
               if (srv) {
-                parsedUrl = srv.url || '';
+                if (srv.url && isAgentComputerUrl(srv.url)) parsedUrl = srv.url;
                 const auth = srv.headers?.Authorization || srv.headers?.authorization || '';
                 const m = /Bearer\s+([^\s"']+)/i.exec(auth);
                 if (m) parsedToken = m[1];
@@ -63,27 +76,35 @@ export function createAgentComputerRoutes({ client, hermesHome } = {}) {
             }
           } catch {}
 
-          // 1b. Line-by-line regex with robust quote and format handling
-          if (!parsedUrl) {
+          // 1b. Line-by-line regex with strict indentation tracking
+          if (!parsedToken) {
             const lines = raw.split(/\r?\n/);
             let inAgent = false;
+            let agentIndent = 0;
             for (const line of lines) {
-              if (/["']?agent[-_]computer["']?\s*:/i.test(line)) {
+              const startMatch = /^(\s*)["']?agent[-_]computer["']?\s*:/i.exec(line);
+              if (startMatch) {
                 inAgent = true;
-              } else if (inAgent && /^\s*["']?[a-zA-Z0-9_-]+["']?\s*:/i.test(line) && !/^\s{4,}/.test(line)) {
-                inAgent = false;
+                agentIndent = startMatch[1].length;
+                continue;
+              }
+              if (inAgent) {
+                const indentMatch = /^(\s*)\S/.exec(line);
+                if (indentMatch && indentMatch[1].length <= agentIndent) {
+                  inAgent = false;
+                }
               }
               if (inAgent) {
                 const u = /["']?url["']?\s*:\s*["']?([^"'\s,]+)/i.exec(line);
-                if (u) parsedUrl = u[1];
+                if (u && isAgentComputerUrl(u[1])) parsedUrl = u[1];
                 const t = /(?:Authorization["']?\s*:\s*["']?Bearer\s+|bearer_token["']?\s*:\s*["']?)([^"'\s},]+)/i.exec(line);
                 if (t) parsedToken = t[1];
               }
             }
           }
 
-          if (parsedUrl) {
-            const mcpUrl = normalizeMcpUrl(parsedUrl);
+          if (parsedToken || parsedUrl) {
+            const mcpUrl = normalizeMcpUrl(parsedUrl || 'https://agentcomputer.idkwihl.site/mcp');
             const origin = getOrigin(mcpUrl);
             return {
               connected: true,
@@ -106,10 +127,8 @@ export function createAgentComputerRoutes({ client, hermesHome } = {}) {
         const res = await client.dashboard('/api/mcp/servers', { profile });
         if (Array.isArray(res?.servers)) {
           const s = res.servers.find(srv =>
-            srv.name === 'agent_computer' ||
-            srv.name === 'agent-computer' ||
-            (srv.url && srv.url.toLowerCase().includes('agentcomputer')) ||
-            (srv.name && srv.name.toLowerCase().includes('computer'))
+            (srv.name === 'agent_computer' || srv.name === 'agent-computer') ||
+            (srv.url && isAgentComputerUrl(srv.url) && srv.url.toLowerCase().includes('agentcomputer'))
           );
           if (s && s.enabled !== false) {
             const rawUrl = s.url || process.env.AGENT_COMPUTER_URL || 'https://agentcomputer.idkwihl.site/mcp';
