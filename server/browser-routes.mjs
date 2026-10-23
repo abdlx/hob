@@ -44,6 +44,14 @@ function publicStatus(status) {
     // How HOB reaches Chromium: `pipe` in production. Operators (and the
     // end-to-end scenario) read this to confirm the raw DevTools port is off.
     transport: status.transport,
+    // CAPTCHA state for the dashboard: provider and kind only. The sitekey
+    // and any token are solving material, not display material, and this
+    // view's whole discipline is omitting what an operator does not need.
+    challenge: status.challenge
+      ? { provider: status.challenge.provider, kind: status.challenge.kind, since: status.challenge.activeAt ?? null }
+      : null,
+    challengeStats: status.challengeStats ?? null,
+    challengeCooldowns: status.challengeCooldowns ?? [],
   };
 }
 

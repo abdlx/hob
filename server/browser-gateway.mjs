@@ -24,6 +24,8 @@ import { PipeCdpConnection } from './browser-pipe.mjs';
 import { ModifierState, inputCommands } from './browser-input.mjs';
 import { PrecisionError, isPrecisionMethod, precisionHelp, runPrecisionMethod } from './browser-precision.mjs';
 import { BROWSER_VIEWPORT, closeBrowserGracefully, closePipeGracefully, cdpTransportMode, launchChromium, probeCdp, probePipe, resolveChromiumExecutable, markProfileOwned, stopChromium } from './browser-launcher.mjs';
+import { ChallengeTracker, captchaMode, DOM_PROBE_EXPRESSION, classifyBlockUrl } from './browser-challenge.mjs';
+import { solveCheckboxChallenge, solveImageGridChallenge, visionSolverFromEnv, solverServiceFromEnv, solveWithService } from './browser-solvers.mjs';
 
 // CDP error code for a command the gateway refused to forward. Hermes surfaces
 // the message verbatim to the model, so it names the reason and the remedy.
@@ -33,6 +35,10 @@ const MAX_VIEWER_BUFFER = 8 * 1024 * 1024;
 // The legacy, non-flattened `Target.sendMessageToTarget` tunnel gives no reply
 // we can correlate, so it holds the drain barrier for a bounded window instead.
 const TUNNEL_HOLD_MS = 1500;
+// CAPTCHA gate: how long an agent mutation may be parked behind an active
+// challenge before it is refused with `challenge_timeout`, and how often the
+// session probes targets for challenge signals while a browser is running.
+const CHALLENGE_PROBE_MS = 2000;
 const CRASH_RESTART_ATTEMPTS = 3;
 const CRASH_RESTART_DELAY_MS = 1000;
 // How long a browser must stay up before its crash-restart budget is restored.
@@ -63,6 +69,12 @@ function trace(line) {
 function denialMessage(reason, method) {
   if (reason === 'human_has_control') {
     return `Browser control is held by the human operator. "${method}" was not sent to the browser. It will be accepted again once control returns to the agent.`;
+  }
+  if (reason === 'challenge_timeout') {
+    return `A CAPTCHA challenge on this page did not resolve in time. "${method}" was not sent to the browser. A human can solve it from the browser viewer, or the page can be retried later.`;
+  }
+  if (reason === 'challenge_blocked') {
+    return `This site is showing a bot-block page. "${method}" was not sent to the browser. The host is cooling down; retrying immediately will not help.`;
   }
   if (reason === 'cancelled') return `"${method}" was cancelled because the requesting connection closed.`;
   return `The browser is being handed over to the human operator; "${method}" was not sent. Retry once control settles.`;
@@ -356,6 +368,21 @@ class AgentProxy {
   #onUpstreamMessage(data, isBinary) {
     if (this.#closed) return;
     if (!isBinary) {
+      // Detection tap: frame navigations on the agent's own pages are the
+      // richest challenge signal (the anchor/bframe iframes live there), and
+      // they are already flowing through this process on their way to the
+      // client. A substring check keeps the parse cost off every other frame.
+      const hasNav = Buffer.isBuffer(data) ? data.includes('Page.frameNavigated') : String(data).includes('"Page.frameNavigated"');
+      if (hasNav) {
+        try {
+          const event = JSON.parse(data.toString('utf8'));
+          const frame = event?.params?.frame;
+          if (frame) {
+            const targetId = this.#targetId || this.#attachedTargets.get(event.sessionId) || null;
+            this.#session.noteChallengeUrl(targetId, String(frame.url || ''), { isMainFrame: !frame.parentId });
+          }
+        } catch { /* not JSON we understand; the relay below is unaffected */ }
+      }
       // Release the drain barrier the moment the command's reply lands, so a
       // takeover waits exactly as long as the browser is actually busy.
       const id = peekId(data);
@@ -431,6 +458,79 @@ function idFromText(text) {
   return match ? Number(match[1]) : null;
 }
 
+// ── The solver ladder's CDP channel ─────────────────────────────────────────
+//
+// A minimal request/response client over one page-bound upstream connection,
+// owned by the session for the duration of a single challenge. Solvers use it
+// for evaluation, screenshots and frame attachment. It is deliberately not
+// the agent's connection: solver traffic must never interleave with, or be
+// credited to, the agent's CDP session.
+
+class SolverChannel {
+  #socket;
+  #pending = new Map();
+  #seq = 0;
+  #closed = false;
+
+  constructor(socket) {
+    this.#socket = socket;
+    socket.on('message', data => this.#onMessage(data));
+    socket.on('close', () => this.#failAll(new Error('The solver connection closed.')));
+    socket.on('error', () => this.#failAll(new Error('The solver connection failed.')));
+  }
+
+  request(method, params = {}, { sessionId = null, timeoutMs = 15000 } = {}) {
+    if (this.#closed) return Promise.reject(new Error('The solver channel is closed.'));
+    const id = ++this.#seq;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.#pending.delete(id);
+        reject(new Error(`Solver command ${method} timed out.`));
+      }, timeoutMs);
+      timer.unref?.();
+      this.#pending.set(id, { resolve, reject, timer });
+      const message = { id, method, params };
+      if (sessionId) message.sessionId = sessionId;
+      try { this.#socket.send(JSON.stringify(message)); }
+      catch (error) { this.#pending.delete(id); clearTimeout(timer); reject(error); }
+    });
+  }
+
+  /** Evaluate an expression and return its value (throws on a page error). */
+  async evaluateValue(expression, { sessionId = null, timeoutMs = 10000 } = {}) {
+    const reply = await this.request('Runtime.evaluate',
+      { expression, returnByValue: true, awaitPromise: true }, { sessionId, timeoutMs });
+    if (reply?.exceptionDetails) {
+      throw new Error(reply.exceptionDetails.exception?.description || reply.exceptionDetails.text || 'Evaluation failed.');
+    }
+    return reply?.result?.value;
+  }
+
+  close() {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#failAll(new Error('The solver channel is closed.'));
+    try { this.#socket.close(); } catch { /* already closed */ }
+  }
+
+  #onMessage(data) {
+    let message;
+    try { message = JSON.parse(data.toString('utf8')); } catch { return; }
+    if (message?.id === undefined) return;
+    const entry = this.#pending.get(message.id);
+    if (!entry) return;
+    this.#pending.delete(message.id);
+    clearTimeout(entry.timer);
+    if (message.error) entry.reject(new Error(message.error.message || 'Solver command failed.'));
+    else entry.resolve(message.result);
+  }
+
+  #failAll(error) {
+    for (const entry of this.#pending.values()) { clearTimeout(entry.timer); entry.reject(error); }
+    this.#pending.clear();
+  }
+}
+
 // ── One bot's browser ────────────────────────────────────────────────────────
 
 export class BrowserSession {
@@ -471,6 +571,30 @@ export class BrowserSession {
   #pointer = { x: 0, y: 0 };
   #focusSampling = false;
   #focusSampleAt = 0;
+  // CAPTCHA system (see browser-challenge.mjs and the plan in hob-docs):
+  // the tracker classifies, the gate in `admitAgentMutation` parks, and the
+  // stats are how an operator tells whether any of it is working.
+  #challengeTracker;
+  #captchaMode = 'detect';
+  #challengeParkMs = 120000;
+  #challengeActive = null;
+  #challengeWaiters = [];
+  #challengeStats = { seen: 0, agent: 0, human: 0, service: 0, passive: 0, failed: 0 };
+  #challengeSolver = null;
+  #probeTimer = null;
+  #probeRunning = false;
+  // Phase 7: hosts that served a hard block cool down here. The gate already
+  // refuses fast while the block page is up; the cooldown is the record that
+  // outlives it, so status (and the operator) can see which hosts are burnt
+  // instead of an agent quietly retrying into a wall.
+  #hostCooldowns = new Map();
+  #challengeCooldownMs = 600000;
+  #onChallengeEscalated = null;
+  // Phase 6 service guardrails: a per-day attempt cap (spend control) and a
+  // circuit breaker (three consecutive failures disable the service for the
+  // session — a broken integration must not tax every challenge).
+  #serviceState = { day: '', attempts: 0, consecutiveFailures: 0, disabled: false };
+  #serviceDailyCap = 50;
 
   constructor({ botId, record, options = {} }) {
     this.#botId = botId;
@@ -481,6 +605,13 @@ export class BrowserSession {
     this.#agentWaitMs = options.agentWaitMs ?? 20000;
     this.#minFrameIntervalMs = Math.max(0, Math.floor(1000 / (options.maxFps ?? 24)));
     this.#lease = new ControlLease({ agentWaitMs: this.#agentWaitMs });
+    this.#captchaMode = options.captchaMode ?? captchaMode();
+    this.#challengeParkMs = options.challengeParkMs ?? 120000;
+    this.#challengeCooldownMs = options.challengeCooldownMs ?? 600000;
+    this.#serviceDailyCap = options.challengeServiceDailyCap
+      ?? (Number(process.env.HOB_CAPTCHA_SERVICE_DAILY_CAP) || 50);
+    this.#onChallengeEscalated = typeof options.onChallengeEscalated === 'function' ? options.onChallengeEscalated : null;
+    this.#challengeTracker = new ChallengeTracker({ onTransition: t => this.#onChallengeTransition(t) });
     this.#lease.on(snapshot => {
       this.#touch();
       this.#broadcast({ t: 'control', holder: snapshot.holder });
@@ -520,6 +651,12 @@ export class BrowserSession {
       viewers: this.#viewers.size,
       agentConnections: this.#agents.size,
       control: this.#lease.snapshot(),
+      challenge: this.#challengeActive ? { ...this.#challengeActive } : null,
+      challengeStats: { ...this.#challengeStats },
+      captchaMode: this.#captchaMode,
+      challengeCooldowns: [...this.#hostCooldowns.entries()]
+        .filter(([, until]) => until > Date.now())
+        .map(([host, until]) => ({ host, until })),
       viewport: { ...this.#viewport },
       tabs: this.#tabs.map(tab => ({ ...tab })),
       url: this.#page.url,
@@ -605,7 +742,8 @@ export class BrowserSession {
    */
   hasWork() {
     return this.#viewers.size > 0
-      || this.#lease.inFlight > 0 || this.#lease.pending > 0 || this.#lease.draining;
+      || this.#lease.inFlight > 0 || this.#lease.pending > 0 || this.#lease.draining
+      || this.#challengeActive !== null || this.#challengeWaiters.length > 0;
   }
 
   // ── lifecycle ──────────────────────────────────────────────────────────────
@@ -703,6 +841,7 @@ export class BrowserSession {
     // seconds, and without this a freshly launched browser would already be past a
     // short idle window and be reaped the moment the sweep ran.
     this.#touch();
+    this.#startChallengeProbes();
     if (result.child) result.child.once('exit', (code, signal) => this.#onChromiumExit(code, signal));
     return result;
   }
@@ -757,6 +896,9 @@ export class BrowserSession {
     // browser it started — so a stop never returns with an orphan behind it.
     this.#launchEpoch += 1;
     if (this.#starting) await this.#starting.catch(() => undefined);
+    this.#stopChallengeProbes();
+    this.#wakeChallengeWaiters({ ok: false, reason: 'cancelled' });
+    this.#challengeActive = null;
     this.#stopScreencast();
     for (const viewer of [...this.#viewers.values()]) {
       this.#sendTo(viewer, { t: 'bye', reason });
@@ -819,6 +961,10 @@ export class BrowserSession {
     this.#chromiumPort = null;
     this.#pipe?.close('The browser exited.');
     this.#pipe = null;
+    this.#stopChallengeProbes();
+    this.#wakeChallengeWaiters({ ok: false, reason: 'cancelled' });
+    this.#challengeActive = null;
+    this.#challengeSolver = null;
     this.#stopScreencast();
     this.#lastError = `The browser exited unexpectedly (code ${code ?? 'none'}${signal ? `, signal ${signal}` : ''}).`;
     const watching = this.#viewers.size;
@@ -1001,7 +1147,267 @@ export class BrowserSession {
 
   // ── lease plumbing used by AgentProxy ─────────────────────────────────────
 
-  admitAgentMutation(signal) { return this.#lease.enterAgentMutation({ waitMs: this.#agentWaitMs, signal }); }
+  /**
+   * The single admission point for every agent mutation — CDP commands, the
+   * tunnel, and the HTTP `/json/new` convenience endpoint all come through
+   * here, which is why the CAPTCHA gate lives here too: while a confirmed
+   * challenge is active (and the mode is `solve`), mutations park behind it
+   * instead of failing into the challenge or, worse, clicking at it blindly.
+   * A hard block page never parks — there is nothing to wait for — so it is
+   * refused immediately and the caller learns the host is the problem.
+   */
+  async admitAgentMutation(signal) {
+    if (this.#captchaMode === 'solve' && this.#challengeActive) {
+      if (this.#challengeActive.kind === 'block-page') return { ok: false, reason: 'challenge_blocked' };
+      const gate = await this.#waitForChallenge(signal);
+      if (!gate.ok) return gate;
+    }
+    return this.#lease.enterAgentMutation({ waitMs: this.#agentWaitMs, signal });
+  }
+
+  /** Feed a URL observation into challenge detection (frames, navigations). */
+  noteChallengeUrl(targetId, url, { isMainFrame = false } = {}) {
+    if (this.#captchaMode === 'off' || !targetId) return;
+    this.#challengeTracker.observeUrl(targetId, url, { isMainFrame });
+    // A main-frame block URL burns its host on sight (Phase 7): the cooldown
+    // is recorded here, from the URL that proved it, not inferred later from
+    // whichever page happens to be in front of the viewer.
+    if (isMainFrame && classifyBlockUrl(url)) {
+      try {
+        const host = new URL(url).host;
+        if (host) this.#hostCooldowns.set(host, Date.now() + this.#challengeCooldownMs);
+      } catch { /* an unparseable URL burns nothing */ }
+    }
+  }
+
+  /** Feed DOM probe facts into challenge detection (widgets, tokens). */
+  noteChallengeDom(targetId, facts) {
+    if (this.#captchaMode === 'off' || !targetId) return;
+    this.#challengeTracker.observeDom(targetId, facts);
+  }
+
+  #onChallengeTransition({ targetId, to }) {
+    if (to?.status === 'active') {
+      this.#challengeActive = { ...to, targetId };
+      this.#challengeStats.seen += 1;
+      trace(`challenge active bot=${this.#botId} provider=${to.provider} kind=${to.kind}`);
+      this.#emitActivity({ type: 'challenge', state: 'active', provider: to.provider, kind: to.kind });
+      // Viewers get the same signal the dashboard polls for, live: this is
+      // what a UI renders as "CAPTCHA on this page — take control to solve".
+      this.#broadcast({ t: 'challenge', state: 'active', provider: to.provider, kind: to.kind });
+      this.#emitState();
+      if (this.#captchaMode === 'solve') {
+        void this.#runChallengeSolvers(targetId, { ...to }).catch(() => undefined);
+      }
+      return;
+    }
+    if (to?.status === 'resolved') {
+      const solver = this.#challengeSolver
+        ?? (this.#lease.holder === HUMAN ? 'human' : 'passive');
+      if (solver === 'agent') this.#challengeStats.agent += 1;
+      else if (solver === 'human') this.#challengeStats.human += 1;
+      else if (solver === 'service') this.#challengeStats.service += 1;
+      else this.#challengeStats.passive += 1;
+      trace(`challenge resolved bot=${this.#botId} provider=${to.provider} via=${to.resolvedVia} solver=${solver}`);
+      this.#challengeActive = null;
+      this.#challengeSolver = null;
+      this.#emitActivity({ type: 'challenge', state: 'resolved', provider: to.provider, via: to.resolvedVia, solver });
+      this.#broadcast({ t: 'challenge', state: 'resolved', provider: to.provider, via: to.resolvedVia, solver });
+      this.#emitState();
+      this.#wakeChallengeWaiters({ ok: true });
+    }
+  }
+
+  /**
+   * Park one admission behind the active challenge. Mirrors the lease's
+   * waiter semantics: settle exactly once, on resolution, on the bounded
+   * timeout, on the caller's connection going away, or on session stop.
+   */
+  #waitForChallenge(signal) {
+    if (!this.#challengeActive) return Promise.resolve({ ok: true });
+    if (signal?.aborted) return Promise.resolve({ ok: false, reason: 'cancelled' });
+    return new Promise(resolve => {
+      const waiter = { settle: null, timer: null, onAbort: null };
+      const settle = value => {
+        clearTimeout(waiter.timer);
+        signal?.removeEventListener('abort', waiter.onAbort);
+        const index = this.#challengeWaiters.indexOf(waiter);
+        if (index !== -1) this.#challengeWaiters.splice(index, 1);
+        resolve(value);
+      };
+      waiter.settle = settle;
+      waiter.onAbort = () => settle({ ok: false, reason: 'cancelled' });
+      waiter.timer = setTimeout(() => {
+        this.#challengeStats.failed += 1;
+        this.#escalate({ reason: 'park_timeout' });
+        settle({ ok: false, reason: 'challenge_timeout' });
+      }, this.#challengeParkMs);
+      waiter.timer.unref?.();
+      signal?.addEventListener('abort', waiter.onAbort, { once: true });
+      this.#challengeWaiters.push(waiter);
+    });
+  }
+
+  #wakeChallengeWaiters(value) {
+    for (const waiter of this.#challengeWaiters.splice(0)) waiter.settle(value);
+  }
+
+  /**
+   * Tell whoever operates this bot that a challenge needs a human (Phase 5's
+   * escalation hook). Interface only — the session has no notification
+   * channel of its own; the host wires `options.onChallengeEscalated` to
+   * whatever reaches the owner. Fires once per ladder exhaustion and once
+   * per parked command that times out.
+   */
+  #escalate(detail) {
+    if (!this.#onChallengeEscalated || !this.#challengeActive) return;
+    try {
+      this.#onChallengeEscalated({
+        botId: this.#botId,
+        provider: this.#challengeActive.provider,
+        kind: this.#challengeActive.kind,
+        url: this.#page.url,
+        ...detail,
+      });
+    } catch { /* an operator callback must not break the gateway */ }
+  }
+
+  #serviceAllowed() {
+    const today = new Date().toISOString().slice(0, 10);
+    if (this.#serviceState.day !== today) {
+      this.#serviceState = { day: today, attempts: 0, consecutiveFailures: this.#serviceState.consecutiveFailures, disabled: this.#serviceState.disabled };
+    }
+    return !this.#serviceState.disabled && this.#serviceState.attempts < this.#serviceDailyCap;
+  }
+
+  #recordServiceAttempt() { this.#serviceState.attempts += 1; }
+
+  #recordServiceOutcome(outcome) {
+    if (outcome.outcome === 'solved') { this.#serviceState.consecutiveFailures = 0; return; }
+    if (outcome.outcome === 'failed') {
+      this.#serviceState.consecutiveFailures += 1;
+      if (this.#serviceState.consecutiveFailures >= 3) {
+        this.#serviceState.disabled = true;
+        trace(`challenge solver bot=${this.#botId} method=service circuit-breaker=open`);
+      }
+    }
+  }
+
+  /**
+   * The solver ladder's entry point (Phase 4 of the CAPTCHA plan): build a
+ * context over a page-bound connection of the gateway's own — never the
+ * agent's session, never through the lease — and climb: checkbox first,
+ * image grid when a vision solver is configured, external services next
+ * (Phase 6), and whatever remains belongs to the human at the viewer.
+ * Resolution is credited by the transition handler from `#challengeSolver`,
+ * which is why it is reset here only when the challenge outlived the ladder.
+ */
+  async #runChallengeSolvers(targetId, challenge) {
+    if (this.#challengeSolver) return; // one ladder at a time
+    if (!this.#chromium) return; // solvers need a live browser; the gate alone does not
+    let channel = null;
+    try {
+      const upstream = await this.openUpstream('page', targetId, 'captcha solver').catch(() => null);
+      if (!upstream) return;
+      this.#challengeSolver = 'agent';
+      channel = new SolverChannel(upstream);
+      const ctx = {
+        targetId,
+        challenge,
+        channel,
+        clickPoint: (x, y, opts = {}) => this.runPreciseInput(targetId, 'Hob.input.click',
+          { x, y, motion: 'human', ...(opts.expected ? { expected: opts.expected } : {}) }, {}),
+        probeDom: async () => {
+          const facts = await channel.evaluateValue(DOM_PROBE_EXPRESSION).catch(() => null);
+          if (facts) this.noteChallengeDom(targetId, facts);
+          return facts;
+        },
+        isResolved: () => !this.#challengeTracker.activeChallenge(targetId),
+        currentChallenge: () => this.#challengeTracker.activeChallenge(targetId),
+        waitForResolution: async (ms, onTick) => {
+          const deadline = Date.now() + ms;
+          while (Date.now() < deadline) {
+            if (ctx.isResolved()) return true;
+            if (onTick) await onTick();
+            await new Promise(resolve => setTimeout(resolve, 400));
+          }
+          return ctx.isResolved();
+        },
+        listTargets: () => this.#listTargets(),
+      };
+      if (['checkbox', 'interactive', 'image-grid'].includes(challenge.kind)) {
+        const outcome = await solveCheckboxChallenge(ctx)
+          .catch(error => ({ outcome: 'failed', method: 'checkbox', detail: error.message }));
+        trace(`challenge solver bot=${this.#botId} method=checkbox outcome=${outcome.outcome} ${outcome.detail ?? ''}`);
+      }
+      if (this.#challengeActive?.kind === 'image-grid') {
+        const vision = visionSolverFromEnv();
+        if (vision) {
+          const outcome = await solveImageGridChallenge(ctx, { vision })
+            .catch(error => ({ outcome: 'failed', method: 'image-grid', detail: error.message }));
+          trace(`challenge solver bot=${this.#botId} method=image-grid outcome=${outcome.outcome} ${outcome.detail ?? ''}`);
+        }
+      }
+      // Phase 6: a paid solver service is the last automated rung, and only
+      // when a key is configured, the challenge carries a sitekey, and the
+      // spend guards allow it. The tracker still delivers the verdict.
+      if (this.#challengeActive?.sitekey && this.#serviceAllowed()) {
+        const service = solverServiceFromEnv();
+        if (service?.supports(this.#challengeActive.provider)) {
+          this.#challengeSolver = 'service';
+          this.#recordServiceAttempt();
+          const outcome = await solveWithService(ctx, { service })
+            .catch(error => ({ outcome: 'failed', method: 'service', detail: error.message }));
+          this.#recordServiceOutcome(outcome);
+          trace(`challenge solver bot=${this.#botId} method=service outcome=${outcome.outcome} ${outcome.detail ?? ''}`);
+        }
+      }
+      if (this.#challengeActive) this.#escalate({ reason: 'ladder_exhausted' });
+    } finally {
+      channel?.close();
+      if (this.#challengeActive) this.#challengeSolver = null;
+    }
+  }
+
+  /**
+   * Periodic detection probes while a browser runs: target URLs and titles
+   * from the target list (cheap, no sessions), plus a DOM probe on the
+   * screencast session when one is attached. Agent-driven pages are also fed
+   * by their own frame events; this loop is what catches everything else.
+   */
+  #startChallengeProbes() {
+    if (this.#captchaMode === 'off' || this.#probeTimer) return;
+    this.#probeTimer = setInterval(() => { void this.#probeChallenges(); }, CHALLENGE_PROBE_MS);
+    this.#probeTimer.unref?.();
+  }
+
+  #stopChallengeProbes() {
+    if (this.#probeTimer) clearInterval(this.#probeTimer);
+    this.#probeTimer = null;
+  }
+
+  async #probeChallenges() {
+    if (this.#probeRunning || !this.#chromium) return;
+    this.#probeRunning = true;
+    try {
+      const targets = await this.#listTargets();
+      if (Array.isArray(targets)) {
+        for (const target of targets) {
+          if (target?.type !== 'page' || !target.id) continue;
+          this.#challengeTracker.observeUrl(target.id, String(target.url || ''), { isMainFrame: true });
+          if (target.title) this.#challengeTracker.observeTitle(target.id, String(target.title));
+        }
+      }
+      if (this.#castCdp?.open && this.#castSessionId && this.#castTargetId) {
+        const result = await this.#castCdp.send('Runtime.evaluate',
+          { expression: DOM_PROBE_EXPRESSION, returnByValue: true },
+          { sessionId: this.#castSessionId, timeoutMs: 3000 }).catch(() => null);
+        const facts = result?.result?.value;
+        if (facts) this.#challengeTracker.observeDom(this.#castTargetId, facts);
+      }
+    } catch { /* the next tick probes again */ }
+    finally { this.#probeRunning = false; }
+  }
 
   noteAgentConnected(proxy) { this.#agents.add(proxy); this.#touch(); this.#emitActivity({ type: 'agent', state: 'connected', label: proxy.label }); this.#emitState(); }
 
@@ -1512,6 +1918,12 @@ export class BrowserSession {
       }
       case 'Page.frameNavigated': {
         const frame = params?.frame;
+        if (frame) {
+          // Every frame navigation is detection evidence: challenge widgets
+          // live in subframes, and the main frame's own URL is what resolves
+          // an interstitial. Feeding it costs one map lookup.
+          this.#challengeTracker.observeUrl(this.#castTargetId, String(frame.url || ''), { isMainFrame: !frame.parentId });
+        }
         if (frame && !frame.parentId) {
           this.#page.url = String(frame.url || '');
           this.#broadcast({ t: 'navigate', url: this.#page.url });
@@ -1548,6 +1960,16 @@ export class BrowserSession {
         // not a `targetInfo` object.
         const targetId = params?.targetId;
         if (!targetId) return;
+        this.#challengeTracker.forget(targetId);
+        if (this.#challengeActive?.targetId === targetId) {
+          // The challenged page is gone: parked commands should fall through
+          // to the lease and fail (or succeed) against the browser as it is,
+          // not wait out a challenge that no longer exists.
+          this.#challengeActive = null;
+          this.#challengeSolver = null;
+          this.#wakeChallengeWaiters({ ok: true });
+          this.#emitState();
+        }
         // Chromium can still list a just-closed target for a moment, and an
         // attach may be in flight when the event arrives. Re-read once the
         // target list has settled; otherwise the viewer can stay pinned to the

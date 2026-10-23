@@ -6,6 +6,13 @@
 // verified against the element the caller expected before any button is pressed,
 // which is what makes "click at (x, y)" safe to automate rather than a blind
 // coordinate guess.
+//
+// Any action accepts `motion: 'human'`, which routes the pointer, typing and
+// scrolling through `browser-trajectory.mjs` — curved paths, dwell, key
+// cadence — instead of teleporting. Behavioural challenge systems score the
+// difference; ordinary automation keeps the instantaneous default.
+
+import { planKeyTimings, planPointerPath, planPressTiming, planScrollSteps } from './browser-trajectory.mjs';
 
 const BUTTON_MASK = { left: 1, right: 2, middle: 4 };
 const MAX_TEXT = 100000;
@@ -242,10 +249,34 @@ async function click(cdp, params, hooks, timeoutMs) {
   const verify = params.verify !== false || params.expected !== undefined;
   const hit = verify ? await verifyPoint(cdp, x, y, params.expected, timeoutMs) : null;
 
-  await mouse(cdp, { type: 'mouseMoved', x, y, button: 'none', buttons: 0, modifiers: flags }, hooks, timeoutMs);
+  let holdMs = delayMs;
+  if (params.motion === 'human') {
+    // Approach like a hand: start from a nearby point, travel a planned
+    // curve, dwell, then press. The hit test above already verified the
+    // destination; the path's last sample is exactly the target.
+    const timing = planPressTiming({});
+    holdMs = Math.max(holdMs, timing.holdMs);
+    const angle = Math.random() * Math.PI * 2;
+    const distance = 140 + Math.random() * 170;
+    const start = {
+      x: Math.max(2, x + Math.cos(angle) * distance),
+      y: Math.max(2, y + Math.sin(angle) * distance),
+    };
+    const path = planPointerPath(start, { x, y });
+    let lastAt = 0;
+    for (const sample of path) {
+      const wait = sample.atMs - lastAt;
+      if (wait > 0) await sleep(Math.min(wait, 130));
+      lastAt = sample.atMs;
+      await mouse(cdp, { type: 'mouseMoved', x: sample.x, y: sample.y, button: 'none', buttons: 0, modifiers: flags }, hooks, timeoutMs);
+    }
+    await sleep(timing.dwellBeforeMs);
+  } else {
+    await mouse(cdp, { type: 'mouseMoved', x, y, button: 'none', buttons: 0, modifiers: flags }, hooks, timeoutMs);
+  }
   for (let index = 1; index <= count; index += 1) {
     await mouse(cdp, { type: 'mousePressed', x, y, button: name, buttons: mask, clickCount: index, modifiers: flags }, hooks, timeoutMs);
-    if (delayMs > 0) await sleep(delayMs);
+    if (holdMs > 0) await sleep(holdMs);
     await mouse(cdp, { type: 'mouseReleased', x, y, button: name, buttons: 0, clickCount: index, modifiers: flags }, hooks, timeoutMs);
   }
   return { ok: true, action: 'click', x, y, button: name, clicks: count, hit };
@@ -283,6 +314,19 @@ async function type(cdp, params, hooks, timeoutMs) {
     await key(cdp, { type: 'rawKeyDown', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: 2, commands: ['selectAll'] }, hooks, timeoutMs);
     await key(cdp, { type: 'keyUp', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: 2 }, hooks, timeoutMs);
   }
+  if (params.motion === 'human' && params.text.length > 1 && params.text.length <= 500) {
+    // Type like a person: one character at a time on a planned cadence.
+    // Beyond a few hundred characters the cadence stops being the point, so
+    // long text keeps the single-shot insert below.
+    const delays = planKeyTimings(params.text);
+    for (let index = 0; index < params.text.length; index += 1) {
+      if (hooks.signal?.aborted) throw new PrecisionError('Precision input was cancelled.');
+      if (delays[index] > 0) await sleep(Math.min(delays[index], 650));
+      await cdp.send('Input.insertText', { text: params.text[index] }, { timeoutMs });
+    }
+    if (hooks.onInput?.('Input.insertText', { text: params.text })) hooks.onTyping?.();
+    return { ok: true, action: 'type', chars: params.text.length, replaced: params.replace === true, motion: 'human' };
+  }
   await cdp.send('Input.insertText', { text: params.text }, { timeoutMs });
   if (hooks.onInput?.('Input.insertText', { text: params.text })) hooks.onTyping?.();
   return { ok: true, action: 'type', chars: params.text.length, replaced: params.replace === true };
@@ -314,6 +358,17 @@ async function scroll(cdp, params, hooks, timeoutMs) {
   const deltaY = finite(params.deltaY ?? 0, 'deltaY');
   const deltaX = finite(params.deltaX ?? 0, 'deltaX');
   const flags = modifiers(params.modifiers);
+  if (params.motion === 'human' && deltaY !== 0) {
+    // A person scrolls in eased bursts, not one perfect wheel delta.
+    await mouse(cdp, { type: 'mouseMoved', x, y, button: 'none', buttons: 0, modifiers: flags }, hooks, timeoutMs);
+    const steps = planScrollSteps(deltaY);
+    for (const step of steps) {
+      await mouse(cdp, { type: 'mouseWheel', x, y, deltaX: 0, deltaY: step.deltaY, modifiers: flags }, hooks, timeoutMs);
+      await sleep(step.delayMs);
+    }
+    if (deltaX !== 0) await mouse(cdp, { type: 'mouseWheel', x, y, deltaX, deltaY: 0, modifiers: flags }, hooks, timeoutMs);
+    return { ok: true, action: 'scroll', x, y, deltaX, deltaY, steps: steps.length, motion: 'human' };
+  }
   await mouse(cdp, { type: 'mouseWheel', x, y, deltaX, deltaY, modifiers: flags }, hooks, timeoutMs);
   return { ok: true, action: 'scroll', x, y, deltaX, deltaY };
 }
@@ -345,6 +400,7 @@ export function precisionHelp() {
         x: 'number', y: 'number', button: 'left|right|middle', clickCount: '1-3',
         modifiers: 'optional bitmask', delayMs: 'optional press-to-release hold', verify: 'default true',
         expected: 'optional string or { tag, id, role, text } the hit element must match',
+        motion: "'human' for a curved approach path with dwell (behavioural checks score the difference)",
       },
       'Hob.input.drag': {
         from: '{ x, y }', to: '{ x, y }', button: 'left|right|middle', steps: '1-120',
@@ -353,9 +409,10 @@ export function precisionHelp() {
       'Hob.input.type': {
         text: 'string', x: 'optional click first', y: 'optional click first',
         replace: 'select all before inserting', verify: 'applies to the optional click',
+        motion: "'human' to type on a human cadence (short text)",
       },
       'Hob.input.key': { key: 'Enter, Tab, Escape, a, Control+a, Shift+ArrowDown, ...', commands: 'optional CDP editing commands' },
-      'Hob.input.scroll': { x: 'number', y: 'number', deltaY: 'number', deltaX: 'optional number' },
+      'Hob.input.scroll': { x: 'number', y: 'number', deltaY: 'number', deltaX: 'optional number', motion: "'human' for eased multi-step scrolling" },
       'Hob.input.hitTest': { x: 'number', y: 'number', expected: 'optional verifier' },
     },
   };
