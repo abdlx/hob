@@ -1,73 +1,131 @@
-# hob
+<p align="center">
+  <img src="docs/assets/banner.png" alt="hob — a self-hosted control room for Hermes Agent" width="100%" />
+</p>
 
-A custom dashboard backed by upstream Hermes Agent. Hermes owns agent execution,
-tools, profiles, memory, skills and model integrations. The application owns its
-interface, login and adapter. Hermes source is not patched.
+<h1 align="center">hob</h1>
 
-This migration is still in progress. Real local Hermes has passed setup, separate
-bot/session storage, streaming chat and a tool write against a deterministic local
-model simulation. Linux image build, first boot and container recreation now pass
-the [container smoke workflow](https://github.com/abdlx/hob/actions/runs/39036456635)
-at `1dd39956`, including service UID checks and an isolated Chromium sandbox probe.
-A real provider account has not been exercised.
-Dashboard chat now uses Hermes' authenticated native session interface. Questions,
-generation-bound controls and active work survive adapter reconnection. Older API
-conversations remain available as read-only history. HTTP task references retain
-their separate recovery path. Explicit groups now use native Hermes room workers,
-with separate member sessions and shared history. Native group approval/denial,
-in-flight cancellation and active-member removal have local verification. Full
-setup UX, real-provider use and production deployment still need work.
+<p align="center">
+  <strong>A self-hosted control room for Hermes Agent.</strong><br />
+  Give every bot its own memory, credentials, workspace, and browser — then run them all from one private dashboard.
+</p>
 
-Goals, Library, Workshop and the identity panel now use native Hermes scheduling,
-workspace files, skills, pending skill reviews, personality and memory APIs.
-The Browser panel sends a browsing request through the selected bot's native
-chat/tools. Bot turns and unsent drafts can remain independent while switching
-between conversations. These local changes require rebuilding/restarting an
-existing deployment before its dashboard can use the migrated actions.
+<p align="center">
+  <a href="https://github.com/abdlx/hob/actions/workflows/coolify-build.yml">
+    <img alt="Build and first-run checks" src="https://github.com/abdlx/hob/actions/workflows/coolify-build.yml/badge.svg" />
+  </a>
+  <a href="LICENSE">
+    <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square" />
+  </a>
+  <img alt="Status: beta" src="https://img.shields.io/badge/status-beta-ff6b35?style=flat-square" />
+  <img alt="Node 24.16+" src="https://img.shields.io/badge/node-24.16%2B-339933?style=flat-square&logo=node.js&logoColor=white" />
+  <img alt="Docker ready" src="https://img.shields.io/badge/docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white" />
+  <img alt="Hermes Agent" src="https://img.shields.io/badge/Hermes-Agent-ff6b35?style=flat-square" />
+  <img alt="React 19" src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black" />
+  <img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square" />
+</p>
 
-Dashboard routing uses the authenticated server runtime, independently of optional
-bot metadata. Unknown runtime responses stop initialization with a retry action;
-they never select OpenClaw implicitly. A stale dashboard's legacy requests are
-rejected before OpenClaw RPC. Rebuild/redeploy the server and frontend together,
-then reload the browser if an existing installation still displays legacy actions.
+<p align="center">
+  <code>hermes-agent</code> · <code>ai-agents</code> · <code>multi-agent</code> · <code>self-hosted</code> ·
+  <code>docker</code> · <code>coolify</code> · <code>browser-automation</code> · <code>cdp</code> ·
+  <code>react</code> · <code>typescript</code> · <code>nodejs</code> · <code>llm</code> · <code>mcp</code>
+</p>
 
-## Runtime boundary
+> [!WARNING]
+> **hob is a self-hosted beta.** It is not hardened for hostile multi-tenant hosting. Run it behind HTTPS, keep the data volume private, and use separate OS users or containers when bots must not be able to read each other's files.
 
-The Dockerfile extends a public, digest-pinned `ghcr.io/abdlx/hob-hermes-runtime`
-image built with upstream Hermes' own Dockerfile at commit
-`7e9eb8d9a30f4a9bb9f8ecaf816b4b0ffdf47357`. The published official v0.22.2 image
-lacks the native session authority this adapter requires. The runtime image is
-currently **Linux amd64 only**. It preserves the upstream entrypoint, runtime,
-package manager and privilege drop, and adds the custom UI and server. It does
-not copy the local `hermes-agent/` reference or archived OpenClaw sources.
+## Why hob
 
-Only port 3000 serves the custom application. Hermes' runtime API on 8642 and
-settings API on 8080 bind to loopback. The supervisor provisions their credentials
-and keeps them server-side. Model and tool credentials are entered in Settings.
+Hermes Agent is a capable personal agent runtime, but its native surfaces are optimized for one operator and one home directory. hob adds the product layer around it:
 
-## Deploy with Coolify
+- **One dashboard, many bots.** Main plus operator-created bots, each with independent sessions, memory, provider credentials, workspaces, and browser state.
+- **A real browser, not a screenshot toy.** Per-bot Chromium processes with persistent logins, multi-tab control, a live viewer, human takeover, and exact-coordinate input.
+- **Native Hermes underneath.** Sessions, tools, approvals, questions, memory, skills, and scheduling stay owned by upstream Hermes. hob owns the interface, authentication, routing, and browser gateway.
+- **Deployable as one container.** The Docker image combines the dashboard, Node server, and a digest-pinned Hermes runtime. Only the app port is exposed.
 
-Create a Docker Compose application for this repository using `compose.yaml`.
-Enable **Preserve Repository During Deployment**, which keeps the repository's
-Chromium seccomp profile available to Compose. Assign a domain to the `muse`
-service at port 3000.
+Hermes source is vendored only as a reference. hob does not patch the upstream runtime.
 
-Coolify generates `SERVICE_PASSWORD_64_MUSE` and
-`SERVICE_REALBASE64_64_MUSE`. Use the generated password to sign in. If a reverse
-proxy needs an explicit origin, set `MUSE_PUBLIC_URL` to the exact HTTPS origin.
+## Contents
 
-See [Coolify deployment](deploy/COOLIFY.md).
+- [Features](#features)
+- [Architecture](#architecture)
+- [Quick start](#quick-start)
+- [First-run setup](#first-run-setup)
+- [Configuration](#configuration)
+- [Browser control](#browser-control)
+- [Security model](#security-model)
+- [Data and upgrades](#data-and-upgrades)
+- [Development](#development)
+- [Project status](#project-status)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
 
-## Run without Coolify
+## Features
 
-Use Docker Engine with Compose v2 on Linux. Copy the public template:
+| Area | What you get |
+| --- | --- |
+| **Multi-bot** | A persistent operator roster with a default **Main** bot and explicitly created bots. Each bot has its own Hermes profile, listener credential, workspace, conversations, and settings. |
+| **Chat** | Native durable Hermes sessions, streamed replies, tool activity, approvals, clarifying questions, stop/cancel, run recovery, and multi-bot group rooms. |
+| **Browser** | One managed Chromium identity per bot, persistent cookies and tabs, live frame streaming, human takeover, tab actions, precision input methods over CDP, and opt-in CAPTCHA challenge handling. |
+| **Media** | Inline images in chat bubbles from `MEDIA:`, `@image:`, `#media:` links, and Markdown image syntax. Local files are served through an authenticated, profile-scoped endpoint. |
+| **Providers** | Per-bot provider credentials, model catalogs, custom OpenAI-compatible endpoints, device sign-in where supported, and explicit model selection. |
+| **Tools and MCP** | Native toolset controls, dependency setup, messaging channels, MCP servers, OAuth sign-in, connection probes, and per-bot enable/disable. |
+| **Memory and learning** | Built-in or external memory providers, personality/identity editing, task-memory and user-profile switches, and approval-gated skill/memory writes. |
+| **Workspace** | Goals and scheduled tasks, workspace files, skill review in Workshop, activity, approvals, and a live browser side panel. |
+| **Operations** | Login rate limiting, SameSite cookies, origin checks, loopback-only Hermes APIs, health/readiness endpoints, build provenance, graceful browser shutdown, and persisted state. |
+
+## Architecture
+
+```text
+┌──────────────────────────────────────────────┐
+│              Browser / hob dashboard         │
+│         React · TypeScript · Tailwind        │
+└──────────────────────┬───────────────────────┘
+                       │ HTTPS · SSE · WebSocket
+┌──────────────────────▼───────────────────────┐
+│                hob server (Node 24)          │
+│  auth · chat adapter · media · browser gateway│
+└───────────┬───────────────────────┬──────────┘
+            │ private loopback      │ CDP over pipe
+┌───────────▼──────────┐   ┌────────▼──────────┐
+│ Hermes settings :8080│   │ per-bot Chromium  │
+│ Hermes runtime :8642 │   │ persistent profile│
+└───────────┬──────────┘   └───────────────────┘
+            │
+┌───────────▼──────────────────────────────────┐
+│        Hermes Agent (unchanged upstream)     │
+│  profiles · tools · memory · skills · models │
+└──────────────────────────────────────────────┘
+```
+
+Only port **3000** serves the application. Hermes' settings and runtime APIs bind to loopback and are never published by the supplied Compose files. Model and tool credentials are entered in Settings and remain server-side.
+
+The runtime image is pinned by digest and built from an unchanged upstream Hermes commit that includes the native session authority hob requires. The published Hermes `0.22.2` image does not provide that contract. Runtime upgrades are deliberate, tested changes — not automatic in-container updates.
+
+## Quick start
+
+### Requirements
+
+- Linux **amd64** for the supplied container image.
+- Docker Engine with Compose v2.
+- Node.js **24.16+** only if you are developing locally.
+
+### Docker Compose
 
 ```sh
+git clone https://github.com/abdlx/hob.git
+cd hob
 cp .env.example .env
 ```
 
-Set a strong `MUSE_PASSWORD` and an independent `MUSE_SESSION_SECRET` in your
-private file, then run:
+Edit `.env` and set a strong password and an independent session secret:
+
+```dotenv
+MUSE_PASSWORD=replace-with-a-long-random-password
+MUSE_SESSION_SECRET=replace-with-at-least-32-random-bytes
+```
+
+Build and start the standalone stack:
 
 ```sh
 docker compose -f compose.yaml -f compose.standalone.yaml build
@@ -75,114 +133,119 @@ docker compose -f compose.yaml -f compose.standalone.yaml up -d
 docker compose -f compose.yaml -f compose.standalone.yaml logs --tail=100 muse
 ```
 
-The standalone overlay binds to `127.0.0.1:3000`. For a VPS, forward that port:
+The standalone overlay binds to `127.0.0.1:3000`. Open <http://localhost:3000>.
+
+For a remote VPS, tunnel the port instead of exposing it:
 
 ```sh
 ssh -L 3000:127.0.0.1:3000 user@your-vps
 ```
 
-Open `http://localhost:3000`. For public access, configure your HTTPS reverse
-proxy and set `MUSE_PUBLIC_URL` and `MUSE_SECURE_COOKIES=true`.
-[Deployment details](deploy/README.md) cover storage, health and updates.
+For public access, put an HTTPS reverse proxy in front of port 3000 and set:
+
+```dotenv
+MUSE_PUBLIC_URL=https://hob.example.com
+MUSE_SECURE_COOKIES=true
+```
+
+### Coolify
+
+Create a **Docker Compose** application from this repository using `compose.yaml`, enable **Preserve Repository During Deployment**, and assign a domain to the `muse` service on port **3000**. Coolify generates the app password and session secret automatically.
+
+See [Coolify deployment](deploy/COOLIFY.md) for the exact settings, environment variables, and commit verification steps.
+
+### Health and version
+
+- `GET /healthz` — settings service and container health.
+- `GET /api/readiness` — authenticated runtime readiness.
+- `GET /api/version` — commit, branch, and build timestamp baked into the image.
+
+A healthy settings service does not prove that a provider or tool is configured. Complete the first-run steps and run a real turn.
 
 ## First-run setup
 
-1. Sign in and open **Settings**.
-2. Select **Main** and choose a provider from its native catalog. Save its API key
-   under the suggested credential name, or use **Provider accounts** for a
-   supported device sign-in. External CLI-only account flows are labeled explicitly.
-3. Choose or enter an available model, then select it. For a custom/local endpoint,
-   choose **Custom compatible endpoint**, enter its URL, a distinct
-   endpoint name and its own key if needed. Confirm any model warning explicitly.
-4. Start a new conversation and verify a reply and a tool task.
-5. Create additional bots deliberately through Settings, configure their
-   credentials/model, and select a bot in the chat header. Incomplete bot setup
-   remains visible in Settings for an explicit retry; it does not activate silently.
+1. **Sign in** with `MUSE_PASSWORD` (or the password Coolify generated).
+2. Open **Settings → Main**.
+3. Choose a provider from the native catalog and save its API key under the suggested credential name. Supported providers may also offer device sign-in.
+4. Choose or enter a model and select it. For a custom endpoint, choose **Custom compatible endpoint**, enter its URL, a distinct endpoint name, and a key if required.
+5. Start a new conversation and verify a reply **and** a tool task.
+6. Create additional bots deliberately in Settings. Each bot needs its own provider/model and workspace setup. Incomplete setup stays visible for explicit recovery and never activates silently.
+7. Optional: configure **Tools & providers**, **Messaging channels**, **MCP servers**, **Memory providers**, and **Learning & write approvals** for each bot.
 
-**Tools & providers** supplies native toolset choices, provider credential forms
-and explicit dependency setup. **Messaging channels** supplies each platform's
-fields and allowed-user IDs. Saving fields does not connect a channel; connecting
-is a separate confirmed action. Managed deployment listeners are excluded.
-The advanced native config editor submits only edits and masks known credential
-fields. **MCP servers** provides confirmed HTTP/bearer and local-executable setup,
-enable/disable/remove and native connection/tool probes for each bot. Local
-executables run on the Hermes host; profile separation is not an execution sandbox.
-For a remote MCP server supporting OAuth registration, choose **OAuth sign-in**,
-save the server, then select **Sign in to MCP server** on its card. Confirm the
-attempt, review the authorization provider's page, and return to Settings for
-status and connection testing. `MUSE_PUBLIC_URL` must name this dashboard's origin.
-Closing an attempt does not disconnect credentials already saved by Hermes.
-Pre-registered clients with a vendor-fixed loopback callback are not automated
-through this hosted flow. **Memory providers** exposes native provider fields,
-masked credentials, explicit dependency setup and confirmed provider selection
-for the selected bot. Saving provider fields can also select that provider; the
-confirmation states this before submission. Built-in memory remains available,
-and selecting it again does not delete external data or stored credentials.
-External projects/namespaces can share data across bots if configured identically;
-choose separate partitions when independent external memory is required. Existing
-sessions may need restarting after a provider change. Dependency setup submits no
-unsaved form fields and may install packages on the Hermes host.
-**Learning & write approvals** exposes native task-memory, user-profile,
-memory/skill approval and background-review switches. Review and confirm saves
-only edited booleans for the selected bot. A malformed value is shown as unknown,
-never guessed into an enabled setting. These independent switches do not promise
-that all learning is disabled by one toggle. External-provider writes are outside
-the built-in memory gate, and existing work is not cancelled. Review skill
-proposals in Workshop; pending memory decisions need a supported native review
-surface and are not available here yet. This UI does not migrate upstream defaults.
-External account CLI flows, QR onboarding and actual vendor interoperability
-still need work. MCP OAuth has
-real-runtime verification against an isolated simulated provider; its rendered
-UI interaction and real vendor sign-in remain unverified.
+Saving a channel's fields does not connect it. Connecting is a separate confirmed action. The same is true for several destructive or credential-bearing operations: hob asks for confirmation and does not retry ambiguous writes.
 
-## Persistence and upgrades
+## Configuration
 
-The managed browser uses the same discovered Chromium executable for every bot,
-with a separate process, CDP gateway credential and persistent user-data directory
-for each bot. New profiles live under
-`HOB_STATE_DIR/browsers/<bot>/<browser-profile-id>/chromium`; existing profiles keep
-their previous directory across upgrades. Recreating a browser identity does not
-reuse the previous identity's logins. Bot setup stays incomplete if its managed
-browser endpoint cannot be bound.
+### Application environment
 
-Agents can create, list, activate and close multiple tabs through `browser_cdp`:
-use `Target.createTarget` with a `url`, `Target.getTargets`,
-`Target.activateTarget` with a `targetId`, and `Target.closeTarget` with a
-`targetId`. For page commands, pass the chosen tab as `target_id` to the native
-tool. Explicit agent activation updates the live viewer unless the human has
-pinned another tab. Tabs, Chromium-managed cookies (including session cookies),
-and durable site storage survive graceful browser shutdown and restart. Saved
-tab files are preserved. Pages reload on restore; unsaved forms, running
-JavaScript, expired site sessions and state that a website deletes cannot be
-guaranteed to survive. Back up the entire state volume while stopped.
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `MUSE_PASSWORD` | Yes | Dashboard login password. Keep it private. |
+| `MUSE_SESSION_SECRET` | Yes | Independent secret used to sign session cookies. Use at least 32 random bytes. |
+| `MUSE_PUBLIC_URL` | Recommended | Exact browser origin, e.g. `https://hob.example.com`. Required for hosted MCP OAuth callbacks and secure origin checks. |
+| `MUSE_SECURE_COOKIES` | For HTTPS | Set to `true` when the browser reaches hob over HTTPS. |
+| `MUSE_BIND_ADDRESS` | Standalone | Host interface for the standalone overlay. Defaults to `127.0.0.1`. |
+| `MUSE_PORT` | Optional | Host port for the standalone overlay. Defaults to `3000`. |
 
-Agent input is forwarded to Chromium immediately and unchanged: the gateway
-does not synthesize a trajectory or insert hover/press delays. The viewer
-pointer animates towards each reported coordinate on its own, so the visible
-cursor glides while the page receives the exact event with no added latency.
-Click indicators are visual only; they never gate or retry the input.
+Coolify supplies `SERVICE_PASSWORD_64_MUSE` and `SERVICE_REALBASE64_64_MUSE` through `compose.yaml`. Keep those values stable across redeploys.
 
-For coordinate work that must not miss, the gateway also exposes exact
-precision methods through `browser_cdp`. Coordinates are viewport CSS pixels.
-A verified click hit-tests the point first and refuses to press unless the
-element actually under it matches `expected`:
+**Do not put model or tool credentials in Compose.** Enter them in Settings so they stay out of the repository and deployment configuration.
+
+### Internal paths
+
+The container keeps application state under `/opt/data`:
+
+```text
+/opt/data/
+├── .hob/                    # hob state: roster, run journal, listener credentials
+├── workspaces/
+│   ├── main/                # Main bot workspace
+│   └── bots/<name>/         # named bot workspaces
+├── profiles/                # Hermes profile homes
+└── ...                      # Hermes config, logs, cache, and native state
+```
+
+The managed browser profiles live under `HOB_STATE_DIR/browsers/<bot>/<profile-id>/chromium`.
+
+## Browser control
+
+Each bot gets its own Chromium process, CDP gateway credential, and persistent user-data directory. Bots do not share logins, cookies, tabs, or browser state.
+
+Agents can create, list, activate, and close tabs through native `browser_cdp` calls:
+
+- `Target.createTarget` with a `url`
+- `Target.getTargets`
+- `Target.activateTarget` with a `targetId`
+- `Target.closeTarget` with a `targetId`
+
+For page commands, pass the chosen tab as `target_id`. Explicit activation updates the live viewer unless the person has pinned another tab.
+
+### Immediate input, visible cursor
+
+Agent input is forwarded to Chromium immediately and unchanged. hob does not synthesize a trajectory or insert hover/press delays. The dashboard cursor animates toward reported coordinates on its own, so the viewer sees a smooth pointer while the page receives the exact event without extra latency. Click indicators are visual only.
+
+### Precision methods
+
+For coordinate work that must not miss, the gateway exposes exact input methods through `browser_cdp`. Coordinates are viewport CSS pixels.
 
 | Method | Parameters |
 | --- | --- |
 | `Hob.input.move` | `x`, `y`, optional `modifiers` |
-| `Hob.input.click` | `x`, `y`, `button`, `clickCount`, `delayMs`, `verify` (default true), `expected` |
+| `Hob.input.click` | `x`, `y`, `button`, `clickCount`, `delayMs`, `verify` (default `true`), `expected` |
 | `Hob.input.drag` | `from`, `to`, `button`, `steps`, optional start-point `expected` |
 | `Hob.input.type` | `text`, optional `x`/`y` to click first, `replace` |
 | `Hob.input.key` | `key` (`Enter`, `Tab`, `Control+a`, `Shift+ArrowDown`, ...) |
 | `Hob.input.scroll` | `x`, `y`, `deltaY`, optional `deltaX` |
 | `Hob.input.hitTest` | `x`, `y`, optional `expected` |
+| `Hob.input.help` | No page target required; returns the full parameter list |
 
-`expected` is either a case-insensitive string matched against the hit
-element's tag, id, class, role or own text, or an object such as
-`{ "tag": "button", "text": "Sign in" }`. A mismatch returns an error and the
-click does not happen. `Hob.input.help` returns the full parameter list.
-Precision actions act on a page, so pass the tab as `target_id` on the
-`browser_cdp` call; `Hob.input.help` works without one.
+`expected` is either a case-insensitive string matched against the hit element's tag, id, class, role, or own text, or an object such as:
+
+```json
+{ "tag": "button", "text": "Sign in" }
+```
+
+A verified click hit-tests the point first and refuses to press when the element does not match. A mismatch returns an error and the click does not happen.
 
 ```json
 {"method":"Hob.input.click","params":{"x":760,"y":540,"expected":{"tag":"button","text":"Sign in"}}}
@@ -190,73 +253,140 @@ Precision actions act on a page, so pass the tab as `target_id` on the
 {"method":"Hob.input.scroll","params":{"x":640,"y":512,"deltaY":600}}
 ```
 
-These actions obey the same control lease as raw CDP: while a person holds
-control, an agent request waits and is then refused rather than mutating the
-page. They emit normal input activity, so the viewer pointer and click
-indicator follow them. The gateway maintains pointer position across agent
-connections for each bot.
+These actions obey the same human-control lease as raw CDP. While a person holds control, an agent request waits and is then refused rather than mutating the page. Precision actions act on a page, so pass the tab as `target_id`; `Hob.input.help` works without one.
 
-Chromium starts with `--disable-blink-features=AutomationControlled`, which
-suppresses its native `navigator.webdriver` marker without injecting a
-JavaScript getter into pages. This is a limited Chromium compatibility setting,
-not the Firefox fingerprint system shipped by Camoufox. These remain Chromium
-input events; they do not provide
-an operating-system desktop cursor or guarantee that websites classify the
-automation as human. Camoufox is a Firefox-based system with different engine
-patches and licenses; its fingerprint patches and recorded cursor corpus are
-not bundled here. Camofox's server delegates trajectories to Camoufox with
-`humanize: true` and launches it through Playwright's Firefox driver; copying
-that launch option into Chromium would have no effect.
+### Human takeover
 
-Production uses CDP over a private pipe between the gateway and Chromium.
-The token for one bot cannot open another bot's gateway. Profile directories
-reject symlink/junction redirection during preparation. These are browser/API
-boundaries: bots with unrestricted terminal or file tools under the same OS user
-can still read each other's host files. Strong isolation for mutually untrusted
-bots requires separate OS users or containers, including access restrictions on
-the browser-state volume and gateway credentials. Profile directories are
-sensitive credential stores; this application does not add encryption at rest.
+The live viewer can take control, send real input, and hand control back. Agent mutations queue during human control and resume on handback. A dropped viewer does not silently steal or release control. The same lease protects raw CDP and the dashboard's tab actions.
 
-The new `hermes-data` volume mounts at `/opt/data`. It contains Hermes state and
-the application's private listener credentials and operator-created bot roster
-under `.hob/`. Each enrolled bot has its own listener key. Existing configuration
-bytes and listener credentials survive normal restarts. Native profiles found
-outside this roster are preserved but are not automatically added as dashboard bots.
+### CAPTCHA handling
 
-An older OpenClaw `muse-data` volume is not mounted or migrated by the new
-configuration. Docker retains it; do not delete it if it contains needed history.
+hob treats a confirmed CAPTCHA as session state, not a tool error. In `detect` mode (the default), it classifies challenges and records statistics without parking work or attempting a solve. Set `HOB_CAPTCHA=solve` to enable the solver ladder: passive token clearance, hit-tested checkbox input with human-like motion, optional vision-grid solving, an optional CapSolver service, then human handoff in the live viewer. Parked agent mutations resume when the challenge clears or fail with a structured `challenge_timeout`.
 
-The upstream entrypoint initializes storage as root, then drops application/runtime
-processes to its Hermes user. Compose grants only the initialization capabilities
-listed in `compose.yaml`; it does not mount the Docker socket.
+Image-grid solving requires `HOB_CAPTCHA_VISION_URL` (an OpenAI-compatible chat endpoint), `HOB_CAPTCHA_VISION_MODEL`, and optionally `HOB_CAPTCHA_VISION_KEY`. CapSolver requires `HOB_CAPTCHA_KEY_CAPSOLVER`; `HOB_CAPTCHA_SERVICE_DAILY_CAP` defaults to 50 attempts per day. Whole-page block interstitials are refused immediately and the host is cooled down because there is no puzzle to solve.
 
-Back up the complete Hermes volume while stopped and keep the backup private.
-Upgrade by changing the runtime image digest, building a candidate, testing it
-against a copy of your data, and then promoting it. Do not use an in-container
-source updater. The adapter reduces coupling but does not guarantee that every
-future upstream version will be compatible without testing.
+This is best-effort. Score-based systems may never present a puzzle, solver tokens do not create session reputation, and providers change their markup. See [CAPTCHA.md](CAPTCHA.md) for modes, telemetry, and limits. Browser automation can still be detected. Chromium starts with `--disable-blink-features=AutomationControlled`, which suppresses the native `navigator.webdriver` marker without injecting a JavaScript getter; that is a compatibility setting, not a promise of human classification.
 
-## Development and verification
+## Security model
 
-The server uses Node's built-in HTTP and test APIs. The frontend uses its existing
-npm lockfile.
+hob is designed for a trusted operator, not for mutually hostile tenants.
+
+- **Single public port.** Only the app port (`3000`) is exposed. Hermes settings (`8080`) and runtime (`8642`) stay on loopback.
+- **Server-side secrets.** Provider keys, listener credentials, and the Hermes dashboard token never reach the browser.
+- **Authenticated API.** `/api/*` is gated by an HttpOnly, SameSite=Strict session cookie. Login attempts are rate-limited, and state-changing requests check their origin.
+- **Profile-bound routing.** Every dashboard operation selects one enrolled bot. Native credentials and session keys are scoped to that bot.
+- **Scoped local media.** The inline-media endpoint serves only raster images from the selected bot's profile home, workspace, or HOB browser captures. Path traversal, symlink escapes, other profiles, and the default profile's shared `profiles/`/`workspaces/bots/` subtrees are refused.
+- **No Docker socket.** The supplied Compose stack does not mount the host Docker socket. Compose drops every capability except the six required by the upstream volume initializer (`CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETGID`, `SETUID`, `KILL`) and retains `no-new-privileges`. Application processes run as the unprivileged Hermes user.
+- **Browser isolation boundary.** Profile and credential separation prevents accidental cross-bot browser access. It is **not** an OS sandbox. Bots with unrestricted terminal or file tools under the same OS user can still read each other's host files. Use separate OS users or containers for strong isolation.
+- **Local MCP executables.** Local-executable MCP servers run on the Hermes host. Profile separation is not an execution sandbox there either.
+- **No encryption at rest.** The data volume contains credentials and conversation state. Protect the volume, restrict access, and keep backups private.
+
+For a public deployment, terminate TLS at a reverse proxy, set `MUSE_PUBLIC_URL` and `MUSE_SECURE_COOKIES=true`, and do not publish the Hermes ports.
+
+## Data and upgrades
+
+The `hermes-data` volume mounts at `/opt/data`. Back up the **entire volume while the stack is stopped**, including SQLite companion files and `.hob/`. Test a restore before relying on it.
+
+Upgrades are deliberate:
+
+1. Pin a new Hermes runtime digest.
+2. Build a candidate image.
+3. Test against a copy of your state: login, chat, tools, profiles, groups, browser tabs, and recovery.
+4. Promote only after the candidate passes.
+
+Do not run an in-container source updater. An older runtime may not read state written by a newer one, so keep a matching backup for rollback.
+
+The older OpenClaw `muse-data` volume is preserved by Docker but is **not** mounted or automatically migrated. Keep it if it contains history you still need.
+
+## Development
+
+The server uses Node's built-in HTTP and test APIs. The frontend uses npm and Vite.
 
 ```sh
-node --test server/test/hermes-*.test.mjs deploy/*.test.mjs
+# server
+node --test server/test/*.test.mjs
+
+# frontend contract tests
 node --test web/tests/*.test.mjs
+
+# frontend lint and production build
 cd web
 npm ci
 npm run lint
 npm run build
 ```
 
-For local native runtime testing, provision Hermes with its package manager in an
-isolated home with the `web` and `messaging` extras, and activate that environment.
-The supervisor uses `hermes` from
-PATH, or `HERMES_EXECUTABLE` when explicitly supplied. Set an isolated
-`HERMES_HOME` and the application login variables before running
-`node deploy/start.mjs`.
+For local runtime work, use an isolated Hermes home and a supported Hermes Python environment:
 
-See [the current implementation checkpoint](Hermes-Integration-Checkpoint.md)
-for actual test results, known gaps and remaining work. No model response or
-successful deployment is fabricated when the backend is unavailable.
+```sh
+export HERMES_HOME=/path/to/isolated/hermes-home
+export MUSE_PASSWORD=local-password
+export MUSE_SESSION_SECRET=local-session-secret
+node deploy/start.mjs
+```
+
+The supervisor uses `hermes` from `PATH`, or `HERMES_EXECUTABLE` when explicitly supplied. See [deployment details](deploy/README.md) for runtime contracts, test evidence, and known gaps.
+
+### Repository layout
+
+```text
+server/              Node application, Hermes adapter, browser gateway, tests
+web/                 React dashboard, Vite build, frontend tests
+deploy/              supervisor, health checks, Coolify docs, seccomp profile
+docs/assets/         README banner and brand assets
+hermes-agent/        optional local upstream reference; never patched by hob
+compose.yaml         Coolify/production Compose service
+compose.standalone.yaml  loopback-only local overlay
+Dockerfile           dashboard + pinned Hermes runtime image
+```
+
+## Project status
+
+hob is usable for a self-hosted operator who understands the boundaries, but it is **not production-proven**.
+
+Known limits:
+
+- The supplied runtime image targets **Linux amd64**.
+- The container smoke workflow uses a deterministic model fixture. Real provider accounts, vendor interoperability, and production-host behavior still need operator verification.
+- Native session, approval, question, cancellation, and recovery paths are covered by adapter tests; full end-to-end browser interaction against every vendor remains an ongoing verification area.
+- Bots share the container's OS user by default. This is a routing and credential boundary, not a security sandbox.
+- Browser automation may be blocked or challenged. CAPTCHA handling defaults to detection only; the opt-in solver ladder is best-effort and does not guarantee access.
+- The pinned runtime is built from an upstream Hermes commit because the published `0.22.2` image lacks the required native session authority. Replacing the pin requires the same native-session checks.
+- Older API-era conversations remain available as read-only history; native conversations are the primary path.
+
+When a backend is unavailable, hob surfaces the failure instead of presenting a fabricated model reply or a false deployment success.
+
+## Documentation
+
+- [Deployment and operations](deploy/README.md)
+- [Coolify deployment](deploy/COOLIFY.md)
+- [CAPTCHA system](CAPTCHA.md)
+- [End-to-end test notes](server/e2e/README.md)
+- [Frontend notes](web/README.md)
+- [Brand and logo notes](web/public/brand/README.md)
+
+## Contributing
+
+Issues and pull requests are welcome. Useful contributions include:
+
+- reproductions with the exact failing path and observed behavior;
+- adapter and browser-gateway tests;
+- deployment hardening and recovery coverage;
+- accessibility and responsive UI improvements;
+- documentation fixes that keep the security boundaries accurate.
+
+Please keep changes consistent with the existing architecture:
+
+- do not edit a local `hermes-agent/` reference checkout;
+- keep credentials and native tokens server-side;
+- bind every operation to one enrolled bot;
+- add tests for new adapter, auth, profile, or browser behavior;
+- run both the server and frontend suites before opening a PR.
+
+For security-sensitive findings, use GitHub's private security advisory flow rather than a public issue.
+
+## License
+
+MIT © 2026 Mirza Abdullah Baig. See [LICENSE](LICENSE).
+
+Built on the shoulders of [Hermes Agent](https://github.com/NousResearch/hermes-agent). Hermes remains under its own license and is not modified by this repository.

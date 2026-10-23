@@ -25,5 +25,7 @@ openclaw-halfway-modified/
 __pycache__/
 stale-harnesses/
 browser_integration/
-docs/
+docs/*
+!docs/assets/
+!docs/assets/**
 server/*.out
