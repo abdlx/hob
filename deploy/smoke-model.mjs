@@ -50,7 +50,10 @@ export function createSmokeModel({ file = defaultFile() } = {}) {
       let tool = asked && !wrote && canWrite ? [{ id: 'hob-smoke-write', type: 'function', function: {
         name: 'write_file', arguments: JSON.stringify({ path: file, content: SMOKE_CONTENT }),
       } }] : null;
-      let content = asked && wrote ? SMOKE_REPLY : 'Synthetic smoke metadata.';
+      const writeResult = input.messages.findLast(item => item.role === 'tool' && item.tool_call_id === 'hob-smoke-write');
+      let writeReceipt;
+      try { writeReceipt = JSON.parse(typeof writeResult?.content === 'string' ? writeResult.content : (writeResult?.content || []).map(item => item.text || '').join('')); } catch { /* The artifact assertion remains authoritative. */ }
+      let content = asked && wrote ? (writeReceipt?.error ? 'HOB_WRITE_NOT_CONFIRMED: ' + JSON.stringify(writeReceipt).slice(0, 1200) : SMOKE_REPLY) : 'Synthetic smoke metadata.';
       const latestUser = input.messages.findLast(item => item.role === 'user');
       const latestText = String(latestUser?.content || '');
       if (latestText.includes(SMOKE_RELAY_PROMPT)) {

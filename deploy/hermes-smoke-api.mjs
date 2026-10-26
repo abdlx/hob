@@ -118,7 +118,7 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       check('the native turn is admitted', turn.ok);
       const stream = await turn.text();
       check('the native stream completes after the tool round trip', stream.includes('event: accepted') && stream.includes('event: done')
-        && stream.includes(SMOKE_REPLY) && !stream.includes('event: error'), stream.slice(-400));
+        && stream.includes(SMOKE_REPLY) && !stream.includes('event: error'), stream.slice(-1600));
       const entry = ((await workspace('files')).entries || []).find(item => item.name === SMOKE_FILE);
       check('the model tool wrote the artifact into the bot workspace', Boolean(entry));
       const file = await workspace('file', 'GET', undefined, 'default', { path: entry.path });
@@ -162,7 +162,7 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       check('the real staged-learning turn is admitted', turn.ok);
       const stream = await turn.text();
       const proposal = new RegExp(SMOKE_SKILL_REPLY + ':([a-f0-9]{8})').exec(stream)?.[1];
-      check('the native skill tool returns an actual staged proposal', Boolean(proposal) && stream.includes('event: done') && !stream.includes('event: error'), stream.slice(-400));
+      check('the native skill tool returns an actual staged proposal', Boolean(proposal) && stream.includes('event: done') && !stream.includes('event: error'), stream.slice(-1600));
       const review = (action, confirm) => workspace('skill-review', 'POST', { sessionKey: conversation.id, action, ...(action === 'pending' ? {} : { id: proposal }), ...(confirm ? { confirm: true } : {}) });
       check('agent skill creation stays pending and is not active', (await review('pending')).output.includes(proposal)
         && !(await workspace('skills')).some(item => item.name === SMOKE_SKILL_NAME));

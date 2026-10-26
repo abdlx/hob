@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import net from 'node:net';
+import {createHermesRoutes} from '../hermes-routes.mjs';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -39,4 +40,12 @@ test('private broker protocol bounds replies, refuses malformed/refused results,
 test('isolation mode rejects unknown backends and unsupported hosts explicitly',()=>{
  assert.equal(isolationMode({}),'shared'); assert.throws(()=>isolationMode({HOB_ISOLATION:'typo'}));
  if(process.platform!=='linux')assert.throws(()=>isolationMode({HOB_ISOLATION:'users'}),/Linux/);
+});
+
+test('dashboard cannot replace an isolated execution backend or inject a terminal override',async()=>{
+ const calls=[]; const client={dashboard:async(...args)=>{calls.push(args);return {ok:true};}};
+ const route=createHermesRoutes(client,{isolationStatus:()=>({mode:'users'})});
+ const dispatch=async(config)=>route({method:'PUT'},{},new URL('http://local/api/hermes/config'),{body:async()=>({config}),json:()=>{}});
+ for(const key of ['backend','cwd','ssh_host','ssh_port','ssh_user','ssh_key']) await assert.rejects(dispatch({terminal:{[key]:'untrusted'}}),{code:'MANAGED_ISOLATION'});
+ assert.equal(calls.length,0); await dispatch({terminal:{timeout:90}}); assert.equal(calls.length,1);
 });

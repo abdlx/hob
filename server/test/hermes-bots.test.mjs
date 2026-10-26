@@ -442,3 +442,15 @@ test('transport binds each enrolled profile credential and refuses unknown profi
   await assert.rejects(client.dashboard('/api/config', { profile: 'unknown' }), /not in your dashboard/);
   assert.equal(calls.length, 1);
 }));
+
+
+test('OS isolation must succeed before activation and revokes before native deletion', async () => fixture(async ({registry,root})=>{
+ const upstream=native(); const calls=[]; let denied=true;
+ const isolation={configure:async(_c,name)=>{calls.push('configure:'+name);if(denied)throw Error('broker unavailable');},revoke:async name=>calls.push('revoke:'+name),status:name=>({profile:name,mode:'users',ready:!denied})};
+ const bots=new HermesBots({registry,client:upstream.client,workspaceRoot:path.join(root,'work'),isolation});
+ await assert.rejects(bots.create({name:'worker'}),/broker unavailable/);
+ assert.equal(registry.list().find(b=>b.name==='worker').state,'setup_required');
+ denied=false; await bots.finishSetup('worker'); assert.equal(registry.list().find(b=>b.name==='worker').state,'active');
+ const original=upstream.client.dashboard; upstream.client.dashboard=async(route,options)=>{if(options?.method==='DELETE'){assert.ok(calls.includes('revoke:worker'));throw Error('native offline');}return original(route,options);};
+ await assert.rejects(bots.remove('worker'),/native offline/); assert.throws(()=>registry.token('worker'));
+}));
