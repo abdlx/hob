@@ -68,6 +68,60 @@
   --hob-bubble-outgoing: #FFFFFF;
 }
 
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-ink: #EDF0F5;
+  --color-muted: #A4AFBE;
+  --color-soft: #BAC4D2;
+  --color-faint: #8B98AB;
+  --color-code: #DCE3ED;
+  --color-surface: #20242C;
+  --color-canvas: #191D24;
+  --color-panel: #242932;
+  --color-sunken: #292F39;
+  --color-hover: #2A3341;
+  --color-idle-soft: #2B323D;
+  --color-accent: #82B2FF;
+  --color-accent-strong: #9CC3FF;
+  --color-accent-soft: #253754;
+  --color-accent-line: #3C567B;
+  --color-app: #11151B;
+  --color-neutral: #272D37;
+  --color-neutral-strong: #333B48;
+  --color-code-strong: #E1E8F3;
+  --color-code-soft: #252E3B;
+  --color-ok: #7DE0B7;
+  --color-ok-soft: #183C30;
+  --color-run: #F3CC7B;
+  --color-run-soft: #42371F;
+  --color-warn: #FFBC88;
+  --color-warn-soft: #493120;
+  --color-bad: #FFA8A0;
+  --color-bad-soft: #482A2D;
+  --color-hair: rgba(215, 225, 242, 0.10);
+  --color-line: rgba(215, 225, 242, 0.08);
+  --color-edge: rgba(215, 225, 242, 0.16);
+  --color-edge-strong: rgba(215, 225, 242, 0.28);
+  --hob-bg: var(--color-app);
+  --hob-panel: var(--color-canvas);
+  --hob-text-primary: var(--color-ink);
+  --hob-text-secondary: var(--color-muted);
+  --hob-text-muted: var(--color-faint);
+  --hob-accent: var(--color-accent);
+  --hob-border: var(--color-hair);
+  --hob-bubble-incoming: var(--color-neutral);
+  --hob-bubble-outgoing: var(--color-surface);
+}
+
+/* Keep keyboard focus visible, including inside the composer. */
+:is(button, a, input, textarea, select, summary):focus-visible {
+  outline: 2px solid var(--color-accent) !important;
+  outline-offset: 3px !important;
+}
+
+/* Display utilities must not reveal retained, inactive settings forms. */
+.settings-workspace [hidden] { display: none !important; }
+
 * {
   box-sizing: border-box;
 }
@@ -202,13 +256,13 @@ textarea:focus-visible {
 
 /* Composer */
 .hob-composer-form {
-  background: #FFFFFF;
-  border: 1px solid #E6E6E6;
+  background: var(--color-surface);
+  border: 1px solid var(--color-edge);
   border-radius: 9999px;
 }
 
 .hob-composer-form:focus-within {
-  border-color: #E6E6E6;
+  border-color: var(--color-accent);
   outline: none !important;
   box-shadow: none !important;
 }
@@ -231,8 +285,8 @@ textarea:focus-visible {
 }
 
 .hob-markdown-view pre {
-  background: #FFFFFF;
-  border: 1px solid rgba(25, 35, 50, 0.08);
+  background: var(--color-surface);
+  border: 1px solid var(--color-hair);
   border-radius: 14px;
   padding: 12px;
   margin: 8px 0;

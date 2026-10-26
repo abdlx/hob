@@ -4,6 +4,7 @@ import http from 'node:http';
 import { EventEmitter } from 'node:events';
 import { createApp } from '../app.mjs';
 import { HermesClient } from '../hermes-client.mjs';
+import { WebSocket } from 'ws';
 
 let app, upstream, origin, cookie;
 const calls = [];
@@ -44,6 +45,17 @@ after(async () => {
 const request = (route, method = 'GET', data, extra = {}) => fetch(`${origin}/api/hermes/${route}`, {
   method, headers: { Cookie: cookie, ...(data ? { 'Content-Type': 'application/json', Origin: origin } : {}), ...extra },
   ...(data ? { body: JSON.stringify(data) } : {}),
+});
+
+test('production computer WebSocket wiring rejects anonymous and cross-origin dashboard connections', async () => {
+  for (const headers of [{ Origin: origin }, { Cookie: cookie, Origin: 'https://attacker.invalid' }]) {
+    const socket = new WebSocket(origin.replace('http:', 'ws:') + '/api/hermes/agent-computer/vnc?profile=default&computerId=fixture', { headers, handshakeTimeout: 2000 });
+    let opened = false;
+    socket.on('open', () => { opened = true; socket.close(); });
+    socket.on('error', () => undefined);
+    await new Promise(resolve => socket.once('close', resolve));
+    assert.equal(opened, false);
+  }
 });
 
 test('native Hermes endpoints retain application authentication and origin checks', async () => {

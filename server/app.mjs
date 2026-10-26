@@ -143,6 +143,9 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   const agentComputerRoutes = hermes ? createAgentComputerRoutes({
     client: hermes,
     hermesHome: process.env.HERMES_HOME,
+    authenticated: req => authenticated(req),
+    assertOrigin: req => assertOrigin(req),
+    knownBot: name => !bots || bots.has(name),
   }) : null;
   const configured = Boolean(password || accessToken);
   const secret = sessionSecret || createHash('sha256').update(`muse-session:${password || accessToken || randomBytes(32).toString('hex')}`).digest();
@@ -509,7 +512,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
     void poll();
   });
   server.once('close', () => clearInterval(runPoll));
-  server.once('close', () => { canonicalChat?.close(); nativeSessions?.close(); browserRoutes?.close(); });
+  server.once('close', () => { canonicalChat?.close(); nativeSessions?.close(); browserRoutes?.close(); agentComputerRoutes?.close(); });
   server.on('close', () => { for (const res of streams) res.end(); streams.clear(); });
   // Viewer streams are WebSockets, so they never reach the request handler above.
   // Anything that is not a browser stream is refused here rather than left open.

@@ -3,6 +3,7 @@ import { MANAGED_ENV } from './hermes-routes.mjs';
 import { containsStoredSecret } from './hermes-settings.mjs';
 import { hermesMemorySetup } from './hermes-memory-setup.mjs';
 import { hermesLearningSetup } from './hermes-learning-setup.mjs';
+import { createHermesPluginsRoutes } from './hermes-plugins.mjs';
 
 const invalid = message => new HermesError(400, message, 'INVALID_REQUEST');
 const valueText = (value, max = 64000) => typeof value === 'string' && value.length <= max;
@@ -22,6 +23,7 @@ const managedChannel = name => ['api_server', 'webhook'].includes(name);
 
 /** Native setup forms; never shell commands, arbitrary URLs, or a second config owner. */
 export function createHermesSetupRoutes(client, { mcpOAuth } = {}) {
+  const plugins = createHermesPluginsRoutes();
   return async (req, res, url, { json, body }) => {
     const route = url.pathname.slice('/api/hermes/setup/'.length), method = req.method;
     const profiles = url.searchParams.getAll('profile');
@@ -37,6 +39,7 @@ export function createHermesSetupRoutes(client, { mcpOAuth } = {}) {
       const { profile: _profile, ...result } = value;
       return result;
     };
+    if (route === 'plugins' || route.startsWith('plugins/')) return plugins(route, method, { profile, dashboard, input, json, res });
     if (route === 'memory' || route.startsWith('memory/')) return hermesMemorySetup(route, method, { dashboard, input, json, res });
     if (route === 'learning') return hermesLearningSetup(method, { dashboard, input, json, res, profile });
     if (route === 'mcp/oauth/flows' && method === 'GET' && mcpOAuth) return json(res, 200, await mcpOAuth.list(profile));

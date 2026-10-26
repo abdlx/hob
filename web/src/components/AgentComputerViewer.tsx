@@ -18,14 +18,8 @@ import {
 import { apiFetch } from '../services/api';
 import { Notice } from './WorkspaceUI';
 import { errorText } from './workspaceUtils';
-
-function resolveRFB(raw: any) {
-  let ctor = raw;
-  while (ctor && typeof ctor !== 'function' && ctor.default) {
-    ctor = ctor.default;
-  }
-  return ctor;
-}
+import { createComputerStream, resolveRfbConstructor } from '../services/computer-stream';
+import type { ComputerConnectionState } from '../services/computer-stream';
 
 interface Computer {
   id: string;
@@ -45,6 +39,7 @@ interface Computer {
 }
 
 interface AgentComputerStatus {
+  configured?: boolean;
   connected: boolean;
   serverName?: string;
   origin?: string;
@@ -58,322 +53,79 @@ interface AgentComputerStatus {
 
 export function AgentComputerViewer({ profile }: { profile: string }) {
   const [status, setStatus] = useState<AgentComputerStatus | null>(null);
-  const [busy, setBusy] = useState<string>('');
-  const [error, setError] = useState<string>('');
-  const [connState, setConnState] = useState<'idle' | 'connecting' | 'connected' | 'failed' | 'disconnected'>('idle');
-  const [expanded, setExpanded] = useState<boolean>(false);
-  const [selectedCompId, setSelectedCompId] = useState<string>('');
-
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const [connState, setConnState] = useState<ComputerConnectionState>('idle');
+  const [expanded, setExpanded] = useState(false);
   const screenRef = useRef<HTMLDivElement | null>(null);
-  const rfbRef = useRef<any>(null);
-  const isConnectedRef = useRef(false);
-  const isConnectingRef = useRef(false);
-  const intentionalCloseRef = useRef(false);
-  const retryTimeoutRef = useRef<any>(null);
-  const retryCountRef = useRef(0);
-  const mountedRef = useRef(true);
-  const computerRef = useRef<Computer | null>(null);
-  const prevRunningRef = useRef(false);
-  const currentComputerIdRef = useRef('');
-  const useProxyRef = useRef(false);
-
-  // Load status from HOB server
-  const loadStatus = useCallback(async (silent = false) => {
+  const streamRef = useRef<ReturnType<typeof createComputerStream> | null>(null);
+  const mounted = useRef(false);
+  const revision = useRef(0);
+  const invalidate = useCallback(() => { revision.current++; }, []);
+  const loadStatus = useCallback(async () => {
+    const current = ++revision.current;
     try {
-      if (!silent) setError('');
-      const data = await apiFetch<AgentComputerStatus>(`/api/hermes/agent-computer/status?profile=${encodeURIComponent(profile)}`);
-      if (!mountedRef.current) return;
-      setStatus(data);
-      if (data.error && (!data.computers || data.computers.length === 0) && !data.computer) {
-        setError(data.error);
-      } else {
-        setError('');
-      }
-      if (data.computer?.id && !selectedCompId) {
-        setSelectedCompId(data.computer.id);
-      }
-      return data;
-    } catch (err) {
-      if (!mountedRef.current) return;
-      if (!silent) setError(errorText(err));
-      return null;
-    }
-  }, [profile, selectedCompId]);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    void loadStatus();
-    const interval = setInterval(() => {
-      void loadStatus(true);
-    }, 4000);
-    return () => {
-      mountedRef.current = false;
-      clearInterval(interval);
-    };
-  }, [loadStatus]);
-
-  const activeComputer = status?.computers?.find(c => c.id === selectedCompId) || status?.computer || null;
-  computerRef.current = activeComputer;
-  const isRunning = activeComputer?.state === 'ready';
-
-  // Active streaming pump: requests 150ms incremental updates so live desktop never freezes
-  useEffect(() => {
-    const triggerUpdate = () => {
-      const activeRfb = rfbRef.current;
-      if (
-        activeRfb &&
-        isConnectedRef.current &&
-        activeRfb._sock &&
-        activeRfb._rfbConnectionState === 'connected' &&
-        activeRfb._fbWidth > 0 &&
-        activeRfb._fbHeight > 0
-      ) {
-        try {
-          const RFBConstructor = resolveRFB(RFB);
-          if (RFBConstructor?.messages?.fbUpdateRequest) {
-            RFBConstructor.messages.fbUpdateRequest(
-              activeRfb._sock,
-              true, // incremental
-              0,
-              0,
-              activeRfb._fbWidth,
-              activeRfb._fbHeight
-            );
-          }
-        } catch {
-          // transient socket flush
-        }
-      }
-    };
-
-    const pumpInterval = setInterval(triggerUpdate, 40);
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') triggerUpdate();
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('focus', onVisibility);
-
-    return () => {
-      clearInterval(pumpInterval);
-      document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('focus', onVisibility);
-    };
-  }, []);  // Connect to noVNC stream
-  const connect = useCallback((force = false) => {
-    const comp = computerRef.current;
-    if (!screenRef.current || !comp || comp.state !== 'ready') return;
-    if (!force && (isConnectedRef.current || isConnectingRef.current) && rfbRef.current) {
-      return;
-    }
-
-    clearTimeout(retryTimeoutRef.current);
-    retryTimeoutRef.current = null;
-
-    if (rfbRef.current) {
-      intentionalCloseRef.current = true;
-      try { rfbRef.current.disconnect(); } catch {}
-      rfbRef.current = null;
-    }
-
-    if (screenRef.current) {
-      screenRef.current.innerHTML = '';
-    }
-
-    const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const proxyUrl = `${scheme}//${window.location.host}/api/hermes/agent-computer/vnc?profile=${encodeURIComponent(profile)}&computerId=${encodeURIComponent(comp.id)}`;
-
-    const directOrigin = status?.origin ? status.origin.replace(/^http/, 'ws').replace(/\/+$/, '') : 'wss://agentcomputer.idkwihl.site';
-    const token = status?.vncToken;
-    const directWsUrl = token ? `${directOrigin}/api/computers/${encodeURIComponent(comp.id)}/vnc?token=${encodeURIComponent(token)}` : '';
-
-    // Connect directly to Agent Computer control plane for zero-hop low latency & smooth 60fps streaming!
-    const wsUrl = (!useProxyRef.current && directWsUrl) ? directWsUrl : proxyUrl;
-
-    intentionalCloseRef.current = false;
-    isConnectingRef.current = true;
-    isConnectedRef.current = false;
-    setConnState('connecting');
-
-    try {
-      const RFBConstructor = resolveRFB(RFB);
-      const rfb = new RFBConstructor(screenRef.current, wsUrl, {
-        wsProtocols: ['binary'],
-      });
-      rfb.scaleViewport = true;
-      rfb.clipViewport = false;
-      rfb.background = '#000000';
-      rfb.qualityLevel = 6;
-      rfb.compressionLevel = 2;
-
-      // Override encodings to fix the frozen view:
-      // 1. Omit continuous updates (-313) which desyncs with TigerVNC
-      // 2. Omit cursor (-239) so Xvnc renders the shared mouse cursor directly into framebuffer
-      rfb._sendEncodings = function () {
-        const encs: number[] = [];
-        encs.push(1); // CopyRect
-        if (this._fbDepth === 24) {
-          encs.push(7);    // Tight
-          encs.push(-260); // TightPNG
-          encs.push(16);   // ZRLE
-          encs.push(21);   // JPEG
-          encs.push(5);    // Hextile
-          encs.push(2);    // RRE
-        }
-        encs.push(0); // Raw
-
-        // Pseudo-encodings
-        encs.push(-32 + this._qualityLevel);
-        encs.push(-256 + this._compressionLevel);
-        encs.push(-223); // DesktopSize
-        encs.push(-224); // LastRect
-        encs.push(-258); // QEMUExtendedKeyEvent
-        encs.push(-261); // QEMULedEvent
-        encs.push(-308); // ExtendedDesktopSize
-        encs.push(-309); // Xvp
-        encs.push(-312); // Fence
-        encs.push(-307); // DesktopName
-        encs.push(0xc0a1e5ce); // ExtendedClipboard
-
-        RFBConstructor.messages.clientEncodings(this._sock, encs);
-      };
-
-      rfb.addEventListener('connect', () => {
-        isConnectingRef.current = false;
-        isConnectedRef.current = true;
-        setConnState('connected');
-        setError('');
-        retryCountRef.current = 0;
-      });
-
-      rfb.addEventListener('disconnect', (e: any) => {
-        rfbRef.current = null;
-        isConnectingRef.current = false;
-        isConnectedRef.current = false;
-
-        if (intentionalCloseRef.current) {
-          intentionalCloseRef.current = false;
-          setConnState('idle');
-          return;
-        }
-
-        // If direct connection failed or dropped, gracefully fall back to server proxy
-        if (!useProxyRef.current && directWsUrl) {
-          useProxyRef.current = true;
-          connect(true);
-          return;
-        }
-
-        const currComp = computerRef.current;
-        const stillRunning = currComp && currComp.state === 'ready';
-
-        if (stillRunning) {
-          retryCountRef.current += 1;
-          setConnState('connecting');
-          const delay = Math.min(500 * Math.pow(1.5, Math.min(retryCountRef.current - 1, 4)), 2000);
-          clearTimeout(retryTimeoutRef.current);
-          retryTimeoutRef.current = setTimeout(() => {
-            connect(true);
-          }, delay);
-        } else {
-          setConnState(e.detail?.clean ? 'disconnected' : 'failed');
-        }
-      });
-
-      rfbRef.current = rfb;
-    } catch (err: any) {
-      isConnectingRef.current = false;
-      isConnectedRef.current = false;
-      setConnState('failed');
-      setError(err?.message || 'Failed to initialize RFB viewer');
-    }
+      const data = await apiFetch<AgentComputerStatus>(`/api/hermes/agent-computer/status?profile=${encodeURIComponent(profile)}`, { headers: { 'X-Hob-Profile': profile } });
+      if (mounted.current && current === revision.current) { setStatus(data); setError(data.error || ''); }
+    } catch (cause) { if (mounted.current && current === revision.current) setError(errorText(cause)); }
   }, [profile]);
-
-  // Trigger connect / disconnect based on running state and computerId transitions
   useEffect(() => {
-    if (!activeComputer) return;
-    const running = activeComputer.state === 'ready';
-    const compId = activeComputer.id;
-
-    if (running) {
-      const compChanged = currentComputerIdRef.current !== compId;
-      if (!prevRunningRef.current || compChanged || (!isConnectedRef.current && !isConnectingRef.current && !rfbRef.current)) {
-        prevRunningRef.current = true;
-        currentComputerIdRef.current = compId;
-        connect();
-      }
-    } else {
-      prevRunningRef.current = false;
-      if (rfbRef.current) {
-        intentionalCloseRef.current = true;
-        try { rfbRef.current.disconnect(); } catch {}
-        rfbRef.current = null;
-      }
-      isConnectedRef.current = false;
-      isConnectingRef.current = false;
-      setConnState('idle');
-    }
-  }, [activeComputer?.state, activeComputer?.id, connect]);
-
-  // Teardown RFB strictly on unmount
-  useEffect(() => () => {
-    intentionalCloseRef.current = true;
-    clearTimeout(retryTimeoutRef.current);
-    retryTimeoutRef.current = null;
-    isConnectingRef.current = false;
-    isConnectedRef.current = false;
-    if (rfbRef.current) {
-      try { rfbRef.current.disconnect(); } catch {}
-      rfbRef.current = null;
-    }
-  }, []);
-
-  // Actions: Wake & Sleep
-  const handleWake = async () => {
-    if (!activeComputer) return;
-    setBusy('wake');
-    setError('');
+    mounted.current = true;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => { await loadStatus(); if (!stopped) timer = setTimeout(poll, 4000); };
+    void poll();
+    return () => { stopped = true; mounted.current = false; invalidate(); clearTimeout(timer); };
+  }, [loadStatus, invalidate]);
+  const activeComputer = status?.computer || status?.computers?.[0] || null;
+  const id = activeComputer?.id;
+  const isRunning = status?.connected === true && activeComputer?.state === 'ready';
+  const origin = status?.origin;
+  const token = status?.vncToken;
+  useEffect(() => {
+    if (!isRunning || !id || !screenRef.current) return;
+    const element = screenRef.current;
+    const Constructor = resolveRfbConstructor(RFB);
+    const proxyUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/hermes/agent-computer/vnc?profile=${encodeURIComponent(profile)}&computerId=${encodeURIComponent(id)}`;
+    const directUrl = origin && token ? `${origin.replace(/^http/, 'ws')}/api/computers/${encodeURIComponent(id)}/vnc?token=${encodeURIComponent(token)}` : '';
+    const stream = createComputerStream({ directUrl, proxyUrl, onState: setConnState, onError: setError,
+      create(url) {
+        element.replaceChildren();
+        const client = new Constructor(element, url, { wsProtocols: ['binary'] });
+        client.scaleViewport = true; client.clipViewport = false; client.background = '#000000';
+        client.qualityLevel = 6; client.compressionLevel = 2;
+        // Preserve the existing TigerVNC compatibility encodings; cursor pixels
+        // come from the server and continuous updates are deliberately omitted.
+        client._sendEncodings = function () {
+          const encodings = [1, ...(this._fbDepth === 24 ? [7, -260, 16, 21, 5, 2] : []), 0,
+            -32 + this._qualityLevel, -256 + this._compressionLevel, -223, -224, -258, -261, -308, -309, -312, -307, 0xc0a1e5ce];
+          Constructor.messages.clientEncodings(this._sock, encodings);
+        };
+        return client;
+      },
+    });
+    streamRef.current = stream;
+    stream.connect();
+    const update = () => { if (document.visibilityState === 'visible') stream.requestUpdate(client => Constructor.messages.fbUpdateRequest(client._sock, true, 0, 0, client._fbWidth, client._fbHeight)); };
+    const pump = setInterval(update, 40);
+    document.addEventListener('visibilitychange', update);
+    return () => { clearInterval(pump); document.removeEventListener('visibilitychange', update); stream.close(); streamRef.current = null; element.replaceChildren(); };
+  }, [profile, id, isRunning, origin, token]);
+  const control = async (action: 'wake' | 'sleep') => {
+    if (!id || busy) return;
+    setBusy(action); setError('');
     try {
-      await apiFetch(`/api/hermes/agent-computer/wake?profile=${encodeURIComponent(profile)}`, {
-        method: 'POST',
-        body: JSON.stringify({ computerId: activeComputer.id }),
-      });
-      await loadStatus();
-    } catch (err) {
-      setError(errorText(err));
-    } finally {
-      setBusy('');
-    }
+      await apiFetch(`/api/hermes/agent-computer/${action}?profile=${encodeURIComponent(profile)}`, { method: 'POST', headers: { 'X-Hob-Profile': profile }, body: JSON.stringify({ computerId: id }) });
+      if (mounted.current) await loadStatus();
+    } catch (cause) { if (mounted.current) setError(errorText(cause)); }
+    finally { if (mounted.current) setBusy(''); }
   };
-
-  const handleSleep = async () => {
-    if (!activeComputer) return;
-    setBusy('sleep');
-    setError('');
-    try {
-      if (rfbRef.current) {
-        intentionalCloseRef.current = true;
-        try { rfbRef.current.disconnect(); } catch {}
-      }
-      await apiFetch(`/api/hermes/agent-computer/sleep?profile=${encodeURIComponent(profile)}`, {
-        method: 'POST',
-        body: JSON.stringify({ computerId: activeComputer.id }),
-      });
-      await loadStatus();
-    } catch (err) {
-      setError(errorText(err));
-    } finally {
-      setBusy('');
-    }
-  };
-
-  // If MCP server is not connected, render nothing so HOB right panel remains clean
-  if (!status || !status.connected) {
-    return null;
-  }
-
+  const handleWake = () => control('wake');
+  const handleSleep = () => control('sleep');
+  if (!status || (!status.connected && !status.configured)) return null;
   const isWaking = busy === 'wake' || activeComputer?.state === 'starting';
   const isSleeping = busy === 'sleep';
-  const displayState = isWaking ? 'Starting...' : isSleeping ? 'Sleeping...' : activeComputer?.state || 'Unknown';
+  const displayState = !status.connected ? 'unavailable' : isWaking ? 'Starting...' : isSleeping ? 'Sleeping...' : activeComputer?.state || 'Unknown';
 
   const windowFrame = (
     <div className="overflow-hidden rounded-xl border border-black/30 bg-[#0b0d12] shadow-sm">
@@ -426,7 +178,7 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
           <button
             type="button"
             disabled={busy !== ''}
-            onClick={() => void loadStatus()}
+            onClick={() => { void loadStatus(); if (connState === 'failed' || connState === 'disconnected') streamRef.current?.reconnect(); }}
             title="Refresh status"
             className="p-1 rounded text-gray-400 hover:text-gray-200 hover:bg-white/5 transition-colors cursor-pointer"
           >
@@ -463,8 +215,8 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
             )}
             {/* Live streaming status watermark */}
             <div className="pointer-events-none absolute bottom-2 right-2 z-20 flex items-center gap-1.5 rounded-md bg-black/70 px-2 py-1 border border-white/10 text-[10px] text-gray-300">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              <span>Live stream</span>
+              <span className={`h-1.5 w-1.5 rounded-full ${connState === 'connected' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+              <span>{connState === 'connected' ? 'Live stream' : connState === 'failed' ? 'Disconnected' : 'Connecting'}</span>
             </div>
           </>
         ) : (
@@ -478,15 +230,15 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
             </div>
             <div className="space-y-1 max-w-xs">
               <p className="text-xs font-semibold text-gray-200">
-                {isWaking ? 'Waking agent computer...' : 'Agent Computer is Sleeping'}
+                {!status.connected ? 'Computer service unavailable' : isWaking ? 'Waking agent computer...' : activeComputer ? 'Agent computer is not running' : 'No computer is available'}
               </p>
               <p className="text-[11px] text-gray-400 leading-relaxed">
-                {isWaking
+                {!status.connected ? "Check this bot's computer connection and credentials, then refresh." : isWaking
                   ? 'Booting guest desktop and starting agent services...'
                   : 'Screen stream paused to save resources. Wake it anytime to watch live or take control.'}
               </p>
             </div>
-            {!isWaking && (
+            {!isWaking && activeComputer && status.connected && (
               <button
                 type="button"
                 disabled={busy !== ''}

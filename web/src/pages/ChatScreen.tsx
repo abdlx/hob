@@ -172,20 +172,12 @@ export const ChatScreen: React.FC = () => {
 
       {/* Panel 3: Right Agent & Activity Inspector Panel */}
       {activeNav !== 'groups' && isRightPanelOpen && (
-        <>
-          {/* Desktop floating 3rd panel */}
           <aside
-            className="hob-panel-right hidden lg:flex rounded-[34px] bg-canvas shadow-[0_8px_30px_rgba(0,0,0,0.045)] border border-[rgba(0,0,0,0.035)] overflow-hidden shrink-0 w-[22%] min-w-[300px] max-w-[350px] h-full"
+            className="hob-panel-right fixed inset-0 z-50 flex flex-col w-full h-[100dvh] max-h-[100dvh] bg-canvas overflow-hidden lg:relative lg:inset-auto lg:z-auto lg:rounded-[34px] lg:shadow-[0_8px_30px_rgba(0,0,0,0.045)] lg:border lg:border-hair lg:shrink-0 lg:w-[22%] lg:min-w-[300px] lg:max-w-[350px] lg:h-full"
             aria-label="Agent details"
           >
             <RightPanel />
           </aside>
-
-          {/* Mobile full-screen view (edge-to-edge, not a floating pane) */}
-          <div className="lg:hidden fixed inset-0 z-50 bg-canvas flex flex-col w-full h-[100vh] h-[100dvh] max-h-[100dvh] overflow-hidden">
-            <RightPanel />
-          </div>
-        </>
       )}
     </div>
   );

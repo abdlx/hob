@@ -13,7 +13,7 @@ export function Notice({ children, error = false }: { children: ReactNode; error
       role={error ? 'alert' : 'status'}
       className={`rounded-xl border p-3.5 text-xs md:text-sm leading-relaxed ${
         error
-          ? 'border-red-200 text-red-700 bg-red-50'
+          ? 'border-edge text-bad bg-bad-soft'
           : 'border-hair text-muted bg-panel'
       }`}
     >

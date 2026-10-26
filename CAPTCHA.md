@@ -12,7 +12,8 @@ admission point every agent mutation already passed through), the ladder in
 
 | `HOB_CAPTCHA` | Behavior |
 |---|---|
-| `detect` (default) | Challenges are detected, classified and counted. Nothing is parked, nothing is solved. Run here first: a false positive in `detect` costs a log line; in `solve` it costs a parked agent. |
+| `human` (default) | Confirmed challenges park agent actions and immediately request operator intervention. No automated solvers or paid services run. Human takeover uses the existing control lease; observed resolution releases the waiting action. |
+| `detect` | Challenges are detected, classified and counted. Nothing is parked or solved. |
 | `solve` | The gate parks, the ladder climbs. |
 | `off` | No detection, no probes, pre-system behavior. |
 

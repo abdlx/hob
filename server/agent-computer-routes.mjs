@@ -1,423 +1,175 @@
-import fs from 'node:fs';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { parseDocument } from 'yaml';
 import { WebSocketServer, WebSocket } from 'ws';
+import { HermesError, hermesProfile } from './hermes-client.mjs';
 
-function isAgentComputerUrl(url) {
-  if (!url || typeof url !== 'string') return false;
-  const lower = url.toLowerCase();
-  if (lower.includes('openrouter') || lower.includes('openai') || lower.includes('anthropic') || lower.includes('deepseek') || lower.includes('together') || lower.includes('groq')) {
-    return false;
-  }
-  return true;
-}
-
-function normalizeMcpUrl(rawUrl, defaultOrigin = 'https://agentcomputer.idkwihl.site') {
-  if (!rawUrl || typeof rawUrl !== 'string' || !isAgentComputerUrl(rawUrl)) {
-    return `${defaultOrigin}/mcp`;
-  }
-  let str = rawUrl.trim().replace(/\/+$/, '');
+const BASE = '/api/hermes/agent-computer';
+const invalid = message => new HermesError(400, message, 'INVALID_REQUEST');
+const computerId = value => {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(value)) throw invalid('Select a computer explicitly.');
+  return value;
+};
+function endpoint(raw) {
   try {
-    const u = new URL(str);
-    if (!u.pathname || u.pathname === '/' || u.pathname === '') {
-      u.pathname = '/mcp';
-      return u.href;
-    }
-    if (!u.pathname.endsWith('/mcp')) {
-      u.pathname = u.pathname.replace(/\/+$/, '') + '/mcp';
-      return u.href;
-    }
-    return u.href;
-  } catch {
-    return `${defaultOrigin}/mcp`;
-  }
+    const url = new URL(raw);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash || url.search) throw new Error();
+    if (url.pathname === '/') url.pathname = '/mcp';
+    return url;
+  } catch { throw invalid('Configure an HTTP or HTTPS computer endpoint without embedded credentials.'); }
 }
-
-function getOrigin(rawUrl, defaultOrigin = 'https://agentcomputer.idkwihl.site') {
-  try {
-    const origin = new URL(rawUrl).origin;
-    if (isAgentComputerUrl(origin)) return origin;
-    return defaultOrigin;
-  } catch {
-    return defaultOrigin;
-  }
+function profileFrom(url) {
+  const values = url.searchParams.getAll('profile');
+  if (values.length > 1) throw invalid('Select one bot.');
+  const profile = hermesProfile(values[0] ?? 'default');
+  if (profile === 'all') throw invalid('Select one bot.');
+  return profile;
 }
+const project = (value, keys) => Object.fromEntries(keys.filter(key => value?.[key] !== undefined).map(key => [key, value[key]]));
+const publicComputer = value => value && typeof value === 'object' ? {
+  ...project(value, ['id', 'name', 'state', 'cpuMillis', 'memoryMb']),
+  ...(value.health ? { health: project(value.health, ['ok', 'display', 'screen', 'cursor', 'control', 'counters', 'browser_engine']) } : {}),
+} : null;
 
-export function createAgentComputerRoutes({ client, hermesHome } = {}) {
-  const wss = new WebSocketServer({ noServer: true });
-
+/** Explicit per-profile configuration. No baked-in endpoint, credential or computer identity. */
+export function createAgentComputerRoutes({ client, hermesHome, authenticated = () => false,
+  assertOrigin = () => { throw new Error('Origin authority is unavailable.'); }, knownBot, env = process.env, fetchImpl = fetch } = {}) {
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+  const upstreams = new Set();
+  const authorize = async profile => {
+    if (knownBot && !await knownBot(profile)) throw new HermesError(404, 'This bot is not enrolled.', 'BOT_NOT_FOUND');
+    if (client?.credentialBinding) await client.credentialBinding(profile);
+  };
   async function getAgentComputerConfig(profile = 'default') {
-    // 1. Check config.yaml in hermesHome or standard locations
-    const candidatePaths = [
-      hermesHome ? path.join(hermesHome, 'config.yaml') : null,
-      hermesHome && profile !== 'default' ? path.join(hermesHome, 'profiles', profile, 'config.yaml') : null,
-      '/opt/data/config.yaml',
-      process.env.HERMES_CONFIG_PATH,
-    ].filter(Boolean);
-
-    for (const filePath of candidatePaths) {
+    hermesProfile(profile);
+    await authorize(profile);
+    let config;
+    if (hermesHome) {
       try {
-        if (fs.existsSync(filePath)) {
-          const raw = fs.readFileSync(filePath, 'utf8');
-          let parsedUrl = '';
-          let parsedToken = '';
-
-          // 1a. Try JSON parse if config is stored as JSON
-          try {
-            const jsonMatch = raw.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-              const parsed = JSON.parse(jsonMatch[0]);
-              const srv = parsed.mcp_servers?.agent_computer || parsed.mcp_servers?.['agent-computer'];
-              if (srv) {
-                if (srv.url && isAgentComputerUrl(srv.url)) parsedUrl = srv.url;
-                const auth = srv.headers?.Authorization || srv.headers?.authorization || '';
-                const m = /Bearer\s+([^\s"']+)/i.exec(auth);
-                if (m) parsedToken = m[1];
-              }
-            }
-          } catch {}
-
-          // 1b. Line-by-line regex with strict indentation tracking
-          if (!parsedToken) {
-            const lines = raw.split(/\r?\n/);
-            let inAgent = false;
-            let agentIndent = 0;
-            for (const line of lines) {
-              const startMatch = /^(\s*)["']?agent[-_]computer["']?\s*:/i.exec(line);
-              if (startMatch) {
-                inAgent = true;
-                agentIndent = startMatch[1].length;
-                continue;
-              }
-              if (inAgent) {
-                const indentMatch = /^(\s*)\S/.exec(line);
-                if (indentMatch && indentMatch[1].length <= agentIndent) {
-                  inAgent = false;
-                }
-              }
-              if (inAgent) {
-                const u = /["']?url["']?\s*:\s*["']?([^"'\s,]+)/i.exec(line);
-                if (u && isAgentComputerUrl(u[1])) parsedUrl = u[1];
-                const t = /(?:Authorization["']?\s*:\s*["']?Bearer\s+|bearer_token["']?\s*:\s*["']?)([^"'\s},]+)/i.exec(line);
-                if (t) parsedToken = t[1];
-              }
-            }
-          }
-
-          if (parsedToken || parsedUrl) {
-            const mcpUrl = normalizeMcpUrl(parsedUrl || 'https://agentcomputer.idkwihl.site/mcp');
-            const origin = getOrigin(mcpUrl);
-            return {
-              connected: true,
-              serverName: 'agent_computer',
-              mcpUrl,
-              origin,
-              token: parsedToken || process.env.AGENT_COMPUTER_TOKEN || 'acp_mkNFbFRcWxE0H2jkuMaG7sfsN7OBGaSb',
-              source: filePath,
-            };
-          }
-        }
-      } catch {
-        // continue
+        const root = await realpath(hermesHome);
+        const expected = profile === 'default' ? root : path.join(root, 'profiles', profile);
+        const home = await realpath(expected);
+        if (home !== expected) throw new Error('Invalid profile home.');
+        const filename = await realpath(path.join(home, 'config.yaml'));
+        const relative = path.relative(home, filename);
+        if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Invalid config path.');
+        const info = await stat(filename);
+        if (!info.isFile() || info.size > 1024 * 1024) throw new Error('Invalid config file.');
+        const document = parseDocument(await readFile(filename, 'utf8'), { uniqueKeys: true, prettyErrors: false, logLevel: 'silent' });
+        if (document.errors.length) throw new Error('Invalid config syntax.');
+        const native = document.toJS({ maxAliasCount: 50 });
+        config = native?.mcp_servers?.agent_computer ?? native?.mcp_servers?.['agent-computer'];
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw new HermesError(503, 'The selected bot’s computer configuration could not be read safely.', 'COMPUTER_CONFIG_INVALID');
       }
     }
-
-    // 2. Check Hermes dashboard API
-    if (client?.dashboard) {
-      try {
-        const res = await client.dashboard('/api/mcp/servers', { profile });
-        if (Array.isArray(res?.servers)) {
-          const s = res.servers.find(srv =>
-            (srv.name === 'agent_computer' || srv.name === 'agent-computer') ||
-            (srv.url && isAgentComputerUrl(srv.url) && srv.url.toLowerCase().includes('agentcomputer'))
-          );
-          if (s && s.enabled !== false) {
-            const rawUrl = s.url || process.env.AGENT_COMPUTER_URL || 'https://agentcomputer.idkwihl.site/mcp';
-            const mcpUrl = normalizeMcpUrl(rawUrl);
-            const origin = getOrigin(mcpUrl);
-            const token = process.env.AGENT_COMPUTER_TOKEN || 'acp_mkNFbFRcWxE0H2jkuMaG7sfsN7OBGaSb';
-            return {
-              connected: true,
-              serverName: s.name,
-              mcpUrl,
-              origin,
-              token,
-              source: 'hermes-dashboard',
-            };
-          }
-        }
-      } catch {
-        // continue
-      }
-    }
-
-    // 3. Fallback to process.env if explicitly set or default if connected
-    if (process.env.AGENT_COMPUTER_URL || process.env.AGENT_COMPUTER_TOKEN) {
-      const mcpUrl = normalizeMcpUrl(process.env.AGENT_COMPUTER_URL);
-      const origin = getOrigin(mcpUrl);
-      return {
-        connected: true,
-        serverName: 'agent_computer',
-        mcpUrl,
-        origin,
-        token: process.env.AGENT_COMPUTER_TOKEN || 'acp_mkNFbFRcWxE0H2jkuMaG7sfsN7OBGaSb',
-        source: 'env',
-      };
-    }
-
-    // 4. Default fallback: user indicated agent_computer is registered in /opt/data/config.yaml
-    const defaultUrl = normalizeMcpUrl('https://agentcomputer.idkwihl.site/mcp');
-    return {
-      connected: true,
-      serverName: 'agent_computer',
-      mcpUrl: defaultUrl,
-      origin: getOrigin(defaultUrl),
-      token: 'acp_mkNFbFRcWxE0H2jkuMaG7sfsN7OBGaSb',
-      source: 'default-mcp',
-    };
+    // Environment configuration belongs only to Main, never to another bot.
+    if (!config && profile === 'default' && env.AGENT_COMPUTER_URL) config = { url: env.AGENT_COMPUTER_URL, bearer_token: env.AGENT_COMPUTER_TOKEN || '' };
+    if (!config || config.enabled === false) return { connected: false };
+    const url = endpoint(config.url);
+    const authorization = config.headers?.Authorization ?? config.headers?.authorization ?? '';
+    const token = config.bearer_token ?? (/^Bearer\s+(.+)$/i.exec(authorization)?.[1]) ?? '';
+    if (typeof token !== 'string' || token.length > 8192 || /[\r\n]|\$\{|\[stored credential\]/.test(token)) throw invalid('Configure a resolved computer credential for this bot.');
+    return { connected: true, serverName: 'agent_computer', mcpUrl: url.href, origin: url.origin, token };
   }
-
-  async function callMcpTool(cfg, toolName, args = {}) {
-    const normalizedUrl = normalizeMcpUrl(cfg.mcpUrl, cfg.origin || 'https://agentcomputer.idkwihl.site');
-    const endpointsToTry = [
-      normalizedUrl,
-      (cfg.origin ? `${cfg.origin.replace(/\/+$/, '')}/mcp` : 'https://agentcomputer.idkwihl.site/mcp'),
-    ];
-
-    let lastError = null;
-    const uniqueEndpoints = [...new Set(endpointsToTry)];
-
-    for (const targetUrl of uniqueEndpoints) {
+  async function callMcpTool(cfg, name, args = {}) {
+    // A timeout can happen after a wake/sleep completed. Never replay it at a
+    // fallback URL or through another protocol after an ambiguous result.
+    try {
+      const response = await fetchImpl(cfg.mcpUrl, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15000),
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(cfg.token ? { Authorization: `Bearer ${cfg.token}` } : {}) },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+      });
+      if (!response.ok) { await response.body?.cancel(); throw new Error('Remote request failed.'); }
+      const reader = response.body.getReader(), chunks = []; let size = 0;
       try {
-        const res = await fetch(targetUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(cfg.token ? { 'Authorization': 'Bearer ' + cfg.token } : {}),
-          },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: Date.now(),
-            method: 'tools/call',
-            params: {
-              name: toolName,
-              arguments: args,
-            },
-          }),
-        });
-
-        if (!res.ok) {
-          let errBody = '';
-          try { errBody = await res.text(); } catch {}
-          lastError = new Error(`MCP tool call ${toolName} failed (${targetUrl}): HTTP ${res.status}${errBody ? ' - ' + errBody.slice(0, 100) : ''}`);
-          continue;
+        for (;;) {
+          const { done, value } = await reader.read(); if (done) break;
+          size += value.byteLength; if (size > 1024 * 1024) throw new Error('Response too large.');
+          chunks.push(Buffer.from(value));
         }
-
-        const data = await res.json();
-        if (data.error) {
-          throw new Error(data.error.message || (`MCP error in ${toolName}`));
-        }
-        const textContent = data.result?.content?.[0]?.text;
-        if (textContent) {
-          try { return JSON.parse(textContent); } catch { return textContent; }
-        }
-        return data.result;
-      } catch (err) {
-        lastError = err;
-      }
-    }
-
-    // Direct REST API fallback on the control plane if MCP call encounters ANY error (404, 405, network, etc.)
-    const origin = (cfg.origin || 'https://agentcomputer.idkwihl.site').replace(/\/+$/, '');
-    if (toolName === 'computer_list') {
-      try {
-        const res = await fetch(`${origin}/api/computers`, {
-          headers: {
-            'Content-Type': 'application/json',
-            ...(cfg.token ? { 'Authorization': 'Bearer ' + cfg.token } : {}),
-          },
-        });
-        if (res.ok) {
-          const json = await res.json();
-          if (Array.isArray(json.computers)) return json.computers;
-        }
-      } catch {}
-    } else if (toolName === 'computer_status' && args.computer) {
-      try {
-        const res = await fetch(`${origin}/api/computers/${encodeURIComponent(args.computer)}`, {
-          headers: {
-            'Content-Type': 'application/json',
-            ...(cfg.token ? { 'Authorization': 'Bearer ' + cfg.token } : {}),
-          },
-        });
-        if (res.ok) {
-          const json = await res.json();
-          return json.computer || json;
-        }
-      } catch {}
-    } else if (toolName === 'computer_wake' && args.computer) {
-      try {
-        const res = await fetch(`${origin}/api/computers/${encodeURIComponent(args.computer)}/wake`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(cfg.token ? { 'Authorization': 'Bearer ' + cfg.token } : {}),
-          },
-        });
-        if (res.ok) {
-          return await res.json();
-        }
-      } catch {}
-    } else if (toolName === 'computer_sleep' && args.computer) {
-      try {
-        const res = await fetch(`${origin}/api/computers/${encodeURIComponent(args.computer)}/sleep`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(cfg.token ? { 'Authorization': 'Bearer ' + cfg.token } : {}),
-          },
-        });
-        if (res.ok) {
-          return await res.json();
-        }
-      } catch {}
-    }
-
-    throw lastError || new Error(`MCP tool call ${toolName} failed`);
+      } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
+      const data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (data.error || data.result?.isError || !data.result) throw new Error('Remote tool failed.');
+      const content = data.result.content?.find(item => item.type === 'text')?.text;
+      return content ? JSON.parse(content) : data.result;
+    } catch { throw new HermesError(502, 'The configured computer service did not confirm the request. Refresh its status before retrying.', 'COMPUTER_REQUEST_UNCONFIRMED'); }
   }
-
   async function route(req, res, url, { json, body }) {
-    if (!url.pathname.startsWith('/api/hermes/agent-computer')) return false;
-
-    const profile = url.searchParams.get('profile') || 'default';
-    const cfg = await getAgentComputerConfig(profile);
-
-    if (url.pathname === '/api/hermes/agent-computer/status' && req.method === 'GET') {
-      if (!cfg.connected) {
-        return json(res, 200, { connected: false });
-      }
+    if (!url.pathname.startsWith(BASE + '/')) return false;
+    if (!authenticated(req)) throw new HermesError(401, 'Sign in to hob.', 'UNAUTHORIZED');
+    const send = (status, value) => { json(res, status, value); return true; };
+    const profile = profileFrom(url), cfg = await getAgentComputerConfig(profile);
+    if (url.pathname === BASE + '/status' && req.method === 'GET') {
+      if (!cfg.connected) return send(200, { configured: false, connected: false });
       try {
-        const computers = await callMcpTool(cfg, 'computer_list', {});
-        const activeComp = Array.isArray(computers) && computers.length > 0 ? computers[0] : null;
-        let detailedStatus = null;
-        if (activeComp) {
-          try {
-            detailedStatus = await callMcpTool(cfg, 'computer_status', { computer: activeComp.id });
-          } catch {}
-        }
-        const activeCompId = detailedStatus?.id || activeComp?.id || 'main-agent-153436';
-        return json(res, 200, {
-          connected: true,
-          serverName: cfg.serverName,
-          origin: cfg.origin,
-          mcpUrl: cfg.mcpUrl,
-          vncToken: cfg.token,
-          directWsUrl: `${cfg.origin.replace(/^http/, 'ws')}/api/computers/${encodeURIComponent(activeCompId)}/vnc?token=${encodeURIComponent(cfg.token)}`,
-          computers: Array.isArray(computers) ? computers : [],
-          computer: detailedStatus || activeComp,
-        });
-      } catch (err) {
-        return json(res, 200, {
-          connected: true,
-          serverName: cfg.serverName,
-          origin: cfg.origin,
-          mcpUrl: cfg.mcpUrl,
-          error: err.message,
-        });
-      }
+        const result = await callMcpTool(cfg, 'computer_list');
+        const computers = Array.isArray(result) ? result : result?.computers;
+        if (!Array.isArray(computers)) throw new Error('Invalid computer list.');
+        const active = computers[0];
+        const detail = active ? await callMcpTool(cfg, 'computer_status', { computer: computerId(active.id) }) : null;
+        const current = detail?.computer || detail;
+        if (current?.id !== undefined && current.id !== active?.id) throw new Error('The computer service returned another identity.');
+        return send(200, { configured: true, connected: true, serverName: cfg.serverName, origin: cfg.origin,
+          vncToken: cfg.token, computers: computers.map(publicComputer).filter(Boolean), computer: active ? publicComputer({ ...active, ...current }) : null });
+      } catch { return send(200, { configured: true, connected: false, error: 'The configured computer service is unavailable. Refresh before retrying.' }); }
     }
-
-    if (url.pathname === '/api/hermes/agent-computer/wake' && req.method === 'POST') {
-      if (!cfg.connected) return json(res, 400, { error: 'Agent computer MCP is not connected.' });
-      const payload = await body(req);
-      const computerId = payload?.computerId || 'main-agent-153436';
-      try {
-        const result = await callMcpTool(cfg, 'computer_wake', { computer: computerId });
-        return json(res, 200, { ok: true, result });
-      } catch (err) {
-        return json(res, 502, { error: err.message });
-      }
+    const action = new RegExp(`^${BASE}/(wake|sleep)$`).exec(url.pathname);
+    if (action && req.method === 'POST') {
+      assertOrigin(req);
+      if (!cfg.connected) throw invalid('Configure this bot’s computer connection first.');
+      const value = await body(req);
+      if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => key !== 'computerId')) throw invalid('Select a computer explicitly.');
+      await callMcpTool(cfg, `computer_${action[1]}`, { computer: computerId(value.computerId) });
+      return send(200, { ok: true });
     }
-
-    if (url.pathname === '/api/hermes/agent-computer/sleep' && req.method === 'POST') {
-      if (!cfg.connected) return json(res, 400, { error: 'Agent computer MCP is not connected.' });
-      const payload = await body(req);
-      const computerId = payload?.computerId || 'main-agent-153436';
-      try {
-        const result = await callMcpTool(cfg, 'computer_sleep', { computer: computerId });
-        return json(res, 200, { ok: true, result });
-      } catch (err) {
-        return json(res, 502, { error: err.message });
-      }
-    }
-
     return false;
   }
-
   function upgrade(req, socket, head) {
     let url;
     try { url = new URL(req.url, 'http://hob.local'); } catch { return false; }
-    if (url.pathname !== '/api/hermes/agent-computer/vnc') return false;
-
-    const profile = url.searchParams.get('profile') || 'default';
-    const computerId = url.searchParams.get('computerId') || 'main-agent-153436';
-
+    if (url.pathname !== BASE + '/vnc') return false;
+    let profile, id;
+    try {
+      if (req.method !== 'GET' || !authenticated(req)) throw new Error('Unauthorized.');
+      assertOrigin(req); profile = profileFrom(url);
+      if (url.searchParams.getAll('computerId').length !== 1) throw invalid('Select one computer.');
+      id = computerId(url.searchParams.get('computerId'));
+    } catch { socket.destroy(); return true; }
     void (async () => {
       const cfg = await getAgentComputerConfig(profile);
-      if (!cfg.connected) {
-        socket.destroy();
-        return;
-      }
-
-      wss.handleUpgrade(req, socket, head, clientWs => {
-        const upstreamWsUrl = cfg.origin.replace(/^http/, 'ws') + '/api/computers/' + encodeURIComponent(computerId) + '/vnc?token=' + encodeURIComponent(cfg.token);
-        const upstreamWs = new WebSocket(upstreamWsUrl, ['binary'], {
-          headers: {
-            Authorization: 'Bearer ' + cfg.token,
-          },
-        });
-
-        const pendingFromClient = [];
-        let upstreamOpen = false;
-
-        clientWs.on('message', (msg, isBinary) => {
-          if (upstreamOpen && upstreamWs.readyState === WebSocket.OPEN) {
-            upstreamWs.send(msg, { binary: isBinary });
-          } else if (upstreamWs.readyState === WebSocket.CONNECTING) {
-            pendingFromClient.push({ msg, isBinary });
+      if (!cfg.connected || socket.destroyed) { socket.destroy(); return; }
+      wss.handleUpgrade(req, socket, head, downstream => {
+        const target = new URL(`/api/computers/${encodeURIComponent(id)}/vnc`, cfg.origin);
+        target.protocol = target.protocol === 'https:' ? 'wss:' : 'ws:';
+        if (cfg.token) target.searchParams.set('token', cfg.token);
+        const upstream = new WebSocket(target, ['binary'], { handshakeTimeout: 15000,
+          ...(cfg.token ? { headers: { Authorization: `Bearer ${cfg.token}` } } : {}) });
+        upstreams.add(upstream);
+        const pending = []; let pendingBytes = 0;
+        const cleanup = () => { pending.length = 0; upstreams.delete(upstream); upstream.terminate(); downstream.terminate(); };
+        downstream.on('message', (message, binary) => {
+          if (upstream.readyState === WebSocket.OPEN) {
+            if (upstream.bufferedAmount > 4 * 1024 * 1024) return cleanup();
+            upstream.send(message, { binary });
+          } else if (upstream.readyState === WebSocket.CONNECTING) {
+            pendingBytes += message.length;
+            if (pendingBytes > 1024 * 1024) return cleanup();
+            pending.push({ message, binary });
           }
         });
-
-        upstreamWs.on('open', () => {
-          upstreamOpen = true;
-          while (pendingFromClient.length > 0) {
-            const item = pendingFromClient.shift();
-            try { upstreamWs.send(item.msg, { binary: item.isBinary }); } catch {}
-          }
+        upstream.on('open', () => { for (const item of pending.splice(0)) upstream.send(item.message, { binary: item.binary }); pendingBytes = 0; });
+        upstream.on('message', (message, binary) => {
+          if (downstream.readyState !== WebSocket.OPEN) return;
+          if (downstream.bufferedAmount > 4 * 1024 * 1024) return cleanup();
+          downstream.send(message, { binary });
         });
-
-        upstreamWs.on('message', (msg, isBinary) => {
-          if (clientWs.readyState === WebSocket.OPEN) {
-            clientWs.send(msg, { binary: isBinary });
-          }
-        });
-
-        const cleanup = () => {
-          try { upstreamWs.close(); } catch {}
-          try { clientWs.close(); } catch {}
-        };
-
-        clientWs.on('close', cleanup);
-        upstreamWs.on('close', cleanup);
-        clientWs.on('error', cleanup);
-        upstreamWs.on('error', (err) => {
-          console.warn('[agent-computer-vnc-proxy] upstream error:', err.message);
-          cleanup();
-        });
+        downstream.on('close', cleanup); downstream.on('error', cleanup);
+        upstream.on('close', cleanup); upstream.on('error', cleanup);
       });
-    })();
-
+    })().catch(() => socket.destroy());
     return true;
   }
-
-  return { route, upgrade, getAgentComputerConfig };
+  const close = () => { for (const socket of upstreams) socket.terminate(); for (const socket of wss.clients) socket.terminate(); wss.close(); };
+  return { route, upgrade, getAgentComputerConfig, close };
 }

@@ -1,10 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { isSafeImageSource } from '../services/media';
 
 function ChatImage({ src, alt }: { src: string; alt: string }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [src]);
-  if (failed) return <span className="text-xs text-muted">{alt || 'Image'} is unavailable.</span>;
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  if (failedSource === src) return <span className="text-xs text-muted">{alt || 'Image'} is unavailable.</span>;
   const image = (
     <img
       src={src}
@@ -12,7 +11,7 @@ function ChatImage({ src, alt }: { src: string; alt: string }) {
       loading="lazy"
       decoding="async"
       referrerPolicy="no-referrer"
-      onError={() => setFailed(true)}
+      onError={() => setFailedSource(src)}
       className="my-2 block max-h-[420px] max-w-full rounded-2xl border border-hair bg-canvas object-contain md:max-h-[520px]"
     />
   );

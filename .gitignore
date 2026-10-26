@@ -26,6 +26,7 @@ __pycache__/
 stale-harnesses/
 browser_integration/
 docs/*
+!docs/platform-transformation.md
 !docs/assets/
 !docs/assets/**
 server/*.out

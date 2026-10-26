@@ -44,6 +44,7 @@ interface BrowserStatus {
   available: boolean;
   browserExecutable: string | null;
   transport?: 'pipe' | 'tcp';
+  challenge?: { provider: string; kind: string; since: number | null } | null;
 }
 
 interface BindingReport {
@@ -238,6 +239,7 @@ export function BrowserViewer({ profile, botName, avatarUrl, footer }: {
     events.addEventListener('browser', message => {
       let payload: Record<string, unknown>;
       try { payload = JSON.parse((message as MessageEvent).data); } catch { return; }
+      if (payload.type === 'challenge') void refresh();
       if (payload.type === 'cursor' && typeof payload.x === 'number' && typeof payload.y === 'number') {
         setCursor({ x: payload.x, y: payload.y, kind: 'move' });
         return;
@@ -253,7 +255,7 @@ export function BrowserViewer({ profile, botName, avatarUrl, footer }: {
       setActivity(previous => [{ id: ++counter, at: Date.now(), text }, ...previous].slice(0, ACTIVITY_LIMIT));
     });
     return () => events.close();
-  }, [profile]);
+  }, [profile, refresh]);
 
   // The viewer's socket has its own status line, but it is hidden while the
   // custom chrome is used. Surface a stalled connection instead of leaving a
@@ -611,6 +613,10 @@ export function BrowserViewer({ profile, botName, avatarUrl, footer }: {
 
   const controls = (
     <div className="space-y-2">
+      {status.challenge && <Notice>
+        <span className="font-medium text-ink">Human intervention required · {status.challenge.provider}</span>
+        <p className="mt-1">{status.challenge.kind === 'block-page' ? 'This site has blocked access. The action was refused; review the page before retrying.' : 'A challenge is interrupting this browser task. Open the live view, take control, resolve it, then hand control back. Waiting actions resume only after the challenge clears; a timed-out action must be retried from the conversation.'}</p>
+      </Notice>}
       <div className="flex items-center justify-between gap-2">
         <StatusPill status={status.state === 'running' ? 'active' : status.state === 'starting' ? 'pending' : 'idle'} label={status.state} />
         <span className="min-w-0 truncate text-[11px] text-muted">

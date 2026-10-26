@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1.7
 ARG NODE_BUILD_IMAGE=docker.io/library/node:24-bookworm@sha256:64af3819f9275802414d7cdc38c27e9d82bd564dec4d4da87d008255d36c63b4
-# The runtime base is pinned by digest. The newest published official release is
-# 0.22.2, whose gateway control socket answers only `identify` and `status`; the
+# The runtime base is pinned by digest. The previously evaluated official image,
+# 0.22.2, has a gateway control socket answering only `identify` and `status`; the
 # native session authority this application requires (gateway/run_runtime.py, the
-# `session-ticket` verb, runtime_protocol 1) exists only on upstream's default
-# branch at the pinned commit below.
+# `session-ticket` verb, runtime_protocol 1) is qualified at the pinned commit
+# below. Newer releases need the same protocol and deployment checks before use.
 #
 # So .github/workflows/hermes-runtime-image.yml builds that exact upstream commit
 # with upstream's own Dockerfile and publishes it to GHCR, and it is pinned here

@@ -21,17 +21,17 @@
  * Master mode for the CAPTCHA system, from the environment.
  *   off    — no detection, no gate, no solving (the pre-system behavior).
  *   detect — detection + metrics only; agent commands are never parked.
- *   solve  — the full ladder: gate, self-solve, human handoff, services.
- * Defaults to "detect" so a new deploy observes before it intervenes; the
- * rollout plan (Phase 9) flips to "solve" per bot only after shadow data is
- * clean.
+ *   human  — park agent actions and request human intervention; no solvers.
+ *   solve  — legacy opt-in solver ladder.
+ * Defaults to "human" so confirmed interruptions preserve pending actions.
  */
 export function captchaMode() {
   const requested = (process.env.HOB_CAPTCHA || '').trim().toLowerCase();
   if (requested === 'off') return 'off';
+  if (requested === 'human' || requested === '') return 'human';
   if (requested === 'solve') return 'solve';
-  if (requested === 'detect' || requested === '') return 'detect';
-  throw new Error(`HOB_CAPTCHA must be "off", "detect" or "solve" (got "${requested}").`);
+  if (requested === 'detect') return 'detect';
+  throw new Error(`HOB_CAPTCHA must be "off", "detect", "human" or "solve" (got "${requested}").`);
 }
 
 // ── URL signatures ──────────────────────────────────────────────────────────

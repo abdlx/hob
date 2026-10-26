@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import {
   Globe,
   FileText,
@@ -12,9 +12,6 @@ import {
   Info,
   Sliders,
   Settings,
-  Search,
-  Code2,
-  Image as ImageIcon,
   Compass,
   ChevronLeft,
 } from 'lucide-react';
@@ -25,11 +22,12 @@ import { DogeshAvatar } from './DogeshAvatar';
 import { MarkdownView } from './MarkdownView';
 import { DailyGoals } from '../pages/WorkspaceViews';
 import { HermesBrowser, HermesIdentity } from '../pages/HermesWorkspace';
-import { AgentComputerViewer } from './AgentComputerViewer';
 import { buttonClass, Field, inputClass, Notice, Skeleton } from './WorkspaceUI';
 import { errorText } from './workspaceUtils';
 import { MobileDock } from './MobileDock';
 import type { RightPanelTab } from '../types/chat';
+
+const AgentComputerViewer = lazy(() => import('./AgentComputerViewer').then(module => ({ default: module.AgentComputerViewer })));
 
 interface BrowserTab {
   targetId: string;
@@ -484,7 +482,7 @@ function BrowserPanel() {
         <OpenClawBrowserPanel />
       )}
       {runtime === 'hermes' && (
-        <AgentComputerViewer key={`comp-${agent.id}`} profile={agent.id} />
+        <Suspense fallback={<Skeleton className="h-64 w-full" />}><AgentComputerViewer key={`comp-${agent.id}`} profile={agent.id} /></Suspense>
       )}
     </div>
   );
@@ -497,34 +495,6 @@ function IdentityPanel() {
   return runtime === 'hermes' ? <HermesIdentity key={agent.id} profile={agent.id} /> : <OpenClawIdentityPanel />;
 }
 
-// Fallback baseline activity items matching reference screenshot
-const defaultActivityGroups = [
-  {
-    group: 'Today',
-    items: [
-      { id: '1', title: 'Initial greeting inquiry', time: '11:25 PM', icon: Compass },
-      { id: '2', title: 'Searched the web', time: '11:20 PM', icon: Search },
-      { id: '3', title: 'Executed Python script', time: '10:42 PM', icon: Code2 },
-      { id: '4', title: 'Analyzed file', time: '9:18 PM', icon: FileText },
-      { id: '5', title: 'Generated image', time: '7:03 PM', icon: ImageIcon },
-    ],
-  },
-  {
-    group: 'Yesterday',
-    items: [
-      { id: '6', title: 'Updated memory file', time: '11:14 PM', icon: FileText },
-      { id: '7', title: 'Created task workflow', time: '6:02 PM', icon: Compass },
-      { id: '8', title: 'Browsed documentation', time: '2:18 PM', icon: FileText },
-    ],
-  },
-  {
-    group: 'Oct 15',
-    items: [
-      { id: '9', title: 'Reviewed CLIP10 fallback file', time: '1:12 PM', icon: Compass },
-    ],
-  },
-];
-
 export function RightPanel() {
   const {
     agent,
@@ -536,6 +506,8 @@ export function RightPanel() {
     isRightPanelOpen,
     toggleRightPanel,
     resolveApproval,
+    setActiveNav,
+    setActivityFilter,
   } = useChat();
 
   const [error, setError] = useState('');
@@ -669,7 +641,7 @@ export function RightPanel() {
               <h3 className="text-[14px] font-semibold text-ink mb-1.5">About</h3>
               <p className="text-[13px] text-muted leading-relaxed">
                 {agent?.roleDescription ||
-                  'General purpose assistant with full tool access and autonomous capabilities.'}
+                  'No role description has been configured for this bot.'}
               </p>
             </div>
 
@@ -680,6 +652,7 @@ export function RightPanel() {
                 <button
                   type="button"
                   className="text-[12px] font-medium text-accent hover:underline cursor-pointer"
+                  onClick={() => { setActivityFilter(agent?.id || null); setActiveNav('activity'); }}
                 >
                   View all
                 </button>
@@ -710,30 +683,7 @@ export function RightPanel() {
                   ))}
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {defaultActivityGroups.map((group) => (
-                    <div key={group.group} className="space-y-1.5">
-                      <h4 className="text-[12px] font-medium text-muted">{group.group}</h4>
-                      {group.items.map((item) => {
-                        const Icon = item.icon;
-                        return (
-                          <div
-                            key={item.id}
-                            className="h-[36px] flex items-center justify-between gap-2.5 px-1 py-1 rounded-lg hover:bg-black/[0.02] transition-colors"
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <div className="w-6 h-6 rounded-md bg-sunken text-code flex items-center justify-center shrink-0">
-                                <Icon size={13} strokeWidth={2} />
-                              </div>
-                              <span className="text-[13px] text-ink truncate">{item.title}</span>
-                            </div>
-                            <span className="text-[12px] text-faint shrink-0">{item.time}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
+                <p className="text-xs leading-relaxed text-muted">{connected ? 'No activity has been reported for this bot.' : 'Activity is unavailable while the runtime is disconnected.'}</p>
               )}
             </div>
           </div>

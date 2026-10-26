@@ -31,6 +31,10 @@ test('captchaMode parses the environment', () => {
   const prev = process.env.HOB_CAPTCHA;
   try {
     delete process.env.HOB_CAPTCHA;
+    assert.equal(captchaMode(), 'human');
+    process.env.HOB_CAPTCHA = 'human';
+    assert.equal(captchaMode(), 'human');
+    process.env.HOB_CAPTCHA = 'detect';
     assert.equal(captchaMode(), 'detect');
     process.env.HOB_CAPTCHA = 'solve';
     assert.equal(captchaMode(), 'solve');

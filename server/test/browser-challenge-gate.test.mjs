@@ -53,6 +53,51 @@ test('a confirmed challenge parks an agent mutation until it resolves', async (t
   assert.equal(session.status().challengeStats.passive, 1, 'a self-resolving challenge counts as passive');
 });
 
+test('human mode requests help immediately and preserves admission until observed resolution', async t => {
+  const escalations = [];
+  const session = await makeSession(t, { captchaMode: 'human', onChallengeEscalated: event => escalations.push(event) });
+  session.noteChallengeUrl('human-tab', BFRAME);
+  assert.equal(escalations.length, 1);
+  assert.equal(escalations[0].reason, 'human_required');
+  let settled = false;
+  const waiting = session.admitAgentMutation().then(result => { settled = true; return result; });
+  await sleep(30);
+  assert.equal(settled, false);
+  assert.equal(session.status().challengeStats.agent, 0);
+  assert.equal(session.status().challengeStats.service, 0);
+  session.noteChallengeDom('human-tab', TOKEN_FACTS);
+  const admission = await waiting;
+  assert.equal(admission.ok, true); admission.release();
+});
+
+test('a background challenge resolution cannot release a different active challenge', async t => {
+  const session = await makeSession(t, { captchaMode: 'human' });
+  session.noteChallengeUrl('background', BFRAME);
+  session.noteChallengeUrl('foreground', BFRAME);
+  let settled = false;
+  const waiting = session.admitAgentMutation().then(result => { settled = true; return result; });
+  session.noteChallengeDom('background', TOKEN_FACTS);
+  await sleep(30);
+  assert.equal(settled, false);
+  assert.equal(session.status().challenge.targetId, 'foreground');
+  session.noteChallengeDom('foreground', TOKEN_FACTS);
+  const admission = await waiting;
+  assert.equal(admission.ok, true); admission.release();
+});
+
+test('resolving the foreground challenge retains another tab interruption', async t => {
+  const session = await makeSession(t, { captchaMode: 'human' });
+  session.noteChallengeUrl('background', BFRAME);
+  session.noteChallengeUrl('foreground', BFRAME);
+  const waiting = session.admitAgentMutation();
+  session.noteChallengeDom('foreground', TOKEN_FACTS);
+  assert.equal(session.status().challenge.targetId, 'background');
+  session.noteChallengeDom('background', TOKEN_FACTS);
+  const admission = await waiting;
+  assert.equal(admission.ok, true); admission.release();
+  assert.equal(session.status().challengeStats.passive, 2);
+});
+
 test('a parked mutation is refused after the park timeout', async (t) => {
   const session = await makeSession(t);
   session.noteChallengeUrl('target-1', BFRAME);

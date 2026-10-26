@@ -261,7 +261,7 @@ The live viewer can take control, send real input, and hand control back. Agent 
 
 ### CAPTCHA handling
 
-hob treats a confirmed CAPTCHA as session state, not a tool error. In `detect` mode (the default), it classifies challenges and records statistics without parking work or attempting a solve. Set `HOB_CAPTCHA=solve` to enable the solver ladder: passive token clearance, hit-tested checkbox input with human-like motion, optional vision-grid solving, an optional CapSolver service, then human handoff in the live viewer. Parked agent mutations resume when the challenge clears or fail with a structured `challenge_timeout`.
+hob treats a confirmed CAPTCHA as session state, not a tool error. In `human` mode (the default), it parks agent mutations, shows the interruption in the browser viewer, and requests human intervention without running automated solvers or paid services. Take control, resolve the challenge, then hand control back. Waiting mutations resume after observed resolution, or fail with a structured `challenge_timeout` when the bounded wait expires. `HOB_CAPTCHA=detect` observes without parking. The existing `solve` mode remains an explicit legacy opt-in.
 
 Image-grid solving requires `HOB_CAPTCHA_VISION_URL` (an OpenAI-compatible chat endpoint), `HOB_CAPTCHA_VISION_MODEL`, and optionally `HOB_CAPTCHA_VISION_KEY`. CapSolver requires `HOB_CAPTCHA_KEY_CAPSOLVER`; `HOB_CAPTCHA_SERVICE_DAILY_CAP` defaults to 50 attempts per day. Whole-page block interstitials are refused immediately and the host is cooled down because there is no puzzle to solve.
 
@@ -350,7 +350,7 @@ Known limits:
 - The container smoke workflow uses a deterministic model fixture. Real provider accounts, vendor interoperability, and production-host behavior still need operator verification.
 - Native session, approval, question, cancellation, and recovery paths are covered by adapter tests; full end-to-end browser interaction against every vendor remains an ongoing verification area.
 - Bots share the container's OS user by default. This is a routing and credential boundary, not a security sandbox.
-- Browser automation may be blocked or challenged. CAPTCHA handling defaults to detection only; the opt-in solver ladder is best-effort and does not guarantee access.
+- Browser automation may be blocked or challenged. CAPTCHA handling defaults to human intervention with a bounded wait and does not guarantee access.
 - The pinned runtime is built from an upstream Hermes commit because the published `0.22.2` image lacks the required native session authority. Replacing the pin requires the same native-session checks.
 - Older API-era conversations remain available as read-only history; native conversations are the primary path.
 

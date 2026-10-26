@@ -578,6 +578,7 @@ export class BrowserSession {
   #captchaMode = 'detect';
   #challengeParkMs = 120000;
   #challengeActive = null;
+  #activeChallenges = new Map();
   #challengeWaiters = [];
   #challengeStats = { seen: 0, agent: 0, human: 0, service: 0, passive: 0, failed: 0 };
   #challengeSolver = null;
@@ -899,6 +900,7 @@ export class BrowserSession {
     this.#stopChallengeProbes();
     this.#wakeChallengeWaiters({ ok: false, reason: 'cancelled' });
     this.#challengeActive = null;
+    this.#activeChallenges.clear();
     this.#stopScreencast();
     for (const viewer of [...this.#viewers.values()]) {
       this.#sendTo(viewer, { t: 'bye', reason });
@@ -964,6 +966,7 @@ export class BrowserSession {
     this.#stopChallengeProbes();
     this.#wakeChallengeWaiters({ ok: false, reason: 'cancelled' });
     this.#challengeActive = null;
+    this.#activeChallenges.clear();
     this.#challengeSolver = null;
     this.#stopScreencast();
     this.#lastError = `The browser exited unexpectedly (code ${code ?? 'none'}${signal ? `, signal ${signal}` : ''}).`;
@@ -1151,13 +1154,13 @@ export class BrowserSession {
    * The single admission point for every agent mutation — CDP commands, the
    * tunnel, and the HTTP `/json/new` convenience endpoint all come through
    * here, which is why the CAPTCHA gate lives here too: while a confirmed
-   * challenge is active (and the mode is `solve`), mutations park behind it
+   * challenge is active (in human or legacy solve mode), mutations park behind it
    * instead of failing into the challenge or, worse, clicking at it blindly.
    * A hard block page never parks — there is nothing to wait for — so it is
    * refused immediately and the caller learns the host is the problem.
    */
   async admitAgentMutation(signal) {
-    if (this.#captchaMode === 'solve' && this.#challengeActive) {
+    if (['human', 'solve'].includes(this.#captchaMode) && this.#challengeActive) {
       if (this.#challengeActive.kind === 'block-page') return { ok: false, reason: 'challenge_blocked' };
       const gate = await this.#waitForChallenge(signal);
       if (!gate.ok) return gate;
@@ -1189,6 +1192,7 @@ export class BrowserSession {
   #onChallengeTransition({ targetId, to }) {
     if (to?.status === 'active') {
       this.#challengeActive = { ...to, targetId };
+      this.#activeChallenges.set(targetId, this.#challengeActive);
       this.#challengeStats.seen += 1;
       trace(`challenge active bot=${this.#botId} provider=${to.provider} kind=${to.kind}`);
       this.#emitActivity({ type: 'challenge', state: 'active', provider: to.provider, kind: to.kind });
@@ -1199,9 +1203,12 @@ export class BrowserSession {
       if (this.#captchaMode === 'solve') {
         void this.#runChallengeSolvers(targetId, { ...to }).catch(() => undefined);
       }
+      if (this.#captchaMode === 'human') this.#escalate({ reason: 'human_required' });
       return;
     }
     if (to?.status === 'resolved') {
+      const wasCurrent = this.#challengeActive?.targetId === targetId;
+      this.#activeChallenges.delete(targetId);
       const solver = this.#challengeSolver
         ?? (this.#lease.holder === HUMAN ? 'human' : 'passive');
       if (solver === 'agent') this.#challengeStats.agent += 1;
@@ -1209,12 +1216,12 @@ export class BrowserSession {
       else if (solver === 'service') this.#challengeStats.service += 1;
       else this.#challengeStats.passive += 1;
       trace(`challenge resolved bot=${this.#botId} provider=${to.provider} via=${to.resolvedVia} solver=${solver}`);
-      this.#challengeActive = null;
+      if (wasCurrent) this.#challengeActive = [...this.#activeChallenges.values()].at(-1) ?? null;
       this.#challengeSolver = null;
       this.#emitActivity({ type: 'challenge', state: 'resolved', provider: to.provider, via: to.resolvedVia, solver });
       this.#broadcast({ t: 'challenge', state: 'resolved', provider: to.provider, via: to.resolvedVia, solver });
       this.#emitState();
-      this.#wakeChallengeWaiters({ ok: true });
+      if (!this.#challengeActive) this.#wakeChallengeWaiters({ ok: true });
     }
   }
 
@@ -1961,13 +1968,14 @@ export class BrowserSession {
         const targetId = params?.targetId;
         if (!targetId) return;
         this.#challengeTracker.forget(targetId);
+        this.#activeChallenges.delete(targetId);
         if (this.#challengeActive?.targetId === targetId) {
           // The challenged page is gone: parked commands should fall through
           // to the lease and fail (or succeed) against the browser as it is,
           // not wait out a challenge that no longer exists.
-          this.#challengeActive = null;
+          this.#challengeActive = [...this.#activeChallenges.values()].at(-1) ?? null;
           this.#challengeSolver = null;
-          this.#wakeChallengeWaiters({ ok: true });
+          if (!this.#challengeActive) this.#wakeChallengeWaiters({ ok: true });
           this.#emitState();
         }
         // Chromium can still list a just-closed target for a moment, and an

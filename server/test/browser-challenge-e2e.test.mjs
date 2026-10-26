@@ -105,17 +105,18 @@ async function createViewer(session) {
   session.attachViewer(socket);
   return {
     received,
+    send(value) { client.send(JSON.stringify(value)); },
     close() { client.close(); server.close(); },
     hello: () => received.find(message => message.t === 'hello'),
   };
 }
 
-async function startManager(t) {
+async function startManager(t, options = {}) {
   const stateDir = await mkdtemp(join(tmpdir(), 'hob-challenge-e2e-'));
   const registry = await BrowserRegistry.open({ stateDir });
   const manager = await BrowserManager.open({
     registry, stateDir,
-    options: { agentWaitMs: 1500, maxFps: 5, idleMs: 30000, captchaMode: 'solve', challengeParkMs: 60000 },
+    options: { agentWaitMs: 1500, maxFps: 5, idleMs: 30000, captchaMode: 'solve', challengeParkMs: 60000, ...options },
   });
   t.after(async () => {
     await manager.shutdown();
@@ -159,4 +160,37 @@ test('end to end: the gate parks, the solver clicks the widget, the parked comma
   await waitFor(() => session.status().challenge === null);
   assert.equal(session.status().challengeStats.seen, 1);
   assert.equal(session.status().challengeStats.agent, 1, 'the agent solver ladder earned the solve');
+});
+
+test('human intervention: real viewer resolves fixture and parked work waits for handback', async t => {
+  const escalations = [];
+  const started = await startManager(t, { captchaMode: 'human', agentWaitMs: 10000, onChallengeEscalated: event => escalations.push(event) });
+  if (!started) return;
+  const session = await started.manager.ensure('human');
+  const agent = await agentClient(session);
+  t.after(() => agent.raw.close());
+  await agent.raw.call('Page.navigate', { url: dataUrl(FIXTURE) }, agent.sessionId);
+  const viewer = await createViewer(session);
+  t.after(() => viewer.close());
+  await waitFor(() => viewer.hello());
+  await waitFor(() => session.status().challenge?.provider === 'recaptcha-v2');
+  assert.equal(escalations[0]?.reason, 'human_required');
+  let answered = false;
+  const parked = agent.raw.call('Runtime.evaluate', {
+    expression: `document.getElementById('target').click(), document.getElementById('clicked').textContent`, returnByValue: true,
+  }, agent.sessionId).then(reply => { answered = true; return reply; });
+  viewer.send({ t: 'request_control' });
+  await waitFor(() => session.status().control.holder === 'human');
+  assert.equal(answered, false);
+  // Only the operator's viewer clicks this local test widget. No solver runs.
+  viewer.send({ t: 'input', kind: 'mouse', payload: { type: 'down', x: 39, y: 45, button: 0 } });
+  viewer.send({ t: 'input', kind: 'mouse', payload: { type: 'up', x: 39, y: 45, button: 0 } });
+  await waitFor(() => session.status().challenge === null);
+  assert.equal(answered, false, 'clearing the challenge must not bypass human control');
+  viewer.send({ t: 'release_control' });
+  const reply = await parked;
+  assert.equal(reply.result?.result?.value, 'yes');
+  assert.equal(session.status().challengeStats.human, 1);
+  assert.equal(session.status().challengeStats.agent, 0);
+  assert.equal(session.status().challengeStats.service, 0);
 });

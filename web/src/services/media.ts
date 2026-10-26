@@ -63,7 +63,7 @@ function directive(value: string): { path: string; punctuation: string } | null 
 }
 
 function imageMarkdown(value: string, profile: string, alt?: string): string {
-  const label = (alt || mediaName(value)).replace(/[\[\]\r\n]/g, ' ').trim() || 'image';
+  const label = (alt || mediaName(value)).replace(/[[\]\r\n]/g, ' ').trim() || 'image';
   return `![${label}](${mediaUrl(value, profile)})`;
 }
 
