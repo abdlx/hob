@@ -225,7 +225,7 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
   const afterRestart = async saved => {
     check('login survives recreation', (await api('/api/auth/status')).authenticated === true);
     check('personality survives recreation', (await workspace('soul')).content === saved.soul);
-    if (saved.proactivity) await proactiveAfterRestart({ saved: saved.proactivity, api, workspace, check });
+    if (saved.proactivity) await proactiveAfterRestart({ saved: saved.proactivity, api, workspace, check, retry });
     check('the bot roster survives recreation', (await api('/api/hermes/profiles')).profiles.some(item => item.name === 'smoke-bot' && item.state === 'active'));
     const mainBrowserAfter = await retry('Main browser binding after recreation', async () => {
       const result = await browserDiagnosis();

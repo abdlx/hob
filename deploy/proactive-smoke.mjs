@@ -45,10 +45,13 @@ export async function proactiveFirstBoot({ api, request, workspace, retry, check
   return { exchangeId: exchange.id, wakeId: wake.id, wakeSession: wake.sessionKey, conversation: conversation.id, fireCount: paused.control.heartbeat.fire_count };
 }
 
-export async function proactiveAfterRestart({ saved, api, workspace, check }) {
+export async function proactiveAfterRestart({ saved, api, workspace, check, retry }) {
+  await retry('the native session owner after recreation', async () => {
+    assert.equal((await api('/api/readiness')).ready, true);
+  });
   const exchange = await api(`/api/hermes/exchanges/${saved.exchangeId}?profile=default`);
   check('the completed follow-up remains settled after recreation', exchange.status === 'completed' && exchange.wakeups.length === 1 && exchange.wakeups[0].id === saved.wakeId && exchange.wakeups[0].status === 'completed');
-  const history = await api(`/api/sessions/${saved.wakeSession}/messages`);
+  const history = await retry('the retained coordinator conversation', () => api(`/api/sessions/${saved.wakeSession}/messages`));
   check('recreation does not duplicate coordinator notifications', history.filter(row => row.role === 'user' && row.content.includes(`[HOB background result; exchange ${saved.exchangeId}]`)).length === 1);
   const { control } = await workspace('autonomy', 'GET', undefined, 'default', { sessionKey: saved.conversation });
   check('paused native heartbeat state survives recreation', control.heartbeat?.status === 'paused' && control.heartbeat.fire_count === saved.fireCount);
