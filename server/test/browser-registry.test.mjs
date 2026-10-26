@@ -185,3 +185,16 @@ test('registry: a profile path cannot redirect into another bot through a juncti
     await assert.rejects(() => registry.prepareProfile('alpha'), /independent directory/);
   });
 });
+
+
+test('registry: private routing metadata and isolated browser data use separate roots',async()=>withState(async stateDir=>{
+ const profileRoot=join(stateDir,'external-volume');
+ const registry=await BrowserRegistry.open({stateDir,profileRoot});
+ const row=await registry.getOrCreate('worker',{portFree:freePort});
+ const expected=join(profileRoot,'worker',row.browserProfileId,'chromium');
+ assert.equal(await registry.prepareProfile('worker'),expected);
+ assert.equal((await stat(expected)).isDirectory(),true);
+ assert.equal(JSON.parse(await readFile(join(stateDir,'browsers.json'),'utf8')).browsers[0].bot,'worker');
+ const reopened=await BrowserRegistry.open({stateDir,profileRoot});
+ assert.equal(reopened.profileDir(stateDir,'worker'),expected);
+}));

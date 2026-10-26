@@ -44,8 +44,9 @@ export async function bootstrapHermes(env = process.env) {
   const hermesDir = resolve(env.HERMES_DIR || join(projectDir, 'hermes-agent'));
   const home = resolve(env.HERMES_HOME || join(projectDir, '.muse-data', 'hermes'));
   const stateDir = resolve(env.HOB_STATE_DIR || join(home, '.hob'));
-  const workspace = resolve(env.HOB_MAIN_WORKSPACE || join(env.HOB_WORKSPACE_ROOT || join(home, 'workspaces'), 'main'));
   const mode = isolationMode(env);
+  const executionRoot = mode === 'users' ? '/var/lib/hob-isolation/workspaces' : (env.HOB_WORKSPACE_ROOT || join(home, 'workspaces'));
+  const workspace = resolve(mode === 'users' ? join(executionRoot, 'main') : (env.HOB_MAIN_WORKSPACE || join(executionRoot, 'main')));
   if (mode === 'users') {
     const isolation = new HermesBotIsolation();
     const deadline = Date.now() + 30000;
@@ -73,6 +74,8 @@ export async function bootstrapHermes(env = process.env) {
     GATEWAY_MULTIPLEX_PROFILES: 'true', HERMES_DASHBOARD: '0' };
   // Environment separation does not replace an execution sandbox.
   const runtimeEnv = without(shared, /^(?:MUSE_|HOB_|HERMES_DASHBOARD_)/);
+  // Keep native write policy while including the separately protected workspace.
+  if (mode === 'users') runtimeEnv.HERMES_WRITE_SAFE_ROOT = home + ':' + executionRoot;
   // Keep foreground ownership with our supervisor, including in an s6 image.
   // The explicit profile also prevents a sticky CLI selection redirecting Main.
   runtimeEnv.HERMES_GATEWAY_EXTERNAL_SUPERVISOR = '1';
@@ -89,7 +92,7 @@ export async function bootstrapHermes(env = process.env) {
     // origin. Only the settings listener receives it; the runtime never does.
     dashboardEnv.HERMES_DESKTOP = '1';
   }
-  const appEnv = { ...shared, HOB_STATE_DIR: stateDir, HERMES_DASHBOARD_SESSION_TOKEN: credentials.dashboardToken,
+  const appEnv = { ...shared, ...(mode === 'users' ? { HOB_WORKSPACE_ROOT: executionRoot, HOB_BROWSER_DATA_DIR: '/var/lib/hob-isolation/browsers' } : {}), HOB_STATE_DIR: stateDir, HERMES_DASHBOARD_SESSION_TOKEN: credentials.dashboardToken,
     HERMES_API_URL: 'http://127.0.0.1:8642', HERMES_DASHBOARD_URL: 'http://127.0.0.1:8080' };
   const hermes = env.HERMES_EXECUTABLE || 'hermes';
   return {

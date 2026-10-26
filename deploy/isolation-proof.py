@@ -1,5 +1,5 @@
 """Disposable-image proof. Never run against an operator's production home."""
-import json, os, pwd, socket, stat, subprocess, sys
+import importlib.util, json, os, pwd, signal, socket, stat, subprocess, sys, tempfile
 from pathlib import Path
 assert os.geteuid() == 0
 home=Path('/opt/data'); state=home/'.hob'; private=Path('/var/lib/hob-isolation')
@@ -49,3 +49,28 @@ for entry in Path('/proc').iterdir():
  except (FileNotFoundError,ProcessLookupError): pass
 assert chrome, 'managed Chromium was not exercised'
 print(json.dumps({'isolatedProfiles':len(active),'uids':sorted(seen),'chromiumUids':sorted(set(chrome)),'crossBotDenied':True,'operatorSecretsDenied':True,'brokerDenied':True}))
+
+# The same revocation primitive closes already-running processes by pinned pidfd.
+spec=importlib.util.spec_from_file_location('broker','/app/deploy/isolation-broker.py')
+m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+broker=m.Broker.__new__(m.Broker); broker.uid=app.pw_uid
+child=subprocess.Popen(['/bin/sleep','60'],user=65000,group=65000,extra_groups=[])
+try:
+ broker.kill_uid(65000); assert child.wait(timeout=5)==-signal.SIGKILL
+ try: broker.kill_uid(app.pw_uid)
+ except ValueError: pass
+ else: raise AssertionError('operator revocation accepted')
+finally:
+ if child.poll() is None: child.kill(); child.wait()
+# A linked source must never become a privileged copy of a foreign file.
+with tempfile.TemporaryDirectory(prefix='hob-migration-proof-') as temporary:
+ base=Path(temporary); source=base/'old'; destination=base/'new'; source.mkdir(); destination.mkdir()
+ secret=base/'outside'; secret.write_text('private sentinel'); (source/'linked').symlink_to(secret)
+ src=os.open(source,m.DIR_FLAGS); dest=os.open(destination,m.DIR_FLAGS); broker.uid=0; broker.gid=0
+ try:
+  try: broker.copy_tree(src,dest,65000)
+  except ValueError: pass
+  else: raise AssertionError('symbolic migration accepted')
+  assert not list(destination.iterdir()) and secret.read_text()=='private sentinel'
+ finally: os.close(src); os.close(dest)
+print('Revocation and linked-migration checks passed')
