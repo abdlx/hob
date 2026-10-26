@@ -1,0 +1,12 @@
+# Opt-in per-bot Linux users. Include after compose.yaml; preserve both volumes.
+services:
+  muse:
+    environment:
+      HOB_ISOLATION: users
+    volumes:
+      - hermes-isolation:/var/lib/hob-isolation
+    cap_add:
+      # Required by OpenSSH's unprivileged pre-authentication process.
+      - SYS_CHROOT
+volumes:
+  hermes-isolation:

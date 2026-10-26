@@ -1,0 +1,3 @@
+#!/command/with-contenv sh
+if [ "${HOB_ISOLATION:-shared}" != users ]; then exec /command/s6-pause; fi
+exec /usr/bin/python3 -I /app/deploy/isolation-broker.py

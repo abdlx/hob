@@ -601,6 +601,7 @@ export class BrowserSession {
 
   constructor({ botId, record, options = {} }) {
     this.#botId = botId;
+    this.#spawnChild = options.spawnBrowser ? (exe, args, settings) => options.spawnBrowser(botId, exe, args, settings) : undefined;
     this.#record = record;
     this.#token = record.gatewayToken;
     this.#port = record.gatewayPort;
@@ -624,6 +625,7 @@ export class BrowserSession {
   }
 
   #agentWaitMs;
+  #spawnChild;
 
   get bot() { return this.#botId; }
   get cdpUrl() { return `http://127.0.0.1:${this.#port}/${this.#token}`; }
@@ -830,7 +832,7 @@ export class BrowserSession {
       throw new BrowserUnavailableError(
         'No Chromium-family browser was found. Install Chromium, or set HOB_CHROMIUM_PATH to the executable.');
     }
-    const result = await launchChromium({ profileDir: this.#profileDir, executablePath, transport: this.#transportMode });
+    const result = await launchChromium({ profileDir: this.#profileDir, executablePath, transport: this.#transportMode, spawnChild: this.#spawnChild });
     this.#chromium = result;
     this.#chromiumPort = result.port ?? null;
     this.#pipe = result.pipe ?? null;

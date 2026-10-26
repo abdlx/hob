@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { seedHermesConfig } from './seed-hermes-config.mjs';
 import { prepareHermesRuntime } from './prepare-hermes-runtime.mjs';
+import { HermesBotIsolation, isolationMode, prepareBotIsolation } from '../server/hermes-isolation.mjs';
 import { mcpOAuthOrigin } from '../server/hermes-mcp-oauth.mjs';
 
 async function listenerCredentials(filename) {
@@ -49,7 +50,13 @@ export async function bootstrapHermes(env = process.env) {
   await seedHermesConfig(home, workspace);
 
   // A process-wide CDP override would send every bot to the same cookie jar.
+  const mode = isolationMode(env);
+  if (mode !== 'users') {
+    try { await lstat(join(stateDir, 'isolation-enabled')); throw new Error('This home requires HOB_ISOLATION=users and its isolation volume.'); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
   const browserEnv = without(env, /^(?:BROWSER_CDP_URL|BU_CDP_URL|BU_CDP_WS)$/);
+  if (mode === 'users') for (const key of Object.keys(browserEnv)) if (/^(?:TERMINAL_ENV|TERMINAL_CWD|TERMINAL_SSH_.*)$/.test(key)) delete browserEnv[key];
   const shared = { ...browserEnv, HERMES_HOME: home, HERMES_DIR: hermesDir,
     API_SERVER_KEY: credentials.apiKey, API_SERVER_HOST: '127.0.0.1', API_SERVER_PORT: '8642',
     GATEWAY_MULTIPLEX_PROFILES: 'true', HERMES_DASHBOARD: '0' };
@@ -79,7 +86,8 @@ export async function bootstrapHermes(env = process.env) {
       { name: 'Hermes settings', executable: hermes, args: ['-p', 'default', 'serve', '--host', '127.0.0.1', '--port', '8080', '--isolated'], cwd: home, env: dashboardEnv },
       { name: 'Hermes agent runtime', executable: hermes, args: ['-p', 'default', 'gateway', 'run', '--no-supervise', '--external-supervisor'], cwd: workspace, env: runtimeEnv, restart: true,
         prepare: ({ signal }) => prepareHermesRuntime({ dashboardUrl: appEnv.HERMES_DASHBOARD_URL,
-          dashboardToken: credentials.dashboardToken, apiKey: credentials.apiKey, signal }) },
+          dashboardToken: credentials.dashboardToken, apiKey: credentials.apiKey, signal,
+          prepareIsolation: mode === 'users' ? (client, signal) => prepareBotIsolation(new HermesBotIsolation(), client, stateDir, signal) : undefined }) },
       { name: 'hob web server', executable: process.execPath, args: [resolve(env.MUSE_SERVER_ENTRY || join(projectDir, 'server', 'index.mjs'))], cwd: projectDir, env: appEnv },
     ],
     home, stateDir, workspace,

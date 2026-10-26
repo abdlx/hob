@@ -150,3 +150,29 @@ No upstream browser executable or runtime source has been patched to change that
 Graceful shutdown, active-work recovery across full runtime restart, backup/restore,
 candidate upgrades, actual provider accounts and production-host behaviour remain
 unverified. No local Docker daemon is available.
+
+## Per-bot Linux process isolation
+
+`docker compose -f compose.yaml -f compose.isolation.yaml up -d --build`
+enables `HOB_ISOLATION=users`. Each enrolled bot receives a persistent Linux UID,
+its own workspace and Chromium processes. Hermes's native SSH execution backend
+runs terminal, file and code operations as that UID. The private root broker
+accepts only the operator UID over a Unix socket and a closed protocol. Chromium
+keeps its namespace/seccomp sandbox and CDP pipe; no Docker socket or public SSH
+port is introduced. The overlay adds only OpenSSH's required `SYS_CHROOT` capability.
+
+Both `hermes-data` and `hermes-isolation` volumes must be backed up/restored together.
+An isolated home refuses an accidental return to shared mode or a missing UID
+registry. Setup fails closed on unavailable isolation, linked workspace files or
+foreign ownership; it does not fall back to local execution. Existing independent
+regular files are adopted before Gateway can execute persisted automation.
+Symlinks/hard links need operator review before migration. Revocation removes SSH
+authority and kills that UID's processes, including existing multiplexed sessions.
+
+The native gateway, settings, installed plugins and MCP servers remain trusted
+operator infrastructure. This mode isolates model-issued shell/code and browser
+processes and their files; it does not sandbox arbitrary administrator-installed
+plugin code, provide separate network namespaces, or impose per-bot resource quotas.
+The default Compose file retains shared mode for existing installations; use the
+overlay to enable the stronger boundary. Linux image qualification is required
+before calling the users backend production-ready.

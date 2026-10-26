@@ -5,7 +5,7 @@ import { HermesClient } from '../server/hermes-client.mjs';
 // scope. A process environment export alone cannot enable its API listener.
 // Let the upstream credential lifecycle own persistence and cache invalidation.
 export async function prepareHermesRuntime({ dashboardUrl, dashboardToken, apiKey, signal,
-  timeoutMs = 120000, pollMs = 500, fetchImpl = globalThis.fetch }) {
+  timeoutMs = 120000, pollMs = 500, fetchImpl = globalThis.fetch, prepareIsolation }) {
   const client = new HermesClient({ dashboardUrl, dashboardToken, apiKey, fetchImpl, timeoutMs: 5000 });
   const deadline = Date.now() + timeoutMs;
   let ready = false;
@@ -21,6 +21,7 @@ export async function prepareHermesRuntime({ dashboardUrl, dashboardToken, apiKe
     await delay(pollMs, undefined, { signal });
   }
   if (!ready) throw new Error('Hermes settings did not become ready to provision the local runtime.');
+  if (prepareIsolation) await prepareIsolation(client, signal);
   await client.dashboard('/api/env', { method: 'PUT', profile: 'default', signal,
     body: { key: 'API_SERVER_KEY', value: apiKey, profile: 'default' } });
 }

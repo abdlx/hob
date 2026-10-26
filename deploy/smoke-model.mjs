@@ -56,7 +56,7 @@ export function createSmokeModel({ file = defaultFile() } = {}) {
       if (latestText.includes(SMOKE_RELAY_PROMPT)) {
         const result = input.messages.findLast(item => item.role === 'tool' && item.tool_call_id === 'hob-smoke-relay');
         tool = !result && input.tools?.some(item => item.function?.name === 'terminal') ? [{ id: 'hob-smoke-relay', type: 'function', function: {
-          name: 'terminal', arguments: JSON.stringify({ command: `env -u API_SERVER_KEY -u HOB_TALK_TOKEN HOB_TALK_WAIT_MS=0 node /opt/data/workspaces/main/.hob/talk.mjs send ${SMOKE_WORKER_ID} ${SMOKE_WORKER_PROMPT}` }),
+          name: 'terminal', arguments: JSON.stringify({ command: `${process.env.HOB_SMOKE_ISOLATION === 'users' ? 'test "$(id -u)" -ge 20000 && ' : ''}env -u API_SERVER_KEY -u HOB_TALK_TOKEN HOB_TALK_WAIT_MS=0 node /opt/data/workspaces/main/.hob/talk.mjs send ${SMOKE_WORKER_ID} ${SMOKE_WORKER_PROMPT}` }),
         } }] : null;
         content = result && /Exchange: [a-f0-9-]{36}/.test(JSON.stringify(result.content)) ? SMOKE_RELAY_REPLY
           : 'HOB_PROACTIVE_RELAY_NOT_CONFIRMED' + (result ? ': ' + JSON.stringify(result.content).slice(0, 1200) : '');

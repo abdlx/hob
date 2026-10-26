@@ -16,6 +16,7 @@ const image = process.env.MUSE_SMOKE_IMAGE || 'openmuse:smoke';
 // The provider tier runs a synthetic OpenAI-compatible fixture on the project's
 // private network. It never publishes a port and never reaches a real provider.
 const providerTier = process.env.MUSE_SMOKE_PROVIDER !== '0';
+const usersIsolation = process.env.MUSE_SMOKE_ISOLATION === 'users';
 const project = 'openmuse-smoke-' + randomBytes(8).toString('hex');
 const password = randomBytes(32).toString('hex');
 const sessionSecret = randomBytes(64).toString('base64');
@@ -37,7 +38,7 @@ const environment = {
   MUSE_SECURE_COOKIES: 'false',
 };
 const composeArgs = ['compose', '--project-name', project, '--project-directory', root,
-  '-f', resolve(root, 'compose.yaml'), '-f', override];
+  '-f', resolve(root, 'compose.yaml'), ...(usersIsolation ? ['-f', resolve(root, 'compose.isolation.yaml')] : []), '-f', override];
 let started = false;
 let appContainer = null;
 let runError;
@@ -176,7 +177,7 @@ try {
       command: ['/app/deploy/smoke-model.mjs'],
       healthcheck: { test: ['CMD', '/usr/local/bin/node', '-e', modelProbe],
         interval: '2s', timeout: '5s', start_period: '3s', retries: 30 },
-      environment: { HOB_SMOKE_MODEL_PORT: '18793', HOB_SMOKE_HOST: '0.0.0.0',
+      environment: { HOB_SMOKE_ISOLATION: usersIsolation ? 'users' : 'shared', HOB_SMOKE_MODEL_PORT: '18793', HOB_SMOKE_HOST: '0.0.0.0',
         HOB_SMOKE_MCP_BASE: 'http://smoke-model:18793',
         HOB_SMOKE_FILE: '/opt/data/workspaces/main/' + SMOKE_FILE } };
   }
@@ -203,7 +204,7 @@ try {
   probeRuntimeState(container);
   const unauthorized = await fetch(origin + '/api/sessions', { headers: { Connection: 'close' }, signal: AbortSignal.timeout(10000) });
   assert.equal(unauthorized.status, 401);
-  const smoke = createHermesSmokeApi({ origin, password, modelUrl: providerTier ? modelUrl : undefined, proactive: true,
+  const smoke = createHermesSmokeApi({ origin, password, modelUrl: providerTier ? modelUrl : undefined, proactive: true, isolation: usersIsolation,
     authorizeMcp: url => {
       // Only this fixture's URL may be fetched from the private Compose network.
       const target = new URL(url);
@@ -214,12 +215,14 @@ try {
     } });
   const saved = await smoke.firstBoot();
   verifyRuntimeUsers(container);
+  if (usersIsolation) console.log('OS isolation proof: ' + docker(['exec', container, '/usr/bin/python3', '/app/deploy/isolation-proof.py'], 120000));
   console.log('Actual image first boot passed ' + smoke.checks.length + ' authenticated native checks.');
   compose('up', '-d', '--no-build', '--pull', 'never', '--force-recreate', '--wait', '--wait-timeout', '300');
   await ready();
   assert.notEqual(compose('ps', '--quiet', 'muse'), container, 'Recreation must replace the container.');
   await smoke.afterRestart(saved);
   verifyRuntimeUsers(compose('ps', '--quiet', 'muse'));
+  if (usersIsolation) console.log('OS isolation after recreation: ' + docker(['exec', compose('ps', '--quiet', 'muse'), '/usr/bin/python3', '/app/deploy/isolation-proof.py'], 120000));
   console.log('All ' + smoke.checks.length + ' checks passed across container recreation.');
   if (saved.providerTier) console.log('A real Hermes tool turn used only the isolated local fixture provider.');
   else console.log('The synthetic provider tier was disabled (MUSE_SMOKE_PROVIDER=0); no model turn was claimed.');

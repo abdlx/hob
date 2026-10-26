@@ -7,6 +7,7 @@ on:
       - 'Dockerfile'
       - '.dockerignore'
       - 'compose.yaml'
+      - 'compose.isolation.yaml'
       - 'deploy/**'
       - 'server/**'
       - 'web/**'
@@ -16,6 +17,7 @@ on:
       - 'Dockerfile'
       - '.dockerignore'
       - 'compose.yaml'
+      - 'compose.isolation.yaml'
       - 'deploy/**'
       - 'server/**'
       - 'web/**'
@@ -71,6 +73,7 @@ jobs:
       - name: Verify first boot, sandboxed browser, and persistence
         env:
           MUSE_SMOKE_IMAGE: openmuse:ci
+          MUSE_SMOKE_ISOLATION: ${{ github.ref_name == 'codex/bot-os-isolation' && 'users' || 'shared' }}
         shell: bash
         run: |
           set +e

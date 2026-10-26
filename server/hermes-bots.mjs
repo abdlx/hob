@@ -244,25 +244,27 @@ export class HermesBots {
   #workspaceRoot;
   #browser;
   #network;
+  #isolation;
   // Latest native profile metadata, merged into relay/roster views. It is only
   // presentation: identity and authorization always come from the registry.
   #metadata = new Map();
   #settingUp = new Set();
   #identityQueue = Promise.resolve();
-  constructor({ registry, client, workspaceRoot, browser, network, relayUrl }) {
-    this.#registry = registry; this.#client = client; this.#browser = browser;
+  constructor({ registry, client, workspaceRoot, browser, network, relayUrl, isolation }) {
+    this.#registry = registry; this.#client = client; this.#browser = browser; this.#isolation = isolation;
     this.#workspaceRoot = path.resolve(workspaceRoot, 'bots');
     this.#network = network ?? (relayUrl ? new HermesBotNetwork({
       roster: () => this.list(),
       credential: name => this.#registry.relayToken(name),
       workspaceRoot: path.resolve(workspaceRoot),
-      relayUrl,
+      relayUrl, fileMode: isolation ? 0o640 : 0o600,
     }) : null);
   }
   /**
    * Whether this bot exists, answered from the local roster. The browser routes
    * run on every status poll, so this must not be a Hermes round-trip.
    */
+  isolationStatus(name) { return this.#isolation?.status(name) ?? { profile: name, mode: 'shared', ready: true }; }
   has(name) {
     if (typeof name !== 'string') return false;
     return this.#registry.list().some(item => item.name === name);
@@ -482,6 +484,7 @@ export class HermesBots {
       this.#registry.setup(name);
       await this.#client.dashboard('/api/env', { profile: name, method: 'PUT',
         body: { profile: name, key: 'API_SERVER_KEY', value: record.apiKey } });
+      await this.#isolation?.configure(this.#client, name);
       await this.configureBrowser(name);
       await this.#registry.update(name, { nativeCreated: true, state: 'active' });
       const sync = await this.#afterChange();
@@ -505,6 +508,7 @@ export class HermesBots {
   async remove(name) {
     if (name === 'default') throw new HermesError(400, 'The Main bot cannot be deleted.', 'INVALID_PROFILE');
     await this.#registry.update(name, { state: 'revoked' });
+    await this.#isolation?.revoke(name);
     await this.#afterChange();
     await this.#browser?.remove(name);
     return this.#client.dashboard(`/api/profiles/${hermesProfile(name)}`, { method: 'DELETE' });

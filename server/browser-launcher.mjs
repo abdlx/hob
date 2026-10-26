@@ -112,7 +112,7 @@ export const BROWSER_WINDOW_SIZE = `${BROWSER_VIEWPORT.w},${BROWSER_VIEWPORT.h}`
  * The window size is the page viewport in headless mode, so the constant above
  * is what makes the agent, screenshots and the live viewer share a 5:4 frame.
  */
-export async function launchChromium({ profileDir, executablePath, headless = true, extraArgs = [], attempts = 3, transport }) {
+export async function launchChromium({ profileDir, executablePath, headless = true, extraArgs = [], attempts = 3, transport, spawnChild = spawn }) {
   const mode = transport || cdpTransportMode();
   await mkdir(profileDir, { recursive: true, mode: 0o700 });
 
@@ -168,7 +168,7 @@ export async function launchChromium({ profileDir, executablePath, headless = tr
     if (mode === 'pipe') {
       // fd 3 is the browser's command pipe, fd 4 its reply pipe. Both must exist
       // or there is no way to speak CDP at all, so that is a launch failure.
-      const child = spawn(executablePath, args, {
+      const child = spawnChild(executablePath, args, {
         stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe'], windowsHide: true, detached: false,
       });
       child.stdout?.resume();
@@ -192,7 +192,7 @@ export async function launchChromium({ profileDir, executablePath, headless = tr
       continue;
     }
 
-    const child = spawn(executablePath, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, detached: false });
+    const child = spawnChild(executablePath, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, detached: false });
     child.stdout?.resume();
     child.stderr?.resume();
 

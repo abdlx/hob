@@ -48,6 +48,13 @@ COPY --from=server-build /app/server/node_modules/ ./server/node_modules/
 COPY deploy/ ./deploy/
 RUN /opt/hermes/.venv/bin/python -I /app/deploy/apply-hermes-compat.py /opt/hermes
 COPY LICENSE ./LICENSE
+# Only the optional users backend needs a privileged broker. It accepts a closed
+# Unix-socket protocol; the application and native gateway still run as Hermes.
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-server acl && rm -rf /var/lib/apt/lists/*
+COPY deploy/s6-rc.d/ /etc/s6-overlay/s6-rc.d/
+RUN chmod 755 /etc/s6-overlay/s6-rc.d/hob-isolation/run && mkdir -p /etc/hob-isolation && \
+    /usr/local/bin/node --input-type=module -e "import {resolveChromiumExecutable} from './server/browser-executable.mjs'; import{writeFileSync}from'node:fs'; const exe=await resolveChromiumExecutable(); if(!exe)throw Error('Chromium missing'); writeFileSync('/etc/hob-isolation/chromium.path',exe+'\\n');"
+
 RUN chmod -R a+rX /app && /usr/local/bin/node --version && test -x /opt/hermes/bin/hermes
 # hob owns the foreground Gateway lifetime. Preserve the stock reconciliation
 # hook for diagnostics but take it out of automatic boot: its persisted s6

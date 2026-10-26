@@ -8,7 +8,7 @@ import { proactiveFirstBoot, proactiveAfterRestart } from './proactive-smoke.mjs
 // Every write here is synthetic, and the caller must supply a fresh isolated
 // home. Checks assert only surfaces whose shape is owned by this repository or
 // is stable in Hermes's own dashboard contract.
-export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp, proactive = false, fetchImpl = fetch }) {
+export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp, proactive = false, isolation = false, fetchImpl = fetch }) {
   let cookie = '';
   const checks = [];
   const check = (name, value, detail) => { assert.ok(value, detail ? name + ' (' + detail + ')' : name); checks.push(name); };
@@ -219,10 +219,12 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       mcpOAuth = true;
     }
     const proactivity = proactive && providerTier ? await proactiveFirstBoot({ api, request, workspace, retry, check, modelUrl }) : null;
+    if (isolation) for (const profile of ['default', 'proactive-worker']) await api('/api/hermes/browser/start?profile=' + profile, 'POST', {}, profile);
     return { providerTier, sessionId, requestKey, jobId: created.id, soul: persistedSoul, mcpOAuth, memorySetup, expectedLearning, stagedSkill, proactivity };
   };
 
   const afterRestart = async saved => {
+    if (isolation) for (const profile of ['default', 'proactive-worker']) await retry('isolated browser ' + profile, () => api('/api/hermes/browser/start?profile=' + profile, 'POST', {}, profile));
     check('login survives recreation', (await api('/api/auth/status')).authenticated === true);
     check('personality survives recreation', (await workspace('soul')).content === saved.soul);
     if (saved.proactivity) await proactiveAfterRestart({ saved: saved.proactivity, api, workspace, check, retry });

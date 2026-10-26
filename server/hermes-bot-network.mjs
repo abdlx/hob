@@ -169,9 +169,10 @@ export class HermesBotNetwork {
   #root;
   #relayUrl;
   #credential;
+  #fileMode;
   #queue = Promise.resolve();
 
-  constructor({ roster, workspaceRoot, relayUrl, credential }) {
+  constructor({ roster, workspaceRoot, relayUrl, credential, fileMode = 0o600 }) {
     if (typeof roster !== 'function') throw new Error('A bot roster reader is required.');
     if (typeof workspaceRoot !== 'string' || !workspaceRoot) throw new Error('A bot workspace root is required.');
     let endpoint;
@@ -182,6 +183,8 @@ export class HermesBotNetwork {
     this.#root = path.resolve(workspaceRoot);
     this.#relayUrl = endpoint.toString().replace(/\/$/, '');
     this.#credential = credential;
+    if (![0o600, 0o640].includes(fileMode)) throw new Error("Invalid managed helper mode.");
+    this.#fileMode = fileMode;
   }
 
   workspace(name) {
@@ -242,8 +245,8 @@ export class HermesBotNetwork {
       }
       const filename = path.join(targetWorkspace, 'AGENTS.md');
       const existing = await readAgents(filename);
-      await atomicWrite(path.join(targetHidden, 'relay.json'), JSON.stringify({ version: 1, token }) + '\n', 0o600);
-      await atomicWrite(path.join(targetHidden, 'talk.mjs'), talkClient(this.#relayUrl), 0o600);
+      await atomicWrite(path.join(targetHidden, 'relay.json'), JSON.stringify({ version: 1, token }) + '\n', this.#fileMode);
+      await atomicWrite(path.join(targetHidden, 'talk.mjs'), talkClient(this.#relayUrl), this.#fileMode);
       const block = managedBlock(bot, roster);
       let next;
       if (existing.includes(START) && existing.includes(END)) {
@@ -252,7 +255,7 @@ export class HermesBotNetwork {
       } else {
         next = existing.trimEnd() ? `${existing.trimEnd()}\n\n${block}\n` : `${block}\n`;
       }
-      await atomicWrite(filename, next, 0o600);
+      await atomicWrite(filename, next, this.#fileMode);
     } finally { await Promise.all(handles.map(handle => handle.close())); }
   }
 }

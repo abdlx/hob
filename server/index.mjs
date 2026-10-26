@@ -9,6 +9,7 @@ import { BrowserRegistry } from './browser-registry.mjs';
 import { BrowserManager } from './browser-manager.mjs';
 import { cdpTransportMode } from './browser-launcher.mjs';
 import { botRelayUrl } from './hermes-bot-network.mjs';
+import { HermesBotIsolation, isolationMode } from './hermes-isolation.mjs';
 
 if (!process.env.MUSE_PASSWORD && !process.env.MUSE_ACCESS_TOKEN) {
   console.error('Set MUSE_PASSWORD or MUSE_ACCESS_TOKEN before starting hob.');
@@ -18,6 +19,8 @@ if (!process.env.MUSE_PASSWORD && !process.env.MUSE_ACCESS_TOKEN) {
 // Validated once at boot, not at the first browser launch: a typo here is a
 // configuration error, and the transport is what keeps the DevTools port gone.
 const browserTransport = cdpTransportMode();
+const isolation = isolationMode() === 'users' ? new HermesBotIsolation() : null;
+if (isolation && browserTransport !== 'pipe') throw new Error('OS-isolated browsers require CDP pipe transport.');
 if (browserTransport === 'tcp') {
   console.warn('HOB_CDP_TRANSPORT=tcp: the managed browser exposes a raw loopback DevTools port '
     + 'that any local process can drive without the lease. This is a development fallback; '
@@ -43,10 +46,10 @@ const idleMs = Number(process.env.HOB_BROWSER_IDLE_MS);
 const browser = await BrowserManager.open({
   registry: browserRegistry,
   stateDir: process.env.HOB_STATE_DIR,
-  options: Number.isFinite(idleMs) && idleMs >= 0 ? { idleMs } : {},
+  options: { ...(Number.isFinite(idleMs) && idleMs >= 0 ? { idleMs } : {}), ...(isolation ? { spawnBrowser: isolation.spawnBrowser.bind(isolation) } : {}) },
 });
 const bots = new HermesBots({
-  registry,
+  registry, isolation,
   client: new HermesClient(clientOptions),
   workspaceRoot: path.join(process.env.HERMES_HOME, 'workspaces'),
   browser,
