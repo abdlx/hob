@@ -44,6 +44,8 @@ Hermes Agent is a capable personal agent runtime, but its native surfaces are op
 
 Hermes source is vendored only as a reference. hob does not patch the upstream runtime.
 
+In **Settings → Plugins & integrations**, browse app tiles and open a tile for its full details and install controls. In **Settings → Automation**, select a bot's native conversation to start a goal or configure a heartbeat, including pause, resume and clear. Scheduled tasks use Hermes's own scheduler; `0 9 * * *` runs daily at 9 AM in the bot's configured timezone. Background handoff results are delivered to the caller and Main through Hermes's **Bot Chat**, while each exchange keeps its own transcript.
+
 ## Contents
 
 - [Features](#features)

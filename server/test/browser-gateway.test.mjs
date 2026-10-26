@@ -337,7 +337,8 @@ test('gateway: a background tab does not replace the page a viewer is watching',
   const viewer = await createViewer(session);
   t.after(() => viewer.close());
   await waitFor(() => viewer.hello());
-  await waitFor(() => session.status().title === 'WATCHED');
+  // Target enumeration completes independently of the page's title snapshot.
+  await waitFor(() => session.status().title === 'WATCHED' && session.status().tabs.some(tab => tab.active));
   const watchedId = session.status().tabs.find(tab => tab.active)?.id;
   assert.ok(watchedId);
 

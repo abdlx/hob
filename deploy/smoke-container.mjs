@@ -203,7 +203,7 @@ try {
   probeRuntimeState(container);
   const unauthorized = await fetch(origin + '/api/sessions', { headers: { Connection: 'close' }, signal: AbortSignal.timeout(10000) });
   assert.equal(unauthorized.status, 401);
-  const smoke = createHermesSmokeApi({ origin, password, modelUrl: providerTier ? modelUrl : undefined,
+  const smoke = createHermesSmokeApi({ origin, password, modelUrl: providerTier ? modelUrl : undefined, proactive: true,
     authorizeMcp: url => {
       // Only this fixture's URL may be fetched from the private Compose network.
       const target = new URL(url);

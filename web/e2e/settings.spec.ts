@@ -4,10 +4,12 @@ import type { Page } from '@playwright/test';
 // A real production bundle in Chromium, with explicit Hermes API fixtures.
 // This verifies UI contracts; it does not claim a live Hermes install or model run.
 const sha = 'a'.repeat(40);
+const nativeSession = Buffer.from(JSON.stringify(['default', 'native-conversation', 'canonical'])).toString('base64url');
 async function fixture(page: Page, extraApps = false) {
   const errors: string[] = [], writes: { path: string; body: Record<string, unknown>; profile: string | null }[] = [];
   page.on('pageerror', error => errors.push(error.message));
   let saved = { model: 'test-model', memory: { enabled: true } }, failSave = false, installed = false;
+  let heartbeat: { status: string; prompt: string; interval_seconds: number; fire_count: number } | null = null;
   await page.route('**/api/**', async route => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname;
     const profile = url.searchParams.get('profile') || 'default';
@@ -19,8 +21,8 @@ async function fixture(page: Page, extraApps = false) {
     if (path === '/api/events') return route.fulfill({ contentType: 'text/event-stream', body: 'event: connection\ndata: {"connected":true}\n\n' });
     if (path === '/api/agents') return json({ agents: [{ id: 'default', name: 'Main' }, { id: 'research', name: 'Research' }] });
     if (path === '/api/agent') return json({ id: 'default', name: 'Main', status: 'connected', model: 'test-model', avatarUrl: '' });
-    if (path === '/api/sessions') return json([{ id: 'session-test', agentId: 'default', title: 'Test conversation', createdAt: '2026-10-26T00:00:00Z' }]);
-    if (path === '/api/sessions/session-test/messages' || path === '/api/tasks' || path === '/api/security/approvals') return json([]);
+    if (path === '/api/sessions') return json([{ id: nativeSession, agentId: 'default', title: 'Test conversation', transport: 'canonical', createdAt: '2026-10-26T00:00:00Z' }]);
+    if (path === `/api/sessions/${nativeSession}/messages` || path === '/api/tasks' || path === '/api/security/approvals') return json([]);
     if (path === '/api/stats') return json({ tokensUsed: 0, maxTokens: 128000 });
     if (path === '/api/hermes/profiles') return json({ profiles: [{ name: 'default' }, { name: 'research', display_name: 'Research' }] });
     if (path === '/api/hermes/exchanges') return json({ exchanges: [], nextBefore: null });
@@ -39,6 +41,16 @@ async function fixture(page: Page, extraApps = false) {
     if (path === '/api/hermes/setup/accounts') return json({ providers: [] });
     if (path === '/api/hermes/setup/mcp') return json({ servers: [] });
     if (path === '/api/hermes/workspace/toolsets') return json([{ name: 'browser', enabled: true, configured: false }]);
+    if (path === '/api/hermes/workspace/jobs') return json([]);
+    if (path === '/api/hermes/workspace/autonomy') {
+      if (request.method() === 'POST') {
+        const body = request.postDataJSON();
+        expect(body.sessionKey).toBe(nativeSession);
+        if (body.action === 'set') heartbeat = { status: 'active', prompt: body.prompt, interval_seconds: body.intervalSeconds, fire_count: 0 };
+        else if (heartbeat) heartbeat.status = body.action === 'pause' ? 'paused' : 'active';
+      }
+      return json({ control: { revision: 'native-snapshot', goal: null, heartbeat } });
+    }
     if (path === '/api/hermes/browser' || path === '/api/hermes/browser/diagnose') return json({
       bot: 'default', state: 'stopped', available: false, control: { holder: 'agent', pending: 0, since: null },
       viewers: 0, agentConnections: 0, viewport: { w: 1000, h: 800 }, tabs: [], url: '', title: '', loading: false, lastError: null,
@@ -201,5 +213,27 @@ test('plugin store uses app tiles, filters installed and catalog apps, and opens
   await page.screenshot({ path: 'test-results/plugin-store-details-mobile.png', fullPage: true });
   await page.keyboard.press('Escape');
   await page.screenshot({ path: 'test-results/plugin-store-grid-mobile.png', fullPage: true });
+  expect(state.errors).toEqual([]);
+});
+
+test('automation saves a real conversation-scoped heartbeat and displays native pause state', async ({ page }) => {
+  const state = await fixture(page);
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'Automation', exact: false }).click();
+  const automation = page.getByRole('region', { name: 'Conversation automation' });
+  await expect(automation.getByRole('combobox', { name: 'Automation conversation' })).toHaveValue(nativeSession);
+  await automation.getByLabel('Heartbeat instructions', { exact: true }).fill('Check overdue approved dependencies.');
+  await automation.getByLabel('Heartbeat interval (minutes)', { exact: true }).fill('15');
+  await automation.getByRole('button', { name: 'Save heartbeat' }).click();
+  await expect(automation.getByText('Every 15 minutes · 0 checks', { exact: true })).toBeVisible();
+  expect(state.writes.find(write => write.path.endsWith('/autonomy'))).toEqual({ path: '/api/hermes/workspace/autonomy', profile: 'default', body: { sessionKey: nativeSession, kind: 'heartbeat', action: 'set', prompt: 'Check overdue approved dependencies.', intervalSeconds: 900 } });
+  await automation.getByRole('button', { name: 'Pause heartbeat' }).click();
+  await expect(automation.getByRole('button', { name: 'Resume heartbeat' })).toBeVisible();
+  await page.reload();
+  await expect(automation.getByRole('button', { name: 'Resume heartbeat' })).toBeVisible();
+  await page.screenshot({ path: 'test-results/automation-heartbeat-desktop.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 }); await page.reload();
+  await expect(automation.getByRole('button', { name: 'Resume heartbeat' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(state.errors).toEqual([]);
 });

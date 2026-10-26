@@ -10,8 +10,8 @@ const MAX_FRAME = 8 * 1024 * 1024;
 export const SESSION_METHODS = new Set(['ping', 'runtime.describe', 'setup.status', 'setup.runtime_check',
   'session.create', 'session.list', 'session.info', 'session.resume', 'session.detach', 'session.interrupt', 'session.mutate',
   'session.events.since', 'session.stats', 'prompt.submit', 'prompt.receipt', 'prompt.cancel',
-  'prompt.resolve_unknown', 'approval.respond', 'clarify.respond', 'command.dispatch',
-  'groups.capabilities', 'groups.list', 'groups.create', 'groups.state', 'groups.log', 'groups.send',
+  'prompt.resolve_unknown', 'approval.respond', 'clarify.respond', 'command.dispatch', 'session.control.read', 'session.control',
+  'bot_relay.deliver', 'groups.capabilities', 'groups.list', 'groups.create', 'groups.state', 'groups.log', 'groups.send',
   'groups.stop', 'groups.rename', 'groups.disband', 'groups.retry', 'groups.discard', 'groups.approve',
   'browser.controller.register', 'browser.controller.result', 'browser.controller.heartbeat', 'browser.controller.detach']);
 const unavailable = () => new HermesError(503,
@@ -120,7 +120,6 @@ export class HermesSessionBridge extends EventEmitter {
                   const item = entry.pending.get(frame.id);
                   entry.pending.delete(frame.id); clearTimeout(item.timer);
                   if (frame.error) {
-                    console.log('[RAW_FRAME_ERROR]', JSON.stringify(frame.error));
                     const reason = typeof frame.error.message === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(frame.error.message)
                       ? frame.error.message : 'request_failed';
                     item.reject(new HermesError(409, `Hermes session request refused (${reason}).`, reason));
@@ -149,6 +148,9 @@ export class HermesSessionBridge extends EventEmitter {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload) || Object.hasOwn(payload, 'profile')) {
       throw new HermesError(400, 'Invalid native session request.', 'INVALID_REQUEST');
     }
+    // This native ingress requires a profile hint even on a profile-bound
+    // ticket. Derive it here; callers still cannot supply or override it.
+    if (method === 'bot_relay.deliver') payload.profile = profile;
     const entry = await this.#connection(profile);
     if (this.#access(profile) !== entry.binding || !entry.canonical || entry.ws.readyState !== 1) { entry.close(); throw unavailable(); }
     if (entry.pending.size >= 128) throw new HermesError(429, 'Too many pending session requests.', 'SESSION_BUSY');

@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { SMOKE_MODEL, SMOKE_PROMPT, SMOKE_REPLY, SMOKE_FILE, SMOKE_CONTENT, SMOKE_SKILL_PROMPT, SMOKE_SKILL_REPLY, SMOKE_SKILL_NAME, SMOKE_SKILL_CONTENT } from './smoke-model.mjs';
+import { proactiveFirstBoot, proactiveAfterRestart } from './proactive-smoke.mjs';
 
 // Reusable against the published image or an owned source-launched fixture.
 // Every write here is synthetic, and the caller must supply a fresh isolated
 // home. Checks assert only surfaces whose shape is owned by this repository or
 // is stable in Hermes's own dashboard contract.
-export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp, fetchImpl = fetch }) {
+export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp, proactive = false, fetchImpl = fetch }) {
   let cookie = '';
   const checks = [];
   const check = (name, value, detail) => { assert.ok(value, detail ? name + ' (' + detail + ')' : name); checks.push(name); };
@@ -85,7 +86,12 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
 
     const soul = '# Isolated smoke personality\n\nSynthetic persistence proof.\n';
     await workspace('soul', 'PUT', { content: soul });
-    check('native personality writes persist', (await workspace('soul')).content === soul);
+    const persistedSoul = (await workspace('soul')).content;
+    check('native personality writes preserve authored text', typeof persistedSoul === 'string'
+      && persistedSoul.replace(/<!-- HOB:BOT-IDENTITY:START -->[\s\S]*?<!-- HOB:BOT-IDENTITY:END -->/g, '').trimEnd() === soul.trimEnd());
+    check('native personality retains the managed Main identity',
+      persistedSoul.match(/<!-- HOB:BOT-IDENTITY:START -->/g)?.length === 1
+        && persistedSoul.includes('Name: Main\n') && persistedSoul.includes('Stable profile id: default\n'));
     // A schedule created paused must stay paused and, above all, must never run.
     const created = await workspace('jobs', 'POST', { name: 'Isolated disabled smoke task',
       prompt: 'Never execute this synthetic smoke task.', schedule: '2099-01-01T00:00:00', paused: true });
@@ -212,12 +218,14 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       check('MCP OAuth attempts cannot be observed through another bot', (await request('/api/hermes/setup/mcp/oauth/flows/' + flow.id + '?profile=smoke-bot')).status === 404);
       mcpOAuth = true;
     }
-    return { providerTier, sessionId, requestKey, jobId: created.id, soul, mcpOAuth, memorySetup, expectedLearning, stagedSkill };
+    const proactivity = proactive && providerTier ? await proactiveFirstBoot({ api, request, workspace, retry, check, modelUrl }) : null;
+    return { providerTier, sessionId, requestKey, jobId: created.id, soul: persistedSoul, mcpOAuth, memorySetup, expectedLearning, stagedSkill, proactivity };
   };
 
   const afterRestart = async saved => {
     check('login survives recreation', (await api('/api/auth/status')).authenticated === true);
     check('personality survives recreation', (await workspace('soul')).content === saved.soul);
+    if (saved.proactivity) await proactiveAfterRestart({ saved: saved.proactivity, api, workspace, check });
     check('the bot roster survives recreation', (await api('/api/hermes/profiles')).profiles.some(item => item.name === 'smoke-bot' && item.state === 'active'));
     const mainBrowserAfter = await retry('Main browser binding after recreation', async () => {
       const result = await browserDiagnosis();

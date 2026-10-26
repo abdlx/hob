@@ -81,6 +81,14 @@ test('RPC allowlist rejects cross-profile parameter overrides and arbitrary nati
   assert.equal(f.sockets.length, 0);
 });
 
+test('native bot delivery profile is derived from its enrolled connection and cannot be overridden', async t => {
+  const f = fixture(); t.after(() => f.bridge.close());
+  await f.bridge.rpc('research', 'bot_relay.deliver', { id: 'a'.repeat(64), message: 'Worker completed.', notification_category: 'result' });
+  assert.equal(f.sockets[0].sent[0].params.profile, 'research');
+  await assert.rejects(f.bridge.rpc('research', 'bot_relay.deliver', { profile: 'default', id: 'a'.repeat(64), message: 'Wrong bot' }), { code: 'INVALID_REQUEST' });
+  assert.equal(f.sockets[0].sent.length, 1);
+});
+
 test('bootstrap failure never exposes ticket, path or subprocess diagnostics', async () => {
   const bootstrap = createSessionBootstrap({ env: { HERMES_DIR: '/synthetic-hermes', HERMES_HOME: '/synthetic-home' },
     execute: async () => { throw new Error('secret-ticket private-path'); } });

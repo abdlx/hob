@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { HermesError, hermesResource, hermesProfile, hermesSessionKey } from './hermes-client.mjs';
 import { HermesExchanges } from './hermes-exchanges.mjs';
+import { createHermesWakeups } from './hermes-wakeups.mjs';
 
 const BASE = '/api/hermes/bot-relay';
 const terminal = new Set(['completed', 'failed', 'cancelled', 'interrupted']);
@@ -11,8 +12,9 @@ const summary = record => ({ ...record, completed: record.status === 'completed'
   sessionKey: record.sessionId ? hermesSessionKey(record.to, record.sessionId) : null });
 
 /** Each handoff has its own native session and durable correlation record. */
-export function createHermesBotRelay({ client, bots, exchanges = new HermesExchanges(), journal }) {
+export function createHermesBotRelay({ client, bots, exchanges = new HermesExchanges(), journal, bridge, onWake }) {
   const observers = new Map(), admissions = new Map(), controllers = new Set();
+  let closed = false, timer, sweep;
   const participant = reference => bots.roster().filter(bot => bot.state === 'active')
     .find(bot => bot.name === reference || label(bot).toLowerCase() === text(reference).toLowerCase());
   const notify = record => client.emit?.('event', { event: 'bot.exchange', payload: { id: record.id, from: record.from, to: record.to, status: record.status } });
@@ -20,6 +22,7 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
     const before = exchanges.get(id);
     const record = exchanges.update(id, value);
     if (before.status !== record.status) notify(record);
+    if (terminal.has(record.status) && !closed) queueMicrotask(() => { void tick(); });
     if (journal && record.sessionId) await journal.update(hermesSessionKey(record.to, record.sessionId), record.id,
       { status: record.status, ...(record.runId ? { runId: record.runId } : {}) });
     return record;
@@ -100,7 +103,8 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
     let admission = admissions.get(key);
     if (!existing && !admission) {
       if (exchanges.pending().filter(record => record.to === receiver.name).length >= 8) throw new HermesError(429, 'This bot already has eight active handoffs. Wait for a result before sending more work.', 'RELAY_BUSY');
-      const record = exchanges.create({ requestKey, from: sender.name, fromName: label(sender), to: receiver.name, toName: label(receiver), message: input.message, sourceSession, ancestry, parentExchangeId: parent?.id || null });
+      const record = exchanges.create({ requestKey, from: sender.name, fromName: label(sender), to: receiver.name, toName: label(receiver), message: input.message, sourceSession, ancestry, parentExchangeId: parent?.id || null,
+        wakeOnComplete: Boolean(bridge), relayHelpers: Object.fromEntries([sender.name, 'default'].map(name => [name, bots.relayHelper?.(name) || '.hob/talk.mjs'])) });
       notify(record);
       admission = (async () => {
         try {
@@ -161,7 +165,7 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
         const result = await client.runtime(`/api/sessions/${hermesResource(record.sessionId)}/messages`, { profile: record.to });
         return json(res, 200, { messages: Array.isArray(result?.data) ? result.data : [] });
       }
-      record = await reconcile(record); return json(res, 200, summary(record));
+      record = await reconcile(record); return json(res, 200, { ...summary(record), wakeups: exchanges.wakeups(record.id) });
     }
     if (url.pathname !== '/api/hermes/exchanges') throw new HermesError(404, 'Exchange not found.', 'NOT_FOUND');
     const session = url.searchParams.get('session');
@@ -175,9 +179,29 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
     }
     return json(res, 200, { exchanges: result, earlier: Boolean(session && records.length === 100), nextBefore: !session && records.length === 50 ? records.at(-1).createdAt : null });
   };
+  const wakeups = createHermesWakeups({ bridge, bots, exchanges, onAdmission: onWake, notify: id => { const record = exchanges.get(id); if (record) notify(record); } });
+  const tick = () => {
+    if (closed) return Promise.resolve();
+    if (sweep) return sweep;
+    sweep = (async () => {
+      // Observation runs without a browser or helper process waiting on it.
+      const pending = exchanges.pending(100);
+      for (let i = 0; i < pending.length && !closed; i += 4) {
+        await Promise.allSettled(pending.slice(i, i + 4).map(record => reconcile(exchanges.get(record.id))));
+      }
+      if (!closed) await wakeups();
+    })().catch(error => console.warn(`Bot coordination sweep failed: ${error.message}`)).finally(() => { sweep = null; });
+    return sweep;
+  };
+  route.sweep = tick;
+  route.start = () => {
+    if (timer || closed) return;
+    timer = setInterval(() => { void tick(); }, 5000); timer.unref?.(); void tick();
+  };
   route.close = async () => {
+    closed = true; clearInterval(timer);
     for (const controller of controllers) controller.abort();
-    await Promise.allSettled([...observers.values(), ...admissions.values()]);
+    await Promise.allSettled([...observers.values(), ...admissions.values(), ...(sweep ? [sweep] : [])]);
     exchanges.close();
   };
   return route;

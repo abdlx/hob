@@ -43,6 +43,11 @@ async function fixture(t) {
       if (method === 'session.mutate') { session.title = params.payload.title; return { title: session.title }; }
       if (method === 'session.resume') return { ...structuredClone(session), authority_epoch: 11, execution_generation: shared.generation,
         info: { private_policy: 'do-not-expose-inventory' }, running: session.pending.some(item => item.status === 'started') };
+      if (method === 'command.dispatch') {
+        session.control = { revision: 'goal-state', heartbeat: null, goal: { status: 'active', title: params.arg.slice(3), max_turns: 40, turns_used: 0 } };
+        return { type: 'send', message: `Continue the goal: ${session.control.goal.title}` };
+      }
+      if (method === 'session.control.read') return { control: session.control };
       if (method === 'prompt.submit') {
         const id = 'admission-' + ++shared.sequence;
         const receipt = { admission_id: id, ref: { profile_id: nativeOwner(profile), session_id: params.session_id }, sequence: shared.sequence,
@@ -118,6 +123,36 @@ async function fixture(t) {
   });
   return f;
 }
+
+test('starting a goal consumes its native send directive through the durable chat owner exactly once', async t => {
+  const f = await fixture(t), conversation = await f.create('coder');
+  f.shared.mode = 'lost-acceptance';
+  const route = '/api/hermes/workspace/autonomy?profile=coder';
+  const value = { sessionKey: conversation.id, kind: 'goal', action: 'set', prompt: 'Review the release' };
+  const first = await f.call(route, 'POST', value, 'coder');
+  assert.equal(first.status, 503);
+  assert.equal(f.journal.get(conversation.id).status, 'unknown');
+  const second = await f.call(route, 'POST', value, 'coder');
+  assert.equal(second.status, 409);
+  const submissions = f.shared.calls.filter(call => call.method === 'prompt.submit');
+  assert.equal(submissions.length, 1);
+  assert.equal(submissions[0].profile, 'coder');
+  assert.equal(submissions[0].params.text, 'Continue the goal: Review the release');
+  assert.equal(f.legacyCalls.some(url => url.includes('/v1/runs')), false);
+});
+
+test('a goal starts immediately and exposes its native approval through the ordinary dashboard controls', async t => {
+  const f = await fixture(t), conversation = await f.create('coder');
+  f.shared.mode = 'approval';
+  const response = await f.call('/api/hermes/workspace/autonomy?profile=coder', 'POST', { sessionKey: conversation.id, kind: 'goal', action: 'set', prompt: 'Review the release' }, 'coder');
+  assert.equal(response.status, 200);
+  const admitted = await response.json();
+  assert.equal(f.journal.get(conversation.id).runId, admitted.admissionId);
+  const approvals = await (await f.call('/api/security/approvals', 'GET', undefined, 'coder')).json();
+  assert.equal(approvals.length, 1);
+  assert.equal(approvals[0].commandSnippet, 'echo proof');
+  assert.equal(f.shared.calls.filter(call => call.method === 'prompt.submit').length, 1);
+});
 
 test('new conversations are distinct canonical sessions and inherit only their own current profile setup', async t => {
   const f = await fixture(t);

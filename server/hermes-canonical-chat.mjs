@@ -100,6 +100,19 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     for (const record of canonicalRuns(profile)) if (!TERMINAL_RUNS.has(record.status)) keys.add(record.key);
     return Promise.allSettled([...keys].map(refresh));
   };
+  const admit = async (owner, key, run, content) => {
+    try {
+      const accepted = await rpc(owner, 'prompt.submit', { submission_id: run.requestKey, text: content });
+      hermesResource(accepted.admission_id);
+      if (accepted.ref?.session_id !== owner.sessionId) throw new HermesError(502, 'Hermes admitted another conversation.', 'HERMES_PROTOCOL_ERROR');
+      await journal.update(key, run.requestKey, { runId: accepted.admission_id, status: nativeStatus(accepted) });
+      observed.add(key);
+      return accepted;
+    } catch (error) {
+      await journal.update(key, run.requestKey, { status: ['invalid_params', 'permission_denied', 'not_found', 'admission_conflict', 'profile_mismatch'].includes(error.code) ? 'failed' : 'unknown' });
+      throw error;
+    }
+  };
   const sessions = async profile => {
     const [live, stored, old] = await Promise.all([
       bridge.rpc(profile, 'session.list', { limit: 200 }), bridge.rpc(profile, 'session.list', { scope: 'stored', limit: 200 }),
@@ -124,6 +137,9 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
   };
   const onEvent = ({ profile, event }) => {
     if (['approval.request', 'clarify.request', 'message.complete', 'session.info'].includes(event?.type)) {
+      if (event.session_id && ['approval.request', 'clarify.request'].includes(event.type)) {
+        try { observed.add(hermesNativeSessionKey(profile, event.session_id)); } catch { /* Ignore an invalid upstream scope. */ }
+      }
       client.emit('event', { event: 'sessions.changed', payload: { profile } });
     }
   };
@@ -262,15 +278,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     const closed = () => { disconnected = true; wake?.(); };
     res.once('close', closed);
     try {
-      try {
-        accepted = await rpc(owner, 'prompt.submit', { submission_id: run.requestKey, text: content });
-        hermesResource(accepted.admission_id);
-        if (accepted.ref?.session_id !== owner.sessionId) throw new HermesError(502, 'Hermes admitted another conversation.', 'HERMES_PROTOCOL_ERROR');
-        await journal.update(key, run.requestKey, { runId: accepted.admission_id, status: nativeStatus(accepted) });
-      } catch (error) {
-        await journal.update(key, run.requestKey, { status: ['invalid_params', 'permission_denied', 'not_found', 'admission_conflict', 'profile_mismatch'].includes(error.code) ? 'failed' : 'unknown' });
-        throw error;
-      }
+      accepted = await admit(owner, key, run, content);
       if (res.destroyed) return true;
       startEvents(res); sendEvent(res, 'accepted', { runId: accepted.admission_id, sessionId: key });
       heartbeat = setInterval(() => { if (!res.destroyed && !res.writableEnded) res.write(': keepalive\n\n'); }, 15000);
@@ -300,7 +308,6 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
                 timestamp: new Date().toISOString(), status: 'complete', profile: owner.profile } });
             } else {
               const reason = failureReason(state.receipt);
-              console.log('[RAW_TURN_FAILURE]', JSON.stringify({ status: state.record.status, reason }));
               sendEvent(res, 'error', { message: reason
                 ? `Hermes did not complete this turn (${state.record.status}): ${reason}`
                 : `Hermes did not complete this turn (${state.record.status}). Review its history before retrying.` });
@@ -327,6 +334,15 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     return true;
   };
   route.reconcile = () => reconcile();
+  route.submitDirective = async (key, content) => {
+    const owner = parseHermesSessionKey(key);
+    if (owner.transport !== 'canonical' || typeof content !== 'string' || !content.trim() || content.length > 100000) throw new HermesError(400, 'Invalid native goal continuation.', 'INVALID_REQUEST');
+    const before = await refresh(key);
+    if (before.snapshot.pending.length) throw new HermesError(409, 'This conversation already has active or unknown work. Refresh its status.', 'RUN_ACTIVE');
+    const run = await journal.reserve(key, { input: content, requestKey: randomUUID(), credentialBinding: await client.credentialBinding(owner.profile) });
+    return admit(owner, key, run, content);
+  };
+  route.watch = key => { if (parseHermesSessionKey(key).transport === 'canonical') observed.add(key); };
   route.readiness = async profile => {
     try {
       const name = hermesProfile(profile);

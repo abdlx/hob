@@ -29,7 +29,7 @@ function fixture(exchanges = new HermesExchanges(), options = {}) {
   // Use valid credentials on the wire while selecting authenticated identities server-side.
   const tokens = { ['a'.repeat(64)]: 'default', ['b'.repeat(64)]: 'writer', ['c'.repeat(64)]: 'editor' };
   const bots = { roster: () => roster, authenticate: token => roster.find(bot => bot.name === tokens[token]) };
-  const actual = createHermesBotRelay({ client, exchanges, journal, bots });
+  const actual = createHermesBotRelay({ client, exchanges, journal, bots, bridge: options.bridge });
   const send = async (input, sender = 'default') => {
     let payload;
     const token = Object.keys(tokens).find(token => tokens[token] === sender);
@@ -43,6 +43,25 @@ function fixture(exchanges = new HermesExchanges(), options = {}) {
     return payload;
   } };
 }
+
+test('background sweep observes completion and wakes Main without a dashboard or waiting helper', async () => {
+  const wakeups = [];
+  const f = fixture(undefined, { noCompletion: true, bridge: { async rpc(profile, method, params) {
+    wakeups.push({ profile, method, params });
+    return { delivery_id: params.id, session_id: 'main-bot-chat', admission_id: 'native-follow-up', status: 'settled' };
+  } } });
+  try {
+    const admitted = await f.send({ ...request(), waitMs: 0 });
+    await f.actual.sweep();
+    assert.equal(f.exchanges.get(admitted.id).status, 'completed');
+    assert.equal(wakeups.length, 1); assert.equal(wakeups[0].profile, 'default');
+    assert.equal(wakeups[0].method, 'bot_relay.deliver');
+    assert.match(wakeups[0].params.message, /Recovered reply/);
+    assert.equal(f.exchanges.wakeups(admitted.id)[0].status, 'completed');
+    await f.actual.sweep(); assert.equal(wakeups.length, 1);
+    assert.equal(f.calls.filter(call => call.route === '/v1/runs').length, 1);
+  } finally { await f.actual.close(); }
+});
 
 test('duplicate concurrent submissions admit once; each distinct exchange has its own native session', async () => {
   const f = fixture();

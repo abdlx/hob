@@ -49,7 +49,7 @@ const bots = new HermesBots({
   client: new HermesClient(clientOptions),
   workspaceRoot: path.join(process.env.HERMES_HOME, 'workspaces'),
   browser,
-  // Bots call this from their own workspace with their own API_SERVER_KEY. Use
+  // Bots call this with a relay-only credential provisioned in their workspace. Use
   // the public origin when configured, because that is the URL a remote host's
   // agents would use; otherwise the loopback listener is the same container.
   relayUrl: new URL('/api/hermes/bot-relay', process.env.MUSE_PUBLIC_URL || `http://127.0.0.1:${Number(process.env.MUSE_PORT || 3000)}`).toString(),
@@ -78,8 +78,8 @@ const bindBrowsers = async (attempt = 1) => {
   try {
     const roster = await bots.syncNetwork();
     if (roster.updated.length) console.log(`Updated the HOB roster for ${roster.updated.join(', ')}.`);
-    if (roster.failed.length) console.warn(`Could not update some bot rosters: ${roster.failed.map(item => `${item.name}: ${item.error}`).join('; ')}`);
-  } catch (error) { console.warn(`Could not update the bot roster files: ${error.message}`); }
+    if (roster.failed.length) result.failed.push(...roster.failed.map(item => ({ name: item.name, error: `Bot synchronization: ${item.error}` })));
+  } catch (error) { result.failed.push({ name: '*', error: `Bot synchronization: ${error.message}` }); }
   if (result.configured.length) {
     console.log(`Pointed ${result.configured.length === 1 ? 'a bot' : `${result.configured.length} bots`} at their managed browsers: ${result.configured.join(', ')}.`);
   }

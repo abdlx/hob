@@ -47,8 +47,8 @@ export class HermesBotRegistry {
     if (!/^[a-f0-9]{64}$/.test(mainApiKey || '')) throw new Error('Invalid Main listener credential.');
     await mkdir(stateDir, { recursive: true, mode: 0o700 });
     const filename = path.join(stateDir, 'bots.json');
-    const initial = { version: 2, bots: [{ name: 'default', displayName: 'Main', state: 'active', nativeCreated: true,
-      apiKey: mainApiKey, createdAt: new Date().toISOString() }] };
+    const initial = { version: 3, bots: [{ name: 'default', displayName: 'Main', state: 'active', nativeCreated: true,
+      apiKey: mainApiKey, relayKey: randomBytes(32).toString('hex'), createdAt: new Date().toISOString() }] };
     try { await writeFile(filename, JSON.stringify(initial) + '\n', { flag: 'wx', mode: 0o600, flush: true }); }
     catch (error) { if (error.code !== 'EEXIST') throw error; }
     const entry = await lstat(filename);
@@ -92,7 +92,11 @@ export class HermesBotRegistry {
       }) };
       migrated = true;
     }
-    if (data?.version !== 2 || !Array.isArray(data.bots) || data.bots.length > 500) throw new Error('Invalid bot registry.');
+    if (data?.version === 2 && Array.isArray(data.bots)) {
+      data = { ...data, version: 3, bots: data.bots.map(item => ({ ...item, relayKey: randomBytes(32).toString('hex') })) };
+      migrated = true;
+    }
+    if (data?.version !== 3 || !Array.isArray(data.bots) || data.bots.length > 500) throw new Error('Invalid bot registry.');
     const names = new Set();
     const keys = new Set();
     const activeLabels = new Set();
@@ -101,6 +105,7 @@ export class HermesBotRegistry {
       const displayName = hermesDisplayName(item.displayName);
       if (!['active', 'setup_required', 'revoked'].includes(item.state) || names.has(item.name)
         || !/^[a-f0-9]{64}$/.test(item.apiKey || '') || keys.has(item.apiKey)
+        || !/^[a-f0-9]{64}$/.test(item.relayKey || '') || keys.has(item.relayKey) || item.relayKey === item.apiKey
         || typeof item.nativeCreated !== 'boolean' || typeof item.createdAt !== 'string') throw new Error('Invalid bot registry.');
       item.displayName = displayName;
       item.tags = hermesBotTags(item.tags);
@@ -109,7 +114,7 @@ export class HermesBotRegistry {
         if (activeLabels.has(label)) throw new Error('Invalid bot registry.');
         activeLabels.add(label);
       }
-      names.add(item.name); keys.add(item.apiKey);
+      names.add(item.name); keys.add(item.apiKey); keys.add(item.relayKey);
     }
     const main = data.bots.find(item => item.name === 'default');
     if (main?.state !== 'active' || main.apiKey !== mainApiKey) {
@@ -134,7 +139,7 @@ export class HermesBotRegistry {
   /** Resolve an agent credential to its dashboard identity. Only active bots may relay. */
   authenticate(token) {
     if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) return null;
-    const item = this.#data.bots.find(item => item.state === 'active' && sameToken(item.apiKey, token));
+    const item = this.#data.bots.find(item => item.state === 'active' && sameToken(item.relayKey, token));
     return item ? view(item) : null;
   }
   #labelTaken(data, displayName, exclude = '') {
@@ -150,6 +155,10 @@ export class HermesBotRegistry {
     const item = this.#record(name);
     if (item.state !== 'active') throw new HermesError(409, 'Finish this bot’s setup before using it.', 'BOT_SETUP_REQUIRED');
     return item.apiKey;
+  }
+  relayToken(name) {
+    this.token(name); // Enforce the same active/revoked policy as native access.
+    return this.#record(name).relayKey;
   }
   setup(name) { return { ...this.#record(name) }; }
   async #mutate(change) {
@@ -193,7 +202,7 @@ export class HermesBotRegistry {
       }
       hermesProfile(internal);
       const item = { name: internal, displayName: label, tags, ...(description !== undefined ? { description } : {}), identitySync: 'pending', state: 'setup_required', nativeCreated: false,
-        apiKey: randomBytes(32).toString('hex'), createdAt: new Date().toISOString() };
+        apiKey: randomBytes(32).toString('hex'), relayKey: randomBytes(32).toString('hex'), createdAt: new Date().toISOString() };
       data.bots.push(item);
       return view(item);
     });
@@ -245,6 +254,7 @@ export class HermesBots {
     this.#workspaceRoot = path.resolve(workspaceRoot, 'bots');
     this.#network = network ?? (relayUrl ? new HermesBotNetwork({
       roster: () => this.list(),
+      credential: name => this.#registry.relayToken(name),
       workspaceRoot: path.resolve(workspaceRoot),
       relayUrl,
     }) : null);
@@ -373,7 +383,8 @@ export class HermesBots {
   roster() {
     return this.#registry.list().map(item => ({ ...this.#metadata.get(item.name), ...item, display_name: item.displayName }));
   }
-  /** Resolve a bot's own `API_SERVER_KEY` to its dashboard identity. */
+  relayHelper(name) { return this.#network ? path.join(this.#network.workspace(name), '.hob', 'talk.mjs') : '.hob/talk.mjs'; }
+  /** Resolve a relay-only credential to its bot identity; listener keys are refused. */
   authenticate(token) {
     const item = this.#registry.authenticate(token);
     return item ? { ...this.#metadata.get(item.name), ...item, display_name: item.displayName } : null;

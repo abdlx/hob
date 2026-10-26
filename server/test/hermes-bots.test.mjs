@@ -50,6 +50,26 @@ test('fresh roster contains only Main and does not enroll discovered native prof
   assert.ok(!JSON.stringify(await bots.list()).includes('apiKey'));
 }));
 
+test('relay credentials migrate independently, survive restart and revoke with their bot', async () => fixture(async ({ registry, root, mainApiKey, options }) => {
+  await registry.reserve('research');
+  await registry.update('research', { state: 'active', nativeCreated: true });
+  const legacy = JSON.parse(await readFile(path.join(root, 'bots.json'), 'utf8'));
+  legacy.version = 2;
+  for (const bot of legacy.bots) delete bot.relayKey;
+  await writeFile(path.join(root, 'bots.json'), JSON.stringify(legacy));
+  const migrated = await HermesBotRegistry.open(options);
+  const relay = migrated.relayToken('research');
+  assert.notEqual(relay, migrated.token('research'));
+  assert.equal(migrated.authenticate(migrated.token('research')), null);
+  assert.equal(migrated.authenticate(mainApiKey), null);
+  assert.equal(migrated.authenticate(relay).name, 'research');
+  assert.ok(!JSON.stringify(migrated.list()).includes(relay));
+  assert.equal((await HermesBotRegistry.open(options)).relayToken('research'), relay);
+  await migrated.update('research', { state: 'revoked' });
+  assert.equal(migrated.authenticate(relay), null);
+  assert.throws(() => migrated.relayToken('research'), /not in your dashboard/);
+}));
+
 test('boot reconciliation binds pre-existing active bots and isolates failures', async () => fixture(async ({ registry, root }) => {
   const profiles = [{ name: 'default' }, { name: 'research' }, { name: 'pending' }];
   const configs = new Map();
@@ -398,7 +418,7 @@ test('version 1 registries migrate to display names without changing internal id
       ['main', 'main 2'],
     ]);
     const saved = JSON.parse(await readFile(path.join(root, 'bots.json'), 'utf8'));
-    assert.equal(saved.version, 2);
+    assert.equal(saved.version, 3);
     assert.deepEqual(saved.bots.map(item => item.displayName), ['Main', 'research', 'retired', 'main 2']);
     assert.deepEqual(saved.bots.map(item => item.name), ['default', 'research', 'retired', 'main']);
   } finally {

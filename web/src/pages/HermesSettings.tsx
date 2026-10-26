@@ -17,6 +17,7 @@ import { preference, savePreference, searchSettings, settingsSection, settingsSe
 import type { SettingsSection } from '../services/settings-navigation';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { HermesPluginsSettings } from '../components/HermesPluginsSettings';
+import { HermesAutonomySettings } from '../components/HermesAutonomySettings';
 import { HermesGoals, HermesWorkshop } from './HermesWorkspace';
 
 interface Profile { name: string; display_name?: string; description?: string; model?: string; provider?: string; state?: string }
@@ -159,7 +160,7 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
     {visited.has('learning') && <div hidden={section !== 'learning'}><HermesLearningSettings profile={profile} /></div>}
     {visited.has('channels') && <div hidden={section !== 'channels'}><HermesChannelsSettings profile={profile} /></div>}
     {visited.has('skills') && <div hidden={section !== 'skills'}><HermesWorkshop profile={profile} includeMemory={false} /></div>}
-    {visited.has('automation') && <div hidden={section !== 'automation'}><HermesGoals profile={profile} /></div>}
+    {visited.has('automation') && <div hidden={section !== 'automation'} className="space-y-5">{section === 'automation' && <HermesAutonomySettings key={profile} profile={profile} />}<HermesGoals profile={profile} /></div>}
     <section hidden={section !== 'agents'} className={`${cardClass} space-y-3`}><h2 className="text-sm text-ink">Create a bot</h2>
       <Field label="Name" hint="Use lowercase letters, digits, underscores or hyphens; start with a letter."><input className={inputClass} value={newName} disabled={busy} onChange={event => setNewName(event.target.value)} /></Field>
       <Field label="Personality and instructions"><textarea className={inputClass} rows={4} value={soul} disabled={busy} onChange={event => setSoul(event.target.value)} /></Field>

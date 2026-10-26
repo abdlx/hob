@@ -124,12 +124,16 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   const mcpOAuth = hermes ? createHermesMcpOAuth(hermes, { publicUrl }) : null;
   const hermesSetup = hermes ? createHermesSetupRoutes(hermes, { mcpOAuth }) : null;
   const hermesWorkspace = hermes ? createHermesWorkspaceRoutes({ bots, client: hermes, bridge: nativeSessions,
+    submitAutomation: (key, content) => {
+      if (!canonicalChat) throw new HttpError(503, 'Native goal admission is unavailable.');
+      return canonicalChat.submitDirective(key, content);
+    },
     workspaceRoot: process.env.HERMES_HOME ? path.join(process.env.HERMES_HOME, 'workspaces') : undefined }) : null;
   const hermesChat = gateway?.kind === 'hermes' ? createHermesChatRoutes(gateway, bots, runJournal, { home: process.env.HERMES_HOME }) : null;
   const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat }) : null;
-  // The relay authenticates each bot with its own listener credential, not the
+  // The relay authenticates each bot with its own relay-scoped credential, not the
   // dashboard session, so it is mounted before the `/api/*` login gate.
-  const botRelay = hermes && bots ? createHermesBotRelay({ client: hermes, bots, exchanges, journal: runJournal }) : null;
+  const botRelay = hermes && bots ? createHermesBotRelay({ client: hermes, bots, exchanges, journal: runJournal, bridge: nativeSessions, onWake: key => canonicalChat?.watch(key) }) : null;
   // The managed browser is only meaningful with a bot roster to scope it to.
   const browserRoutes = browser && bots ? createBrowserRoutes({
     browser, json, body, startEvents, sendEvent,
@@ -516,6 +520,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
     void poll();
   });
   server.once('close', () => clearInterval(runPoll));
+  server.once('listening', () => botRelay?.start());
   server.once('close', () => { botRelay?.close(); canonicalChat?.close(); nativeSessions?.close(); browserRoutes?.close(); agentComputerRoutes?.close(); });
   server.on('close', () => { for (const res of streams) res.end(); streams.clear(); });
   // Viewer streams are WebSockets, so they never reach the request handler above.

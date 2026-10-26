@@ -9,6 +9,14 @@ export const SMOKE_PROMPT = 'HOB_CONTAINER_SMOKE_WRITE';
 export const SMOKE_REPLY = 'HOB_CONTAINER_SMOKE_OK';
 export const SMOKE_FILE = 'container-smoke-proof.txt';
 export const SMOKE_CONTENT = 'Hermes executed the isolated container smoke tool.\n';
+export const SMOKE_RELAY_PROMPT = 'HOB_PROACTIVE_SMOKE_RELAY';
+export const SMOKE_RELAY_REPLY = 'HOB_PROACTIVE_RELAY_SENT';
+export const SMOKE_WORKER_PROMPT = 'HOB_PROACTIVE_WORKER_REQUEST';
+export const SMOKE_WORKER_ID = 'proactive-worker';
+export const SMOKE_WORKER_REPLY = 'HOB_PROACTIVE_WORKER_DONE';
+export const SMOKE_WAKE_REPLY = 'HOB_PROACTIVE_COORDINATOR_RESUMED';
+export const SMOKE_HEARTBEAT_PROMPT = 'HOB_PROACTIVE_HEARTBEAT_CHECK';
+export const SMOKE_HEARTBEAT_REPLY = 'HOB_PROACTIVE_HEARTBEAT_DONE';
 export const SMOKE_SKILL_PROMPT = 'HOB_CONTAINER_SMOKE_SKILL';
 export const SMOKE_SKILL_REPLY = 'HOB_CONTAINER_SKILL_STAGED';
 export const SMOKE_SKILL_NAME = 'hob-smoke-lesson';
@@ -44,6 +52,20 @@ export function createSmokeModel({ file = defaultFile() } = {}) {
       } }] : null;
       let content = asked && wrote ? SMOKE_REPLY : 'Synthetic smoke metadata.';
       const latestUser = input.messages.findLast(item => item.role === 'user');
+      const latestText = String(latestUser?.content || '');
+      if (latestText.includes(SMOKE_RELAY_PROMPT)) {
+        const result = input.messages.findLast(item => item.role === 'tool' && item.tool_call_id === 'hob-smoke-relay');
+        tool = !result && input.tools?.some(item => item.function?.name === 'terminal') ? [{ id: 'hob-smoke-relay', type: 'function', function: {
+          name: 'terminal', arguments: JSON.stringify({ command: `env -u API_SERVER_KEY -u HOB_TALK_TOKEN HOB_TALK_WAIT_MS=0 node .hob/talk.mjs send ${SMOKE_WORKER_ID} ${SMOKE_WORKER_PROMPT}` }),
+        } }] : null;
+        content = result && /Exchange: [a-f0-9-]{36}/.test(JSON.stringify(result.content)) ? SMOKE_RELAY_REPLY : 'HOB_PROACTIVE_RELAY_NOT_CONFIRMED';
+      } else if (latestText.includes('[HOB background result; exchange ') && latestText.includes(SMOKE_WORKER_PROMPT)) {
+        tool = null; content = SMOKE_WAKE_REPLY;
+      } else if (latestText.includes(SMOKE_WORKER_PROMPT)) {
+        tool = null; content = SMOKE_WORKER_REPLY;
+      } else if (latestText.includes(SMOKE_HEARTBEAT_PROMPT)) {
+        tool = null; content = SMOKE_HEARTBEAT_REPLY;
+      }
       if (String(latestUser?.content).includes(SMOKE_SKILL_PROMPT)) {
         const result = input.messages.findLast(item => item.role === 'tool' && item.tool_call_id === 'hob-smoke-skill');
         tool = !result && input.tools?.some(item => item.function?.name === 'skill_manage') ? [{ id: 'hob-smoke-skill', type: 'function', function: {

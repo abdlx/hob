@@ -7,6 +7,7 @@ import type { SecurityApproval } from '../types/chat';
 export interface BotExchange {
   id: string; fromName: string; toName: string; status: string; createdAt: number;
   message?: string; reply?: string; replyTruncated?: boolean; error?: string; observationError?: string; sessionKey?: string; to?: string;
+  wakeups?: { id: string; profile: string; status: string; error?: string | null }[];
 }
 interface ExchangePage { exchanges: BotExchange[]; nextBefore: number | null }
 const failure = (error: unknown) => error instanceof Error ? error.message : 'Could not load bot exchanges.';
@@ -52,7 +53,7 @@ export function BotExchangeNotice({ exchange, profile }: { exchange: BotExchange
   useEffect(() => {
     if (!open) return;
     let stopped = false;
-    void Promise.allSettled([
+    const load = () => { void Promise.allSettled([
       apiFetch<BotExchange>(endpoint(profile, `/${exchange.id}`)),
       apiFetch<{ messages: unknown[] }>(endpoint(profile, `/${exchange.id}/transcript`)),
     ]).then(([record, messages]) => {
@@ -60,8 +61,10 @@ export function BotExchangeNotice({ exchange, profile }: { exchange: BotExchange
       if (record.status === 'fulfilled') setDetail(record.value);
       if (messages.status === 'fulfilled') setTranscript(messages.value.messages);
       setError(record.status === 'rejected' ? failure(record.reason) : messages.status === 'rejected' ? failure(messages.reason) : '');
-    });
-    return () => { stopped = true; };
+    }); };
+    load();
+    const timer = window.setInterval(load, 5000);
+    return () => { stopped = true; window.clearInterval(timer); };
   }, [exchange.id, exchange.status, profile, open]);
   const record = detail || exchange;
   return <div className="my-2 rounded-xl border border-line bg-surface/70 text-xs" data-exchange-id={exchange.id}>
@@ -81,6 +84,7 @@ export function BotExchangeNotice({ exchange, profile }: { exchange: BotExchange
         <div><p className="mb-1 font-semibold text-ink">{record.toName} replied</p><p className="whitespace-pre-wrap break-words text-muted">{record.reply || (record.status === 'completed' ? 'No text reply. Inspect the native transcript below.' : 'No reply yet.')}</p></div>
         {record.replyTruncated && <p className="text-amber-700">This reply preview is truncated. Open the native messages below to inspect the full reply.</p>}
         {(record.error || record.observationError) && <p role="status" className="text-amber-700">{record.error || record.observationError}</p>}
+        {!!record.wakeups?.length && <div className="space-y-1 rounded-lg border border-line p-3"><p className="font-medium text-ink">Automatic follow-up</p>{record.wakeups.map(wake => <p key={wake.id} className="text-muted">{wake.profile === 'default' ? 'Main' : wake.profile}: {wake.status.replaceAll('_', ' ')}{wake.error ? ` · ${wake.error}` : ''}</p>)}</div>}
         {transcript !== null && <details><summary className="cursor-pointer font-medium text-ink">Native messages and tool activity</summary><pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-panel p-3 text-[11px]">{JSON.stringify(transcript, null, 2)}</pre></details>}
         {record.sessionKey && !['completed', 'failed', 'cancelled', 'interrupted'].includes(record.status) && <>
           <HermesRunPanel key={record.sessionKey} sessionId={record.sessionKey} />

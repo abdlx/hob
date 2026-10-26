@@ -18,7 +18,7 @@ const within = (root, target) => {
 const sensitive = /(?:^|[\\/])(?:\.[^\\/]*|node_modules|credentials?|secrets?)(?:[\\/]|$)|(?:token|credential|secret|\.pem$|\.key$)/i;
 
 /** Custom dashboard operations use native Hermes owners, never OpenClaw RPC. */
-export function createHermesWorkspaceRoutes({ client, bridge, workspaceRoot, bots }) {
+export function createHermesWorkspaceRoutes({ client, bridge, workspaceRoot, bots, submitAutomation }) {
   return async (req, res, url, { json, body }) => {
     const route = url.pathname.slice('/api/hermes/workspace/'.length);
     const method = req.method;
@@ -35,6 +35,49 @@ export function createHermesWorkspaceRoutes({ client, bridge, workspaceRoot, bot
       const { profile: _profile, ...result } = value;
       return result;
     };
+
+    if (route === 'autonomy' && ['GET', 'POST'].includes(method)) {
+      if (!bridge) throw new HermesError(503, 'The native session connection is unavailable.', 'SESSION_UNAVAILABLE');
+      const value = method === 'POST' ? await input(['sessionKey', 'kind', 'action', 'prompt', 'intervalSeconds']) : { sessionKey: url.searchParams.get('sessionKey') };
+      const owner = parseHermesSessionKey(value.sessionKey);
+      if (owner.profile !== profile || owner.transport !== 'canonical') throw invalid('Choose a native conversation belonging to this bot.');
+      const params = { session_id: owner.sessionId };
+      // Resume the existing route through its owner; never manufacture another
+      // conversation or read/write the runtime's SQLite file from this process.
+      await bridge.rpc(profile, 'session.resume', params);
+      let dispatch;
+      if (method === 'POST') {
+        if (!['heartbeat', 'goal'].includes(value.kind) || !['set', 'pause', 'resume', 'clear'].includes(value.action)) throw invalid('Choose a valid autonomy action.');
+        if (value.action === 'set') {
+          const prompt = text(value.prompt, 'recurring instruction or goal', 4000).trim();
+          // This form sets a free-form outcome. Keep multiline instructions
+          // literal rather than interpreting a line as a native contract field.
+          let arg = `-- ${prompt.replace(/\s+/g, ' ')}`;
+          if (value.kind === 'heartbeat') {
+            if (!Number.isSafeInteger(value.intervalSeconds) || value.intervalSeconds < 60 || value.intervalSeconds > 604800) throw invalid('Heartbeat intervals must be between one minute and seven days.');
+            arg = `every ${value.intervalSeconds}s ${prompt}`;
+          }
+          dispatch = await bridge.rpc(profile, 'command.dispatch', { ...params, name: value.kind, arg });
+        } else {
+          dispatch = await bridge.rpc(profile, 'session.control', { ...params, action: `${value.kind}.${value.action}`, args: {} });
+        }
+      }
+      const result = await bridge.rpc(profile, 'session.control.read', params);
+      if (!result?.control || typeof result.control.revision !== 'string') throw new HermesError(502, 'Hermes returned an invalid automation snapshot.', 'HERMES_PROTOCOL_ERROR');
+      if (value.action === 'set') {
+        const state = result.control[value.kind];
+        if (state?.status !== 'active' || (value.kind === 'goal' && state.title !== value.prompt.trim().replace(/\s+/g, ' ')) || (value.kind === 'heartbeat' && (state.prompt !== value.prompt.trim() || state.interval_seconds !== value.intervalSeconds))) {
+          throw new HermesError(409, 'Hermes did not activate these instructions. Refresh to inspect the current state.', 'AUTOMATION_NOT_CONFIRMED');
+        }
+      }
+      const directive = dispatch?.dispatch || dispatch;
+      let admission;
+      if (directive?.type === 'send') {
+        if (!submitAutomation) throw new HermesError(503, 'Native goal admission is unavailable. The goal setting may already have changed.', 'SESSION_UNAVAILABLE');
+        admission = await submitAutomation(value.sessionKey, directive.message);
+      }
+      return json(res, 200, { control: result.control, ...(admission ? { admissionId: admission.admission_id } : {}), ...(typeof directive?.output === 'string' ? { output: directive.output } : {}) });
+    }
 
     if (route === 'jobs' && method === 'GET') return json(res, 200, await dashboard('/api/cron/jobs'));
     if (route === 'jobs' && method === 'POST') {
