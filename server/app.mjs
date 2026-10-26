@@ -128,7 +128,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
       if (!canonicalChat) throw new HttpError(503, 'Native goal admission is unavailable.');
       return canonicalChat.submitDirective(key, content);
     },
-    workspaceRoot: process.env.HERMES_HOME ? path.join(process.env.HERMES_HOME, 'workspaces') : undefined }) : null;
+    workspaceRoot: process.env.HOB_WORKSPACE_ROOT || (process.env.HERMES_HOME ? path.join(process.env.HERMES_HOME, 'workspaces') : undefined) }) : null;
   const hermesChat = gateway?.kind === 'hermes' ? createHermesChatRoutes(gateway, bots, runJournal, { home: process.env.HERMES_HOME }) : null;
   const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat }) : null;
   // The relay authenticates each bot with its own relay-scoped credential, not the

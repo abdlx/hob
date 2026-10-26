@@ -9,6 +9,8 @@ export const SMOKE_PROMPT = 'HOB_CONTAINER_SMOKE_WRITE';
 export const SMOKE_REPLY = 'HOB_CONTAINER_SMOKE_OK';
 export const SMOKE_FILE = 'container-smoke-proof.txt';
 export const SMOKE_CONTENT = 'Hermes executed the isolated container smoke tool.\n';
+export const SMOKE_SCHEDULE_PROMPT = 'HOB_PROACTIVE_SCHEDULE_PROOF';
+export const SMOKE_SCHEDULE_REPLY = 'HOB_PROACTIVE_SCHEDULE_FINISHED';
 export const SMOKE_RELAY_PROMPT = 'HOB_PROACTIVE_SMOKE_RELAY';
 export const SMOKE_RELAY_REPLY = 'HOB_PROACTIVE_RELAY_SENT';
 export const SMOKE_WORKER_PROMPT = 'HOB_PROACTIVE_WORKER_REQUEST';
@@ -59,7 +61,7 @@ export function createSmokeModel({ file = defaultFile() } = {}) {
       if (latestText.includes(SMOKE_RELAY_PROMPT)) {
         const result = input.messages.findLast(item => item.role === 'tool' && item.tool_call_id === 'hob-smoke-relay');
         tool = !result && input.tools?.some(item => item.function?.name === 'terminal') ? [{ id: 'hob-smoke-relay', type: 'function', function: {
-          name: 'terminal', arguments: JSON.stringify({ command: `${process.env.HOB_SMOKE_ISOLATION === 'users' ? 'test "$(id -u)" -ge 20000 && ' : ''}env -u API_SERVER_KEY -u HOB_TALK_TOKEN HOB_TALK_WAIT_MS=0 node /opt/data/workspaces/main/.hob/talk.mjs send ${SMOKE_WORKER_ID} ${SMOKE_WORKER_PROMPT}` }),
+          name: 'terminal', arguments: JSON.stringify({ command: `${process.env.HOB_SMOKE_ISOLATION === 'users' ? 'test "$(id -u)" -ge 20000 && ' : ''}env -u API_SERVER_KEY -u HOB_TALK_TOKEN HOB_TALK_WAIT_MS=0 node ${process.env.HOB_SMOKE_RELAY_FILE || '/opt/data/workspaces/main/.hob/talk.mjs'} send ${SMOKE_WORKER_ID} ${SMOKE_WORKER_PROMPT}` }),
         } }] : null;
         content = result && /Exchange: [a-f0-9-]{36}/.test(JSON.stringify(result.content)) ? SMOKE_RELAY_REPLY
           : 'HOB_PROACTIVE_RELAY_NOT_CONFIRMED' + (result ? ': ' + JSON.stringify(result.content).slice(0, 1200) : '');
@@ -67,6 +69,8 @@ export function createSmokeModel({ file = defaultFile() } = {}) {
         tool = null; content = SMOKE_WAKE_REPLY;
       } else if (latestText.includes(SMOKE_WORKER_PROMPT)) {
         tool = null; content = SMOKE_WORKER_REPLY;
+      } else if (latestText.includes(SMOKE_SCHEDULE_PROMPT)) {
+        tool = null; content = SMOKE_SCHEDULE_REPLY;
       } else if (latestText.includes(SMOKE_HEARTBEAT_PROMPT)) {
         tool = null; content = SMOKE_HEARTBEAT_REPLY;
       }

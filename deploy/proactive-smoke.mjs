@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { SMOKE_MODEL, SMOKE_RELAY_PROMPT, SMOKE_RELAY_REPLY, SMOKE_WORKER_REPLY, SMOKE_WORKER_ID,
-  SMOKE_WAKE_REPLY, SMOKE_HEARTBEAT_PROMPT, SMOKE_HEARTBEAT_REPLY } from './smoke-model.mjs';
+  SMOKE_WAKE_REPLY, SMOKE_HEARTBEAT_PROMPT, SMOKE_HEARTBEAT_REPLY, SMOKE_SCHEDULE_PROMPT } from './smoke-model.mjs';
 
 export async function proactiveFirstBoot({ api, request, workspace, retry, check, modelUrl }) {
   // The worker has its own native profile and listener/relay credentials.
@@ -14,6 +14,8 @@ export async function proactiveFirstBoot({ api, request, workspace, retry, check
   const model = await api(`/api/hermes/model?profile=${SMOKE_WORKER_ID}`, 'POST', { scope: 'main', provider: endpoint.id, model: SMOKE_MODEL, base_url: modelUrl }, SMOKE_WORKER_ID);
   check('the relay worker uses the isolated synthetic provider', model.ok === true && model.base_url === modelUrl);
   await retry('the native relay worker authority', async () => { assert.equal((await api('/api/readiness', 'GET', undefined, SMOKE_WORKER_ID)).ready, true); });
+  const scheduled = await workspace('jobs', 'POST', { name: 'Disposable native clock proof', prompt: SMOKE_SCHEDULE_PROMPT, schedule: new Date(Date.now() + 15000).toISOString() });
+  assert.equal(typeof scheduled.id, 'string');
   const conversation = await api('/api/sessions', 'POST', { title: 'Proactive container proof', agentId: 'default' });
   const before = new Set((await api('/api/hermes/exchanges?profile=default')).exchanges.map(row => row.id));
   const response = await request(`/api/sessions/${conversation.id}/turns`, 'POST', { content: SMOKE_RELAY_PROMPT, idempotencyKey: randomUUID() });
@@ -42,7 +44,16 @@ export async function proactiveFirstBoot({ api, request, workspace, retry, check
   }, 180000);
   const paused = await workspace('autonomy', 'POST', { sessionKey: conversation.id, kind: 'heartbeat', action: 'pause' });
   check('a real native heartbeat fires and can be paused', paused.control.heartbeat.status === 'paused');
-  return { exchangeId: exchange.id, wakeId: wake.id, wakeSession: wake.sessionKey, conversation: conversation.id, fireCount: paused.control.heartbeat.fire_count };
+  await retry('a clock-triggered native scheduled task', async () => {
+    const job = await workspace('jobs/' + scheduled.id);
+    assert.equal(job.last_status, 'ok', JSON.stringify({ status: job.last_status, error: job.last_error }));
+    assert.equal(job.state, 'completed');
+    assert.ok(job.last_run_at);
+    const history = await workspace('jobs/' + scheduled.id + '/runs');
+    assert.ok(history.runs?.length >= 1);
+  });
+  check('the native scheduler executes a one-time task without a manual trigger', true);
+  return { scheduledId: scheduled.id, exchangeId: exchange.id, wakeId: wake.id, wakeSession: wake.sessionKey, conversation: conversation.id, fireCount: paused.control.heartbeat.fire_count };
 }
 
 export async function proactiveAfterRestart({ saved, api, workspace, check, retry }) {
@@ -53,6 +64,8 @@ export async function proactiveAfterRestart({ saved, api, workspace, check, retr
   check('the completed follow-up remains settled after recreation', exchange.status === 'completed' && exchange.wakeups.length === 1 && exchange.wakeups[0].id === saved.wakeId && exchange.wakeups[0].status === 'completed');
   const history = await retry('the retained coordinator conversation', () => api(`/api/sessions/${saved.wakeSession}/messages`));
   check('recreation does not duplicate coordinator notifications', history.filter(row => row.role === 'user' && row.content.includes(`[HOB background result; exchange ${saved.exchangeId}]`)).length === 1);
+  const scheduled = await workspace('jobs/' + saved.scheduledId);
+  check('the completed clock-triggered task remains settled after recreation', scheduled.state === 'completed' && scheduled.last_status === 'ok');
   const { control } = await workspace('autonomy', 'GET', undefined, 'default', { sessionKey: saved.conversation });
   check('paused native heartbeat state survives recreation', control.heartbeat?.status === 'paused' && control.heartbeat.fire_count === saved.fireCount);
 }

@@ -3,6 +3,9 @@ services:
   muse:
     environment:
       HOB_ISOLATION: users
+      HOB_WORKSPACE_ROOT: /var/lib/hob-isolation/workspaces
+      HOB_MAIN_WORKSPACE: /var/lib/hob-isolation/workspaces/main
+      HOB_BROWSER_DATA_DIR: /var/lib/hob-isolation/browsers
     volumes:
       - hermes-isolation:/var/lib/hob-isolation
     cap_add:

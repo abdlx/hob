@@ -44,13 +44,24 @@ export async function bootstrapHermes(env = process.env) {
   const hermesDir = resolve(env.HERMES_DIR || join(projectDir, 'hermes-agent'));
   const home = resolve(env.HERMES_HOME || join(projectDir, '.muse-data', 'hermes'));
   const stateDir = resolve(env.HOB_STATE_DIR || join(home, '.hob'));
-  const workspace = resolve(env.HOB_MAIN_WORKSPACE || join(home, 'workspaces', 'main'));
+  const workspace = resolve(env.HOB_MAIN_WORKSPACE || join(env.HOB_WORKSPACE_ROOT || join(home, 'workspaces'), 'main'));
+  const mode = isolationMode(env);
+  if (mode === 'users') {
+    const isolation = new HermesBotIsolation();
+    const deadline = Date.now() + 30000;
+    for (;;) {
+      try { await isolation.ready(); break; }
+      catch (error) {
+        if (Date.now() >= deadline) throw error;
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+    }
+  }
   for (const directory of [home, stateDir, workspace]) await mkdir(directory, { recursive: true, mode: 0o700 });
   const credentials = await listenerCredentials(join(stateDir, 'listener-auth.json'));
   await seedHermesConfig(home, workspace);
 
   // A process-wide CDP override would send every bot to the same cookie jar.
-  const mode = isolationMode(env);
   if (mode !== 'users') {
     try { await lstat(join(stateDir, 'isolation-enabled')); throw new Error('This home requires HOB_ISOLATION=users and its isolation volume.'); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }

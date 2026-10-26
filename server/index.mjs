@@ -37,7 +37,7 @@ const registry = await HermesBotRegistry.open({ stateDir: process.env.HOB_STATE_
 // One persistent browser profile per bot. Nothing is launched here: a browser
 // starts when an agent turn or a viewer actually needs one, and stops after the
 // idle timeout when nobody does.
-const browserRegistry = await BrowserRegistry.open({ stateDir: process.env.HOB_STATE_DIR });
+const browserRegistry = await BrowserRegistry.open({ stateDir: process.env.HOB_STATE_DIR, profileRoot: process.env.HOB_BROWSER_DATA_DIR });
 const enrolledBots = new Set(registry.list().map(bot => bot.name));
 for (const record of browserRegistry.list()) {
   if (!enrolledBots.has(record.bot)) await browserRegistry.remove(record.bot);
@@ -51,7 +51,7 @@ const browser = await BrowserManager.open({
 const bots = new HermesBots({
   registry, isolation,
   client: new HermesClient(clientOptions),
-  workspaceRoot: path.join(process.env.HERMES_HOME, 'workspaces'),
+  workspaceRoot: process.env.HOB_WORKSPACE_ROOT || path.join(process.env.HERMES_HOME, 'workspaces'),
   browser,
   // Co-located bots use the private app listener, independently of the public
   // proxy's origin/port. A remote backend can provision HOB_BOT_RELAY_URL.

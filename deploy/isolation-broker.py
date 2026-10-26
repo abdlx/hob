@@ -193,8 +193,10 @@ class Broker:
         info = PRIVATE.lstat()
         if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0:
             raise ValueError("unsafe_isolation_volume")
-        os.chmod(PRIVATE, 0o700)
+        os.chmod(PRIVATE, 0o711)
         self.private_fd = os.open(PRIVATE, DIR_FLAGS)
+        self.workspace_root_fd = directory_at(self.private_fd, 'workspaces', self.uid, self.gid)
+        self.browser_root_fd = directory_at(self.private_fd, 'browsers', self.uid, self.gid)
         try:
             self.data = json.loads(read_regular(PRIVATE / "users.json", 0))
         except FileNotFoundError:
@@ -257,10 +259,65 @@ class Broker:
         # isolated UID. Default named-user deny entries override other-read.
         acl(fd, f"u:{uid}:---", "g::---", "o::---", default=True)
 
+    def copy_legacy(self, legacy, destination, uid, *, browser=False):
+        try:
+            source = os.open(legacy, DIR_FLAGS)
+        except FileNotFoundError:
+            return
+        try:
+            self.copy_tree(source, destination, uid, browser=browser)
+        finally:
+            os.close(source)
+
+    def copy_tree(self, source, destination, uid, *, browser=False):
+        # The old home stays intact. Every source is opened without following
+        # links and revalidated; atomic FD-relative destinations cannot redirect
+        # privileged writes outside the assigned data volume.
+        for name in os.listdir(source):
+            if browser and name in ('SingletonLock', 'SingletonSocket', 'SingletonCookie'):
+                continue
+            info = os.stat(name, dir_fd=source, follow_symlinks=False)
+            if info.st_uid not in (self.uid, uid):
+                raise ValueError('legacy_data_has_foreign_owner')
+            if stat.S_ISDIR(info.st_mode):
+                src = os.open(name, DIR_FLAGS, dir_fd=source)
+                dest = directory_at(destination, name, self.uid, uid)
+                try:
+                    self.copy_tree(src, dest, uid, browser=browser)
+                finally:
+                    os.close(src)
+                    os.close(dest)
+            elif stat.S_ISREG(info.st_mode) and info.st_nlink == 1:
+                src = os.open(name, FD_FLAGS, dir_fd=source)
+                temporary = '.hob-copy-' + os.urandom(16).hex()
+                out = None
+                try:
+                    actual = os.fstat(src)
+                    if (actual.st_ino, actual.st_dev, actual.st_nlink, actual.st_uid) != (info.st_ino, info.st_dev, 1, info.st_uid):
+                        raise ValueError('legacy_data_changed_during_copy')
+                    out = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, stat.S_IMODE(actual.st_mode) & 0o700, dir_fd=destination)
+                    os.fchown(out, self.uid, self.gid)
+                    while True:
+                        data = os.read(src, 1024 * 1024)
+                        if not data:
+                            break
+                        while data:
+                            written = os.write(out, data)
+                            data = data[written:]
+                    os.fsync(out)
+                    os.rename(temporary, name, src_dir_fd=destination, dst_dir_fd=destination)
+                finally:
+                    os.close(src)
+                    if out is not None:
+                        os.close(out)
+                    with contextlib.suppress(FileNotFoundError):
+                        os.unlink(temporary, dir_fd=destination)
+            else:
+                raise ValueError('legacy_data_has_link_or_special_file')
+        os.fsync(destination)
+
     def workspace(self, name, uid):
-        self.protect_parent(self.home_fd, uid)
-        self.protect_parent(self.state_fd, uid)
-        workspace_fd = directory_at(self.home_fd, "workspaces", self.uid, self.gid)
+        workspace_fd = os.dup(self.workspace_root_fd)
         try:
             self.protect_parent(workspace_fd, uid)
             if name != "default":
@@ -271,6 +328,12 @@ class Broker:
             leaf = "main" if name == "default" else name
             result = directory_at(workspace_fd, leaf, self.uid, uid)
             try:
+                record = self.data['bots'][name]
+                if not record.get('workspaceMigrated'):
+                    legacy = self.home / 'workspaces' / ('main' if name == 'default' else 'bots/'+name)
+                    self.copy_legacy(legacy, result, uid)
+                    record['workspaceMigrated'] = True
+                    self.save()
                 migrate_tree(result, uid, self.uid, self.gid)
                 hidden = directory_at(result, ".hob", uid, self.uid)
                 try:
@@ -283,7 +346,7 @@ class Broker:
                 os.close(result)
         finally:
             os.close(workspace_fd)
-        return self.home / "workspaces" / ("main" if name == "default" else "bots/" + name)
+        return PRIVATE / "workspaces" / ("main" if name == "default" else "bots/" + name)
 
     def ensure(self, name):
         name = profile_name(name)
@@ -300,7 +363,7 @@ class Broker:
                 record = self.data["bots"][name] = {"uid": uid, "revoked": False}
                 self.save()  # Reserve before creating an OS principal; never reuse.
             uid, username = record["uid"], "hob" + str(record["uid"])
-            workspace = self.home / "workspaces" / ("main" if name == "default" else "bots/" + name)
+            workspace = PRIVATE / "workspaces" / ("main" if name == "default" else "bots/" + name)
             if name not in self.prepared:
                 try:
                     account = pwd.getpwnam(username)
@@ -357,7 +420,7 @@ class Broker:
         row = next((item for item in registry.get("browsers", []) if item.get("bot") == name), None)
         if not row:
             raise ValueError("browser_not_enrolled")
-        parts = ["browsers", name]
+        parts = [name]
         if row.get("storageVersion") == 2:
             identity = row.get("browserProfileId")
             if not isinstance(identity, str) or re.fullmatch(r"br-[a-f0-9]{16}", identity) is None:
@@ -366,7 +429,8 @@ class Broker:
         elif row.get("storageVersion") not in (None, 1):
             raise ValueError("invalid_browser_version")
         parts.append("chromium")
-        parent = os.dup(self.state_fd)
+        parent = os.dup(self.browser_root_fd)
+        self.protect_parent(parent, uid)
         try:
             for part in parts:
                 child = directory_at(parent, part, self.uid, uid)
@@ -375,13 +439,19 @@ class Broker:
                 self.protect_parent(parent, uid)
             # Chromium's stale startup links must not be followed during an
             # ownership migration. Unlink only these known lock artifacts.
-            for name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
+            for lock_name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
                 with contextlib.suppress(FileNotFoundError):
-                    os.unlink(name, dir_fd=parent)
+                    os.unlink(lock_name, dir_fd=parent)
+            marker = self.data['bots'][name]
+            identity = '/'.join(parts)
+            if marker.get('browserMigrated') != identity:
+                self.copy_legacy(self.state.joinpath('browsers', *parts), parent, uid, browser=True)
+                marker['browserMigrated'] = identity
+                self.save()
             migrate_tree(parent, uid, self.uid, self.gid)
         finally:
             os.close(parent)
-        return self.state.joinpath(*parts)
+        return PRIVATE.joinpath("browsers", *parts)
 
     def chromium(self, connection, request):
         name = profile_name(request.get("profile"))

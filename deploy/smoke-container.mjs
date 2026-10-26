@@ -179,7 +179,8 @@ try {
         interval: '2s', timeout: '5s', start_period: '3s', retries: 30 },
       environment: { HOB_SMOKE_ISOLATION: usersIsolation ? 'users' : 'shared', HOB_SMOKE_MODEL_PORT: '18793', HOB_SMOKE_HOST: '0.0.0.0',
         HOB_SMOKE_MCP_BASE: 'http://smoke-model:18793',
-        HOB_SMOKE_FILE: '/opt/data/workspaces/main/' + SMOKE_FILE } };
+        HOB_SMOKE_RELAY_FILE: usersIsolation ? '/var/lib/hob-isolation/workspaces/main/.hob/talk.mjs' : '/opt/data/workspaces/main/.hob/talk.mjs',
+        HOB_SMOKE_FILE: (usersIsolation ? '/var/lib/hob-isolation/workspaces/main/' : '/opt/data/workspaces/main/') + SMOKE_FILE } };
   }
   await writeFile(override, JSON.stringify({ services }));
   docker(['version'], 30000);

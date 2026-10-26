@@ -81,10 +81,11 @@ export class BrowserRegistry {
   #filename;
   #data;
   #stateDir;
+  #profileRoot;
   #queue = Promise.resolve();
-  constructor(filename, data, stateDir) { this.#filename = filename; this.#data = data; this.#stateDir = stateDir; }
+  constructor(filename, data, stateDir, profileRoot) { this.#filename = filename; this.#data = data; this.#stateDir = stateDir; this.#profileRoot = profileRoot; }
 
-  static async open({ stateDir }) {
+  static async open({ stateDir, profileRoot }) {
     if (typeof stateDir !== 'string' || !stateDir) throw new Error('A state directory is required for the browser registry.');
     await mkdir(stateDir, { recursive: true, mode: 0o700 });
     const filename = path.join(stateDir, 'browsers.json');
@@ -126,7 +127,7 @@ export class BrowserRegistry {
       tokens.add(record.gatewayToken);
       profiles.add(record.browserProfileId);
     }
-    return new BrowserRegistry(filename, data, stateDir);
+    return new BrowserRegistry(filename, data, stateDir, profileRoot ? path.resolve(profileRoot) : undefined);
   }
 
   get(botId) {
@@ -209,14 +210,16 @@ export class BrowserRegistry {
     const record = this.#data.browsers.find(item => item.bot === botId);
     if (!record) throw new Error('This bot has no browser record.');
     return record.storageVersion === 2
-      ? path.join(stateDir, 'browsers', botId, record.browserProfileId, 'chromium')
-      : path.join(stateDir, 'browsers', botId, 'chromium');
+      ? path.join(this.#profileRoot || path.join(stateDir, 'browsers'), botId, record.browserProfileId, 'chromium')
+      : path.join(this.#profileRoot || path.join(stateDir, 'browsers'), botId, 'chromium');
   }
 
   async prepareProfile(botId) {
     const directory = this.profileDir(this.#stateDir, botId);
-    let parent = await realpath(this.#stateDir);
-    for (const segment of path.relative(this.#stateDir, directory).split(path.sep)) {
+    const trustedRoot = this.#profileRoot || this.#stateDir;
+    await mkdir(trustedRoot, { recursive: true, mode: 0o700 });
+    let parent = await realpath(trustedRoot);
+    for (const segment of path.relative(trustedRoot, directory).split(path.sep)) {
       const current = path.join(parent, segment);
       try { await mkdir(current, { mode: 0o700 }); }
       catch (error) { if (error.code !== 'EEXIST') throw error; }

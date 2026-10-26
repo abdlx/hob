@@ -13,7 +13,7 @@ def shell(name, code):
 for name in active:
  row=registry[name]; uid=row['uid']; assert uid != app.pw_uid and uid not in seen and uid>=20000; seen.add(uid)
  result=shell(name,'id -u'); assert result.returncode==0, 'SSH unavailable: '+result.stderr[:400]; assert int(result.stdout.strip())==uid
- work=home/'workspaces'/('main' if name=='default' else 'bots/'+name)
+ work=private/'workspaces'/('main' if name=='default' else 'bots/'+name)
  assert work.stat().st_uid==uid
  assert shell(name,'test -r '+str(work/'.hob/relay.json')).returncode==0, 'own relay key unreadable'
  for forbidden in [state/'listener-auth.json', state/'bots.json', state/'isolation-keys'/(name+'.key'), home/'gateway.sock']:
@@ -25,7 +25,7 @@ for name in active:
    if browser['bot'] != other: continue
    cookie_dir=state/'browsers'/other/browser['browserProfileId']/'chromium'
    assert shell(name,'test -r '+str(cookie_dir)).returncode!=0, 'cross-bot browser directory readable'
-  otherwork=home/'workspaces'/('main' if other=='default' else 'bots/'+other)
+  otherwork=private/'workspaces'/('main' if other=='default' else 'bots/'+other)
   assert shell(name,'test -r '+str(otherwork/'.hob/relay.json')).returncode!=0, 'cross-bot relay readable'
   assert shell(name,'test -w '+str(otherwork)).returncode!=0, 'cross-bot workspace writable'
  # Real kernel credentials deny direct broker access even when its path is known.
