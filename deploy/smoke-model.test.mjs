@@ -36,7 +36,7 @@ test('proactive fixture issues a real relay tool and distinguishes worker, coord
   const initial = await call(prompt);
   assert.equal(initial.tool_calls[0].function.name, 'terminal');
   assert.match(JSON.parse(initial.tool_calls[0].function.arguments).command, /env -u API_SERVER_KEY -u HOB_TALK_TOKEN/);
-  assert.equal((await call([...prompt, { role: 'tool', tool_call_id: 'hob-smoke-relay', content: 'The relay failed' }])).content, 'HOB_PROACTIVE_RELAY_NOT_CONFIRMED');
+  assert.match((await call([...prompt, { role: 'tool', tool_call_id: 'hob-smoke-relay', content: 'The relay failed' }])).content, /HOB_PROACTIVE_RELAY_NOT_CONFIRMED.*The relay failed/);
   assert.equal((await call([...prompt, { role: 'tool', tool_call_id: 'hob-smoke-relay', content: 'Exchange: 00000000-0000-4000-8000-000000000000 (running)' }])).content, SMOKE_RELAY_REPLY);
   assert.equal((await call([{ role: 'user', content: SMOKE_WORKER_PROMPT }])).content, SMOKE_WORKER_REPLY);
   assert.equal((await call([{ role: 'user', content: `[HOB background result; exchange 123]\n${SMOKE_WORKER_PROMPT}` }])).content, SMOKE_WAKE_REPLY);

@@ -19,7 +19,7 @@ export async function proactiveFirstBoot({ api, request, workspace, retry, check
   const response = await request(`/api/sessions/${conversation.id}/turns`, 'POST', { content: SMOKE_RELAY_PROMPT, idempotencyKey: randomUUID() });
   check('the real Hermes terminal admits an asynchronous relay request', response.ok);
   const stream = await response.text();
-  check('the helper sends without a listener key in its terminal environment', stream.includes(SMOKE_RELAY_REPLY) && stream.includes('event: done') && !stream.includes('event: error'));
+  check('the helper sends without a listener key in its terminal environment', stream.includes(SMOKE_RELAY_REPLY) && stream.includes('event: done') && !stream.includes('event: error'), stream.slice(-1600));
   const exchange = await retry('the background exchange and coordinator follow-up', async () => {
     const row = (await api('/api/hermes/exchanges?profile=default')).exchanges.find(item => !before.has(item.id) && item.to === SMOKE_WORKER_ID);
     assert.ok(row);
