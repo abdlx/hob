@@ -46,6 +46,7 @@ COPY server/ ./server/
 # After `server/`, so the installed deps win over anything in the build context.
 COPY --from=server-build /app/server/node_modules/ ./server/node_modules/
 COPY deploy/ ./deploy/
+RUN /opt/hermes/.venv/bin/python -I /app/deploy/apply-hermes-compat.py /opt/hermes
 COPY LICENSE ./LICENSE
 RUN chmod -R a+rX /app && /usr/local/bin/node --version && test -x /opt/hermes/bin/hermes
 # hob owns the foreground Gateway lifetime. Preserve the stock reconciliation

@@ -42,7 +42,7 @@ Hermes Agent is a capable personal agent runtime, but its native surfaces are op
 - **Native Hermes underneath.** Sessions, tools, approvals, questions, memory, skills, and scheduling stay owned by upstream Hermes. hob owns the interface, authentication, routing, and browser gateway.
 - **Deployable as one container.** The Docker image combines the dashboard, Node server, and a digest-pinned Hermes runtime. Only the app port is exposed.
 
-Hermes source is vendored only as a reference. hob does not patch the upstream runtime.
+Hermes source is vendored only as a reference. The image applies one checksum-guarded compatibility fix to the pinned runtime so local dashboard heartbeats reach Hermes's native admission queue; it retains the upstream scheduler and execution owner.
 
 In **Settings → Plugins & integrations**, browse app tiles and open a tile for its full details and install controls. In **Settings → Automation**, select a bot's native conversation to start a goal or configure a heartbeat, including pause, resume and clear. Scheduled tasks use Hermes's own scheduler; `0 9 * * *` runs daily at 9 AM in the bot's configured timezone. Background handoff results are delivered to the caller and Main through Hermes's **Bot Chat**, while each exchange keeps its own transcript.
 
@@ -102,7 +102,7 @@ In **Settings → Plugins & integrations**, browse app tiles and open a tile for
 
 Only port **3000** serves the application. Hermes' settings and runtime APIs bind to loopback and are never published by the supplied Compose files. Model and tool credentials are entered in Settings and remain server-side.
 
-The runtime image is pinned by digest and built from an unchanged upstream Hermes commit that includes the native session authority hob requires. The published Hermes `0.22.2` image does not provide that contract. Runtime upgrades are deliberate, tested changes — not automatic in-container updates.
+The runtime image is pinned by digest and built from a pinned upstream Hermes commit that includes the native session authority hob requires. The published Hermes `0.22.2` image does not provide that contract. Runtime upgrades are deliberate, tested changes — not automatic in-container updates.
 
 ## Quick start
 

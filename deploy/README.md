@@ -1,8 +1,12 @@
 # Deployment
 
-The image combines the custom hob UI/server with an unchanged, digest-pinned
+The image combines the custom hob UI/server with a digest-pinned
 upstream-source Hermes runtime (`7e9eb8d9`, built with upstream's Dockerfile and
 published to public GHCR). This runtime image supports Linux amd64 only.
+The app image applies a checksum-guarded fix to `gateway/run_goals.py`: native
+LOCAL heartbeats reach Hermes's admission queue before the legacy adapter-handler
+check. Unknown source bytes fail the build. `hob-compat.json` records the fix;
+Hermes still owns scheduling, admission, execution and persistence.
 Local reference and archived runtime source trees are
 excluded from the app build context.
 
