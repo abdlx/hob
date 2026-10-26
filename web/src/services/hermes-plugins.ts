@@ -9,6 +9,7 @@ export interface InstalledPlugin {
   can_remove: boolean; can_update_git: boolean; auth_required: boolean; removed_reason?: string;
 }
 export interface PluginInventory { scope: string; entries: PluginEntry[]; installed: InstalledPlugin[]; removed: { name: string; reason: string }[] }
+export interface PluginStoreItem { name: string; entry?: PluginEntry; installed?: InstalledPlugin; removedReason?: string }
 export type PluginOperation = 'install' | 'enable' | 'disable' | 'update' | 'remove';
 export interface PluginResult { ok?: boolean; enabled?: boolean; consent_required?: boolean; restart_required?: boolean; warnings?: string[]; missing_env?: string[]; delta_lines?: string[] }
 

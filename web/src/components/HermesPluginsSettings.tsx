@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Download, Package, RefreshCw, Search } from 'lucide-react';
-import { hermesSetupApi, setupLink } from '../services/hermes-setup';
+import { ArrowUpRight, Package, RefreshCw, Search } from 'lucide-react';
+import { hermesSetupApi } from '../services/hermes-setup';
 import { pluginResultMessage } from '../services/hermes-plugins';
-import type { PluginEntry, PluginInventory, PluginOperation, PluginResult } from '../services/hermes-plugins';
-import { buttonClass, cardClass, ConfirmButton, inputClass, Notice, Skeleton, StatusPill } from './WorkspaceUI';
+import type { PluginEntry, PluginInventory, PluginOperation, PluginResult, PluginStoreItem } from '../services/hermes-plugins';
+import { buttonClass, cardClass, inputClass, Notice, Skeleton, StatusPill } from './WorkspaceUI';
+import { PluginAppIcon, PluginDetailsModal } from './PluginDetailsModal';
 import { errorText } from './workspaceUtils';
 
 export function HermesPluginsSettings({ profile }: { profile: string }) {
@@ -20,6 +21,8 @@ function PluginCatalog() {
   const [result, setResult] = useState<PluginResult | null>(null);
   const [busy, setBusy] = useState('');
   const [consent, setConsent] = useState<string | null>(null);
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+  const [feedbackName, setFeedbackName] = useState<string | null>(null);
   const pending = useRef(false), mounted = useRef(false), sequence = useRef(0);
   const invalidate = useCallback(() => { sequence.current++; }, []);
   const load = useCallback(async () => {
@@ -34,7 +37,7 @@ function PluginCatalog() {
   }, [load, invalidate]);
   const act = async (name: string, operation: PluginOperation, entry?: PluginEntry, acceptCapabilities = false) => {
     if (pending.current) return;
-    pending.current = true; setBusy(`${operation}:${name}`); setError(''); setMessage(''); setResult(null); setConsent(null);
+    pending.current = true; setFeedbackName(name); setBusy(`${operation}:${name}`); setError(''); setMessage(''); setResult(null); setConsent(null);
     try {
       const value = await hermesSetupApi('default')<PluginResult>(`plugins/${encodeURIComponent(name)}/${operation}`, {
         method: 'POST', body: JSON.stringify({ confirm: true, ...(entry ? { expectedSha: entry.sha } : {}), ...(operation === 'update' ? { acceptCapabilities } : {}) }),
@@ -50,32 +53,57 @@ function PluginCatalog() {
       try { await load(); } catch { /* Preserve the mutation error. */ }
     } finally { pending.current = false; if (mounted.current) setBusy(''); }
   };
+  const items = new Map<string, PluginStoreItem>();
+  for (const entry of inventory?.entries || []) items.set(entry.name, { name: entry.name, entry });
+  for (const installed of inventory?.installed || []) items.set(installed.name, { ...items.get(installed.name), name: installed.name, installed });
+  for (const removed of inventory?.removed || []) {
+    const item = items.get(removed.name);
+    if (item) item.removedReason = removed.reason;
+  }
   const query = search.trim().toLowerCase();
-  const entries = inventory?.entries.filter(entry => `${entry.name} ${entry.description} ${entry.maintainer} ${entry.capabilities.provides_tools.join(' ')}`.toLowerCase().includes(query) && (filter === 'all' || (filter === 'installed' ? entry.installed : entry.tier === filter))) ?? [];
-  return <section className={`${cardClass} space-y-4`}>
-    <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><Package size={17} className="text-muted" /><h3 className="text-sm font-semibold text-ink">Hermes plugin catalog</h3></div><button className={buttonClass} disabled={!!busy} onClick={() => { setError(''); void load().catch(cause => setError(errorText(cause))); }}><RefreshCw size={13} />Refresh catalog</button></div>
-    <p className="text-xs leading-relaxed text-muted">Installs use Hermes’s native installer and reviewed commit pins for Main. Plugins may run code with the runtime’s access. Review their capabilities and requirements before installing.</p>
+  const entries = [...items.values()].filter(({ name, entry, installed }) => {
+    const searchable = [name, entry?.description, installed?.description, entry?.maintainer, ...(entry?.capabilities.provides_tools || [])].join(' ').toLowerCase();
+    const matchesFilter = filter === 'all' || (filter === 'installed' ? !!installed || entry?.installed : entry?.tier === filter);
+    return searchable.includes(query) && matchesFilter;
+  });
+  const selected = selectedName ? items.get(selectedName) : undefined;
+  const feedback = <>
     {error && <Notice error>{error}</Notice>}
     {message && <Notice>{message}</Notice>}
-    {!!busy && <p role="status" aria-live="polite" className="text-xs text-accent">Hermes is processing {busy.replace(':', ' for ')}. This may take several minutes. The installed inventory will be checked when it returns.</p>}
-    {result && <div className="space-y-2">{result.warnings?.map((warning, index) => <Notice key={index}>{warning}</Notice>)}{!!result.missing_env?.length && <Notice>Required credentials: {result.missing_env.join(', ')}. Save them under Models & providers before enabling.</Notice>}
-      {consent && <div className="space-y-3 rounded-lg border border-edge p-3"><p className="text-xs text-soft">Additional capabilities requested by {consent}:</p><ul className="list-disc pl-5 text-xs text-muted">{result.delta_lines?.map((line, index) => <li key={index}>{line}</li>)}</ul><button className={buttonClass} disabled={!!busy || !result.delta_lines?.length} onClick={() => void act(consent, 'update', undefined, true)}>Accept listed capabilities and update</button></div>}
+    {!!busy && <p role="status" aria-live="polite" className="text-xs text-accent">Hermes is processing {busy.replace(':', ' for ')}. This may take several minutes. The inventory will refresh when it returns.</p>}
+    {result && <div className="space-y-2">{result.warnings?.map((warning, index) => <Notice key={index}>{warning}</Notice>)}
+      {!!result.missing_env?.length && <Notice>Required credentials: {result.missing_env.join(', ')}. Save them under Models &amp; providers before enabling.</Notice>}
+      {consent && <div className="space-y-3 rounded-xl border border-edge bg-panel p-3"><p className="text-xs text-soft">Additional capabilities requested by {consent}:</p><ul className="list-disc pl-5 text-xs text-muted">{result.delta_lines?.map((line, index) => <li key={index}>{line}</li>)}</ul><button className={buttonClass} disabled={!!busy || !result.delta_lines?.length} onClick={() => void act(consent, 'update', undefined, true)}>Accept listed capabilities and update</button></div>}
     </div>}
-    {!inventory && !error ? <Skeleton className="h-32 w-full" /> : inventory && <>
-      <div className="flex gap-2"><div className="relative min-w-0 flex-1"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" /><input aria-label="Search plugin catalog" className={`${inputClass} pl-9`} placeholder="Search plugins or tools…" value={search} onChange={event => setSearch(event.target.value)} /></div><select aria-label="Filter plugins" className={`${inputClass.replace('w-full ', '')} w-36 shrink-0`} value={filter} onChange={event => setFilter(event.target.value)}><option value="all">All sources</option><option value="official">Official</option><option value="verified">Verified</option><option value="community">Community</option><option value="installed">Installed</option></select></div>
-      <div className="divide-y divide-hair">{entries.map(entry => <article key={entry.name} className="py-4 first:pt-1 space-y-2.5">
-        <div className="flex flex-wrap items-center gap-2"><h4 className="text-sm font-semibold text-ink">{entry.name}</h4><span className="text-[10px] uppercase tracking-wide text-muted">{entry.tier} · {entry.maintainer}</span>{entry.installed && <StatusPill status={entry.runtime_status || 'installed'} />}</div>
-        <p className="text-xs leading-relaxed text-soft">{entry.description}</p>
-        <dl className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px] text-muted">
-          <dt>Commit</dt><dd className="font-mono break-all select-text">{entry.sha}</dd>
-          <dt>Compatibility</dt><dd>{entry.requires_hermes || 'No minimum declared'} · {entry.platforms?.join(', ') || 'All platforms'}</dd>
-          <dt>Capabilities</dt><dd className="break-words">{[...entry.capabilities.provides_tools, ...entry.capabilities.provides_hooks, ...entry.capabilities.provides_middleware].join(', ') || 'No tools, hooks or middleware declared'}</dd>
-          <dt>Credentials</dt><dd className="break-words">{entry.capabilities.requires_env.join(', ') || 'None declared'}</dd>
-        </dl>
-        <div className="flex flex-wrap items-center gap-2">{!entry.installed && <ConfirmButton className={buttonClass} disabled={!!busy} confirmLabel="Install reviewed pin" message={`Install ${entry.name} at ${entry.sha.slice(0, 12)} for Main? Hermes validates the package and dependencies. It will stay disabled until you enable it.`} onConfirm={() => { void act(entry.name, 'install', entry); }}><Download size={13} />Install</ConfirmButton>}{entry.update_available && <span className="text-xs text-warn">New catalog pin available</span>}{setupLink(entry.docs_url || entry.repo) && <a className="text-xs text-accent hover:underline" href={setupLink(entry.docs_url || entry.repo)} target="_blank" rel="noreferrer">Source & documentation ↗</a>}</div>
-      </article>)}</div>
-      {entries.length === 0 && <p className="text-xs text-muted">No plugins match these filters.</p>}
-      <div className="border-t border-hair pt-4 space-y-3"><h4 className="text-xs font-semibold text-ink">Installed plugins · Main</h4>{inventory.installed.length === 0 && <p className="text-xs text-muted">No installed plugins were reported by Hermes.</p>}{inventory.installed.map(plugin => <div key={plugin.name} className="rounded-lg border border-hair bg-panel p-3 space-y-2"><div className="flex flex-wrap items-center gap-2"><span className="text-xs font-medium text-ink">{plugin.name}</span><span className="text-[11px] text-muted">{plugin.version} · {plugin.source}</span><StatusPill status={plugin.runtime_status} /></div><p className="text-xs text-muted">{plugin.description}</p>{plugin.removed_reason && <Notice error>{plugin.removed_reason}</Notice>}{plugin.auth_required && <p className="text-xs text-warn">This plugin requires additional authentication. See its documentation.</p>}<div className="flex flex-wrap gap-2"><ConfirmButton className={buttonClass} disabled={!!busy || !!plugin.removed_reason} message={`${plugin.runtime_status === 'enabled' ? 'Disable' : 'Enable'} ${plugin.name} for Main? Enabled plugins can execute with Hermes’s access.`} confirmLabel="Confirm change" onConfirm={() => { void act(plugin.name, plugin.runtime_status === 'enabled' ? 'disable' : 'enable'); }}>{plugin.runtime_status === 'enabled' ? 'Disable' : 'Enable'}</ConfirmButton>{plugin.can_update_git && inventory.entries.some(entry => entry.name === plugin.name && entry.installed) && <button className={buttonClass} disabled={!!busy || !!plugin.removed_reason} onClick={() => void act(plugin.name, 'update')}>Update to catalog pin</button>}{plugin.can_remove && <ConfirmButton className={buttonClass} disabled={!!busy} tone="danger" message={`Remove ${plugin.name} from Main? Review plugin-owned data before removal.`} confirmLabel="Remove plugin" onConfirm={() => { void act(plugin.name, 'remove'); }}>Remove</ConfirmButton>}</div></div>)}</div>
+  </>;
+  const gridClass = 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,180px),1fr))] gap-3';
+  return <section className={`${cardClass} space-y-5`} aria-label="Plugin store">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex items-center gap-2.5"><span className="rounded-xl bg-accent-soft p-2 text-accent"><Package size={19} /></span><div><h3 className="text-base font-semibold tracking-tight text-ink">Plugin store</h3><p className="mt-0.5 text-xs text-muted">Discover apps and tools for Main.</p></div></div>
+      <button className={buttonClass} disabled={!!busy} onClick={() => { setError(''); void load().catch(cause => setError(errorText(cause))); }}><RefreshCw size={13} />Refresh catalog</button>
+    </div>
+    {!selected && feedback}
+    {!inventory && !error ? <div className={gridClass}>{Array.from({ length: 6 }, (_, index) => <Skeleton key={index} className="h-52 w-full rounded-2xl" />)}</div> : inventory && <>
+      <div className="flex flex-col gap-2 sm:flex-row"><div className="relative min-w-0 flex-1"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" /><input aria-label="Search plugin catalog" className={`${inputClass} pl-9`} placeholder="Search apps, publishers or tools..." value={search} onChange={event => setSearch(event.target.value)} /></div><select aria-label="Filter plugins" className={`${inputClass.replace('w-full ', '')} w-full shrink-0 sm:w-36`} value={filter} onChange={event => setFilter(event.target.value)}><option value="all">All apps</option><option value="official">Official</option><option value="verified">Verified</option><option value="community">Community</option><option value="installed">Installed</option></select></div>
+      <div className="flex items-center justify-between gap-2 text-[11px] text-muted"><span aria-live="polite">{entries.length} {entries.length === 1 ? 'app' : 'apps'}{query ? ' found' : ' to explore'}</span><span>{inventory.installed.length} installed</span></div>
+      <div className={gridClass} role="list" aria-label="Plugin apps">
+        {entries.map(plugin => {
+          const { name, entry, installed } = plugin;
+          const isInstalled = !!installed || entry?.installed === true;
+          return <div key={name} role="listitem" className="min-w-0"><button type="button" aria-label={`View ${name} details`} aria-haspopup="dialog" disabled={!!busy} onClick={() => setSelectedName(name)}
+            className="group flex h-full min-h-56 w-full flex-col items-start rounded-2xl border border-line bg-surface p-4 text-left transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-60 cursor-pointer">
+            <div className="mb-4 flex w-full items-start justify-between gap-2"><PluginAppIcon name={name} /><ArrowUpRight size={15} className="mt-1 text-faint transition-colors group-hover:text-accent" /></div>
+            <span className="max-w-full break-words text-sm font-semibold text-ink">{name}</span>
+            <span className="mt-1 max-w-full truncate text-[11px] text-muted">{entry?.maintainer || installed?.source || 'Installed app'}</span>
+            <span className="mt-2 mb-4 line-clamp-2 break-words text-xs leading-relaxed text-soft">{entry?.description || installed?.description || 'Open this app to see its details.'}</span>
+            <span className="mt-auto flex w-full flex-wrap items-center gap-2">{isInstalled ? <StatusPill status={installed?.runtime_status || entry?.runtime_status || 'installed'} /> : <span className="rounded-full bg-panel px-2 py-1 text-[10px] capitalize text-muted">{entry?.tier || 'Catalog'}</span>}{entry?.update_available && <span className="text-[10px] font-medium text-accent">Update available</span>}</span>
+          </button></div>;
+        })}
+      </div>
+      {entries.length === 0 && <div className="rounded-2xl border border-dashed border-edge py-10 text-center"><Package size={24} className="mx-auto mb-3 text-faint" /><p className="text-sm font-medium text-ink">No apps found</p><p className="mt-1 text-xs text-muted">Try a different search or filter.</p></div>}
     </>}
+    {selected && <PluginDetailsModal key={selected.name} plugin={{ ...selected, removedReason: selected.removedReason || selected.installed?.removed_reason }} busy={!!busy}
+      feedback={feedbackName === selected.name || !feedbackName ? feedback : null} onClose={() => setSelectedName(null)}
+      onAction={(operation, acceptCapabilities) => { void act(selected.name, operation, operation === 'install' ? selected.entry : undefined, acceptCapabilities); }} />}
   </section>;
 }
