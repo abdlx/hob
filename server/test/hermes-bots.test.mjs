@@ -22,6 +22,7 @@ async function fixture(run) {
 function native() {
   const profiles = [{ name: 'default' }, { name: 'unregistered' }];
   const calls = [];
+  const souls = new Map();
   let rejectCredentials = false;
   return { profiles, calls, set rejectCredentials(value) { rejectCredentials = value; },
     client: { async dashboard(route, options = {}) {
@@ -30,6 +31,10 @@ function native() {
         profiles.push({ name: options.body.name }); return { ok: true, name: options.body.name };
       }
       if (route === '/api/profiles') return { profiles };
+      if (route.endsWith('/soul')) {
+        if (options.method === 'PUT') { souls.set(options.profile, options.body.content); return { ok: true }; }
+        return { content: souls.get(options.profile) || '', exists: souls.has(options.profile) };
+      }
       if (route === '/api/env' && rejectCredentials) throw new Error('synthetic credential failure');
       return { ok: true };
     } },
@@ -182,7 +187,7 @@ test('operator-created bot gets independent credentials and workspace through na
   const upstream = native();
   const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work') });
   assert.deepEqual(await bots.create({ name: 'research', soul: 'Research only.' }), {
-    ok: true, name: 'research', displayName: 'research', state: 'active',
+    ok: true, name: 'research', displayName: 'research', state: 'active', sync: { updated: [], failed: [] },
   });
   const settings = upstream.calls.find(call => call.route === '/api/config');
   assert.deepEqual(settings.body, { profile: 'research', config: { terminal: { cwd: path.join(root, 'work', 'bots', 'research') }, auth: { adopt_external_logins: false } } });
@@ -317,14 +322,14 @@ test('revocation while setup is in flight prevents credential provisioning and r
   assert.throws(() => registry.token('research'), /not in your dashboard/);
 }));
 
-test('renaming changes only the dashboard label and survives a restart', async () => fixture(async ({ registry, root, options }) => {
+test('renaming preserves profile identity, updates personality and survives a restart', async () => fixture(async ({ registry, root, options }) => {
   const upstream = native();
   const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work') });
   await bots.create({ name: 'research', displayName: 'Scout' });
   assert.equal((await bots.list()).profiles.find(item => item.name === 'research').display_name, 'Scout');
 
   const renamed = await bots.rename('research', '  Research   Lead  ');
-  assert.deepEqual(renamed, { ok: true, name: 'research', displayName: 'Research Lead', display_name: 'Research Lead', state: 'active', created_at: renamed.created_at });
+  assert.deepEqual(renamed, { ok: true, name: 'research', displayName: 'Research Lead', display_name: 'Research Lead', state: 'active', created_at: renamed.created_at, tags: [], identitySync: 'synced', sync: { updated: [], failed: [] } });
   assert.equal((await bots.list()).profiles.find(item => item.name === 'research').display_name, 'Research Lead');
   assert.match(registry.token('research'), /^[a-f0-9]{64}$/, 'the internal credential is unchanged');
   assert.equal(upstream.calls.some(call => call.method === 'POST' && call.route !== '/api/profiles'), false,
@@ -333,7 +338,9 @@ test('renaming changes only the dashboard label and survives a restart', async (
   // Active labels stay unique case-insensitively; Main keeps its coordination name.
   await bots.create({ name: 'writer', displayName: 'Writer' });
   await assert.rejects(bots.rename('research', 'writer'), /already uses that name|already uses/);
-  await assert.rejects(bots.rename('default', 'Boss'), /keeps its name/);
+  await bots.rename('default', 'Boss');
+  assert.equal(registry.list().find(item => item.name === 'default').displayName, 'Boss');
+  assert.equal((await HermesBotRegistry.open(options)).list().find(item => item.name === 'default').displayName, 'Boss');
   await bots.rename('default', 'Main');
   await assert.rejects(bots.rename('research', '   '), /1–64 printable characters/);
 

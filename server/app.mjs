@@ -21,7 +21,7 @@ class HttpError extends Error {
 const MAX_BODY = 2 * 1024 * 1024;
 const PROFILE_FILES = new Set(['SOUL.md', 'MEMORY.md', 'IDENTITY.md', 'USER.md', 'AGENTS.md', 'TOOLS.md', 'HEARTBEAT.md']);
 const MEDIA = /\.(png|jpe?g|gif|webp|svg|avif|mp4|webm|mov|mp3|wav|ogg|m4a|flac)$/i;
-const EXPOSED_EVENTS = /^(chat|agent|session\.|sessions\.changed|cron|exec\.approval\.|plugin\.approval\.|openclaw\.approval\.|question\.|health|models\.snapshot)/;
+const EXPOSED_EVENTS = /^(bot\.exchange|chat|agent|session\.|sessions\.changed|cron|exec\.approval\.|plugin\.approval\.|openclaw\.approval\.|question\.|health|models\.snapshot)/;
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
 export const SETTINGS_RPC_METHODS = new Set([
   'models.list', 'models.authStatus', 'models.authLogin', 'models.authSetApiKey', 'models.authLogout', 'models.authRefresh', 'models.authOrderSet', 'models.probe',
@@ -109,7 +109,7 @@ async function browserImage(stateDir, filename) {
   } finally { await handle?.close(); await rootHandle.close(); }
 }
 
-export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gateway : undefined, bots, browser, runJournal, nativeSessions, password = process.env.MUSE_PASSWORD, accessToken = process.env.MUSE_ACCESS_TOKEN, sessionSecret = process.env.MUSE_SESSION_SECRET, publicUrl = process.env.MUSE_PUBLIC_URL, secureCookies = process.env.MUSE_SECURE_COOKIES === 'true', stateDir = process.env.OPENCLAW_STATE_DIR, viewerTicketTtlMs, staticDir = fileURLToPath(new URL('../web/dist', import.meta.url)) }) {
+export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gateway : undefined, bots, browser, runJournal, nativeSessions, exchanges, password = process.env.MUSE_PASSWORD, accessToken = process.env.MUSE_ACCESS_TOKEN, sessionSecret = process.env.MUSE_SESSION_SECRET, publicUrl = process.env.MUSE_PUBLIC_URL, secureCookies = process.env.MUSE_SECURE_COOKIES === 'true', stateDir = process.env.OPENCLAW_STATE_DIR, viewerTicketTtlMs, staticDir = fileURLToPath(new URL('../web/dist', import.meta.url)) }) {
   if (nativeSessions && !runJournal) throw new Error('Native chat requires a durable admission journal.');
   const hermesGroups = hermes && nativeSessions ? createHermesGroups({ client: hermes, bridge: nativeSessions, bots, home: process.env.HERMES_HOME }) : null;
   // Agent-written media lives beside the Hermes profile, in its workspace, or
@@ -123,13 +123,13 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   }) : null;
   const mcpOAuth = hermes ? createHermesMcpOAuth(hermes, { publicUrl }) : null;
   const hermesSetup = hermes ? createHermesSetupRoutes(hermes, { mcpOAuth }) : null;
-  const hermesWorkspace = hermes ? createHermesWorkspaceRoutes({ client: hermes, bridge: nativeSessions,
+  const hermesWorkspace = hermes ? createHermesWorkspaceRoutes({ bots, client: hermes, bridge: nativeSessions,
     workspaceRoot: process.env.HERMES_HOME ? path.join(process.env.HERMES_HOME, 'workspaces') : undefined }) : null;
   const hermesChat = gateway?.kind === 'hermes' ? createHermesChatRoutes(gateway, bots, runJournal, { home: process.env.HERMES_HOME }) : null;
   const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat }) : null;
   // The relay authenticates each bot with its own listener credential, not the
   // dashboard session, so it is mounted before the `/api/*` login gate.
-  const botRelay = hermes && bots ? createHermesBotRelay({ client: hermes, bots }) : null;
+  const botRelay = hermes && bots ? createHermesBotRelay({ client: hermes, bots, exchanges, journal: runJournal }) : null;
   // The managed browser is only meaningful with a bot roster to scope it to.
   const browserRoutes = browser && bots ? createBrowserRoutes({
     browser, json, body, startEvents, sendEvent,
@@ -261,6 +261,10 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
         // surface, but it is HOB's own, not a passthrough to Hermes.
         if (browserRoutes && await browserRoutes.route(req, res, url)) return;
         if (agentComputerRoutes && await agentComputerRoutes.route(req, res, url, { json, body })) return;
+        if (route === '/api/hermes/exchanges' || route.startsWith('/api/hermes/exchanges/')) {
+          if (!botRelay) throw new HttpError(503, 'Bot coordination is unavailable.');
+          return await botRelay.dashboard(req, res, url, { json, body });
+        }
         if (route.startsWith('/api/hermes/')) {
           if (!hermesRoutes) throw new HttpError(503, 'Hermes has not been connected to this server.');
           if (route === '/api/hermes/groups' || route.startsWith('/api/hermes/groups/')) {
@@ -512,7 +516,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
     void poll();
   });
   server.once('close', () => clearInterval(runPoll));
-  server.once('close', () => { canonicalChat?.close(); nativeSessions?.close(); browserRoutes?.close(); agentComputerRoutes?.close(); });
+  server.once('close', () => { botRelay?.close(); canonicalChat?.close(); nativeSessions?.close(); browserRoutes?.close(); agentComputerRoutes?.close(); });
   server.on('close', () => { for (const res of streams) res.end(); streams.clear(); });
   // Viewer streams are WebSockets, so they never reach the request handler above.
   // Anything that is not a browser stream is refused here rather than left open.

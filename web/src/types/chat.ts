@@ -26,6 +26,8 @@ export interface AgentListItem {
   name: string;
   avatarUrl?: string;
   roleDescription?: string;
+  tags?: string[];
+  identitySync?: 'pending' | 'synced';
   model?: string;
   status?: 'connected' | 'idle' | 'busy' | 'disconnected';
 }
@@ -36,6 +38,8 @@ export interface AgentProfile {
   status: 'connected' | 'idle' | 'busy' | 'disconnected';
   avatarUrl: string;
   roleDescription?: string;
+  tags?: string[];
+  identitySync?: 'pending' | 'synced';
   model?: string;
   agentRuntime?: string;
   systemPrompt?: string;

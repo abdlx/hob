@@ -18,7 +18,7 @@ const within = (root, target) => {
 const sensitive = /(?:^|[\\/])(?:\.[^\\/]*|node_modules|credentials?|secrets?)(?:[\\/]|$)|(?:token|credential|secret|\.pem$|\.key$)/i;
 
 /** Custom dashboard operations use native Hermes owners, never OpenClaw RPC. */
-export function createHermesWorkspaceRoutes({ client, bridge, workspaceRoot }) {
+export function createHermesWorkspaceRoutes({ client, bridge, workspaceRoot, bots }) {
   return async (req, res, url, { json, body }) => {
     const route = url.pathname.slice('/api/hermes/workspace/'.length);
     const method = req.method;
@@ -82,6 +82,7 @@ export function createHermesWorkspaceRoutes({ client, bridge, workspaceRoot }) {
     if (route === 'soul' && ['GET', 'PUT'].includes(method)) {
       const value = method === 'PUT' ? await input(['content']) : undefined;
       if (value && (typeof value.content !== 'string' || value.content.length > 64000)) throw invalid('Soul content must be text under 64,000 characters.');
+      if (method === 'PUT' && bots?.saveSoul) return json(res, 200, await bots.saveSoul(profile, value.content));
       return json(res, 200, await dashboard(`/api/profiles/${profile}/soul`, { method, ...(value ? { body: value } : {}) }));
     }
     if (route === 'skill-review' && method === 'POST') {

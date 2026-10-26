@@ -13,7 +13,7 @@ const MANAGEMENT = new Map([
   ['POST model', '/api/model/set'], ['GET skills', '/api/skills'],
   ['GET custom-endpoints', '/api/providers/custom-endpoints'], ['POST custom-endpoints', '/api/providers/custom-endpoints'],
 ]);
-export const MANAGED_ENV = /^(?:API_SERVER_|MUSE_|HOB_|GATEWAY_MULTIPLEX_PROFILES$|HERMES_API_KEY$|HERMES_DASHBOARD_|HERMES_GATEWAY_|HERMES_(?:HOME|DIR|EXECUTABLE|INSTALL_ROOT|PYTHON|RUNTIME_DIR)$|PATH$|PYTHONPATH$|LD_|NODE_OPTIONS$)/;
+export const MANAGED_ENV = /^(?:BROWSER_CDP_URL$|BU_CDP_(?:URL|WS)$|API_SERVER_|MUSE_|HOB_|GATEWAY_MULTIPLEX_PROFILES$|HERMES_API_KEY$|HERMES_DASHBOARD_|HERMES_GATEWAY_|HERMES_(?:HOME|DIR|EXECUTABLE|INSTALL_ROOT|PYTHON|RUNTIME_DIR)$|PATH$|PYTHONPATH$|LD_|NODE_OPTIONS$)/;
 
 function resourceId(encoded) {
   try { const value = decodeURIComponent(encoded); hermesResource(value); return value; }
@@ -72,7 +72,8 @@ export function createHermesRoutes(client, bots, { removeBot, home, stateDir } =
         }
       }
       if (input.displayName !== undefined) proposal.displayName = input.displayName;
-      if (Object.keys(input).some(key => !['name', 'displayName', 'soul', 'description', 'provider', 'model'].includes(key))) {
+      if (input.tags !== undefined) proposal.tags = input.tags;
+      if (Object.keys(input).some(key => !['name', 'displayName', 'tags', 'soul', 'description', 'provider', 'model'].includes(key))) {
         throw new HermesError(400, 'Unsupported bot creation option.', 'INVALID_REQUEST');
       }
       return json(res, 201, await (bots ? bots.create(proposal) : client.dashboard('/api/profiles', { method, body: proposal })));
@@ -114,10 +115,10 @@ export function createHermesRoutes(client, bots, { removeBot, home, stateDir } =
       const resource = profileMatch[2];
       if (!resource && method === 'PATCH' && bots) {
         const input = object(await body(req));
-        if (Object.keys(input).some(key => key !== 'displayName') || typeof input.displayName !== 'string') {
-          throw new HermesError(400, 'Only a bot display name can be changed here.', 'INVALID_REQUEST');
+        if (!Object.keys(input).length || Object.keys(input).some(key => !['displayName', 'tags', 'description'].includes(key))) {
+          throw new HermesError(400, 'Only name, labels and role can be changed here.', 'INVALID_REQUEST');
         }
-        return json(res, 200, await bots.rename(name, input.displayName));
+        return json(res, 200, await bots.updateIdentity(name, input));
       }
       if (!resource && method === 'DELETE') {
         if (name === 'default') throw new HermesError(400, 'The Main bot cannot be deleted.', 'INVALID_PROFILE');
@@ -126,6 +127,11 @@ export function createHermesRoutes(client, bots, { removeBot, home, stateDir } =
       }
       if (resource && ((method === 'GET' && resource === 'soul') || method === 'PUT')) {
         const input = method === 'GET' ? undefined : object(await body(req));
+        if (bots && resource === 'soul' && method === 'PUT') {
+          if (typeof input.content !== 'string') throw new HermesError(400, 'Soul content must be text.', 'INVALID_REQUEST');
+          return json(res, 200, await bots.saveSoul(name, input.content));
+        }
+        if (bots && resource === 'description' && method === 'PUT') return json(res, 200, await bots.updateIdentity(name, { description: input.description }));
         return json(res, 200, await client.dashboard(`/api/profiles/${name}/${resource}`, { profile: name, method, body: input }));
       }
     }

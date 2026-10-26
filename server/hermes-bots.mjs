@@ -4,6 +4,7 @@ import { lstat, mkdir, open, realpath, rename, unlink, writeFile } from 'node:fs
 import path from 'node:path';
 import { HermesError, hermesProfile } from './hermes-client.mjs';
 import { HermesBotNetwork } from './hermes-bot-network.mjs';
+import { hermesBotTags, withBotIdentity } from './hermes-bot-identity.mjs';
 
 const LIMIT = 1024 * 1024;
 const DEFAULT_DISPLAY = name => name === 'default' ? 'Main' : name;
@@ -19,7 +20,8 @@ export function hermesDisplayName(value) {
 }
 
 const view = item => ({ name: item.name, displayName: item.displayName, display_name: item.displayName,
-  state: item.state, created_at: item.createdAt });
+  tags: item.tags || [], ...(item.description !== undefined ? { description: item.description } : {}),
+  identitySync: item.identitySync || 'pending', state: item.state, created_at: item.createdAt });
 const sameLabel = (left, right) => left.toLowerCase() === right.toLowerCase();
 /** Keep a suffixed candidate a valid profile id even when the stem is 64 characters. */
 function suffixed(base, suffix) {
@@ -101,6 +103,7 @@ export class HermesBotRegistry {
         || !/^[a-f0-9]{64}$/.test(item.apiKey || '') || keys.has(item.apiKey)
         || typeof item.nativeCreated !== 'boolean' || typeof item.createdAt !== 'string') throw new Error('Invalid bot registry.');
       item.displayName = displayName;
+      item.tags = hermesBotTags(item.tags);
       if (item.state !== 'revoked') {
         const label = displayName.toLowerCase();
         if (activeLabels.has(label)) throw new Error('Invalid bot registry.');
@@ -109,7 +112,7 @@ export class HermesBotRegistry {
       names.add(item.name); keys.add(item.apiKey);
     }
     const main = data.bots.find(item => item.name === 'default');
-    if (main?.state !== 'active' || main.apiKey !== mainApiKey || main.displayName !== 'Main') {
+    if (main?.state !== 'active' || main.apiKey !== mainApiKey) {
       throw new Error('Main bot registry and listener credentials disagree. Restore their matching backup.');
     }
     if (migrated) {
@@ -173,9 +176,10 @@ export class HermesBotRegistry {
    * lets a deleted display name be reused without pointing a new bot at old
    * browser profiles, sessions or credentials.
    */
-  async reserve(name, { displayName, taken = [] } = {}) {
+  async reserve(name, { displayName, tags, description, taken = [] } = {}) {
     const base = hermesProfile(name);
     const label = hermesDisplayName(displayName ?? DEFAULT_DISPLAY(base));
+    tags = hermesBotTags(tags);
     return this.#mutate(data => {
       if (this.#labelTaken(data, label)) {
         throw new HermesError(409, 'A bot with that name already exists. Choose another name.', 'BOT_EXISTS');
@@ -188,7 +192,7 @@ export class HermesBotRegistry {
         while (unavailable.has(internal = suffixed(base, suffix))) suffix += 1;
       }
       hermesProfile(internal);
-      const item = { name: internal, displayName: label, state: 'setup_required', nativeCreated: false,
+      const item = { name: internal, displayName: label, tags, ...(description !== undefined ? { description } : {}), identitySync: 'pending', state: 'setup_required', nativeCreated: false,
         apiKey: randomBytes(32).toString('hex'), createdAt: new Date().toISOString() };
       data.bots.push(item);
       return view(item);
@@ -199,9 +203,6 @@ export class HermesBotRegistry {
     return this.#mutate(data => {
       const item = data.bots.find(item => item.name === hermesProfile(name));
       if (!item || item.state === 'revoked') throw new HermesError(404, 'This bot is not in your dashboard.', 'BOT_NOT_FOUND');
-      if (item.name === 'default' && label !== 'Main') {
-        throw new HermesError(400, 'Main keeps its name because every bot routes work through it.', 'INVALID_REQUEST');
-      }
       if (this.#labelTaken(data, label, item.name)) {
         throw new HermesError(409, 'Another bot already uses that name.', 'BOT_EXISTS');
       }
@@ -217,13 +218,11 @@ export class HermesBotRegistry {
       }
       if ('displayName' in patch) {
         const label = hermesDisplayName(patch.displayName);
-        if (item.name === 'default' && label !== 'Main') {
-          throw new HermesError(400, 'Main keeps its name because every bot routes work through it.', 'INVALID_REQUEST');
-        }
         if (this.#labelTaken(data, label, item.name)) {
           throw new HermesError(409, 'Another bot already uses that name.', 'BOT_EXISTS');
         }
       }
+      if ('tags' in patch) patch = { ...patch, tags: hermesBotTags(patch.tags) };
       Object.assign(item, patch);
       return view(item);
     });
@@ -240,6 +239,7 @@ export class HermesBots {
   // presentation: identity and authorization always come from the registry.
   #metadata = new Map();
   #settingUp = new Set();
+  #identityQueue = Promise.resolve();
   constructor({ registry, client, workspaceRoot, browser, network, relayUrl }) {
     this.#registry = registry; this.#client = client; this.#browser = browser;
     this.#workspaceRoot = path.resolve(workspaceRoot, 'bots');
@@ -378,16 +378,49 @@ export class HermesBots {
     const item = this.#registry.authenticate(token);
     return item ? { ...this.#metadata.get(item.name), ...item, display_name: item.displayName } : null;
   }
-  /** Rewrite the managed roster block and relay helper in every bot workspace. */
+  /** Synchronize native personality files and every bot's roster, including at boot. */
   async syncNetwork() {
-    if (!this.#network) return { updated: [], failed: [] };
-    return this.#network.sync();
+    const identities = await this.list();
+    const failed = [];
+    for (const bot of identities.profiles.filter(bot => bot.state === 'active')) {
+      try { await this.saveSoul(bot.name); }
+      catch (error) {
+        await this.#registry.update(bot.name, { identitySync: 'pending' }).catch(() => undefined);
+        failed.push({ name: bot.name, error: error.message });
+      }
+    }
+    const network = this.#network ? await this.#network.sync() : { updated: [], failed: [] };
+    return { updated: network.updated, failed: [...failed, ...network.failed] };
   }
-  #afterChange() {
-    if (!this.#network) return;
-    void this.#network.sync().catch(error => console.warn(`Could not update the bot roster files: ${error.message}`));
+  /** Serialize personality writes with identity edits, so an editor cannot erase the identity. */
+  saveSoul(name, content) {
+    const work = this.#identityQueue.then(async () => {
+      const record = this.#registry.setup(name);
+      const bot = { ...this.#metadata.get(name), ...record };
+      const current = content === undefined ? await this.#client.dashboard(`/api/profiles/${name}/soul`, { profile: name }) : null;
+      if (content === undefined && typeof current?.content !== 'string') throw new HermesError(502, 'Hermes did not return SOUL.md.', 'HERMES_PROTOCOL_ERROR');
+      const next = withBotIdentity(content ?? current.content, bot);
+      if (content !== undefined || next !== current.content) {
+        const saved = await this.#client.dashboard(`/api/profiles/${name}/soul`, { profile: name, method: 'PUT', body: { content: next } });
+        if (saved?.ok !== true) throw new HermesError(502, 'Hermes did not confirm the personality save.', 'HERMES_PROTOCOL_ERROR');
+      }
+      if (record.description !== undefined) {
+        const saved = await this.#client.dashboard(`/api/profiles/${name}/description`, { profile: name, method: 'PUT', body: { description: record.description } });
+        if (saved?.ok !== true) throw new HermesError(502, 'Hermes did not confirm the role save.', 'HERMES_PROTOCOL_ERROR');
+      }
+      await this.#registry.update(name, { identitySync: 'synced' });
+      return { ok: true, content: next };
+    });
+    this.#identityQueue = work.catch(() => undefined);
+    return work;
+  }
+  async #afterChange() {
+    try { return await this.syncNetwork(); }
+    catch (error) { return { updated: [], failed: [{ name: '*', error: error.message }] }; }
   }
   async create(proposal) {
+    hermesBotTags(proposal.tags);
+    if (proposal.description !== undefined && (typeof proposal.description !== 'string' || proposal.description.length > 2000)) throw new HermesError(400, 'Enter a role under 2,000 characters.', 'INVALID_REQUEST');
     const native = await this.#client.dashboard('/api/profiles');
     if (!Array.isArray(native.profiles)) throw new HermesError(502, 'Hermes returned an invalid bot roster.', 'HERMES_PROTOCOL_ERROR');
     const requested = hermesProfile(proposal.name);
@@ -400,6 +433,7 @@ export class HermesBots {
     }
     const reserved = await this.#registry.reserve(requested, {
       displayName: proposal.displayName ?? DEFAULT_DISPLAY(requested),
+      tags: proposal.tags, description: proposal.description,
       taken: [...nativeNames],
     });
     const name = reserved.name;
@@ -439,20 +473,28 @@ export class HermesBots {
         body: { profile: name, key: 'API_SERVER_KEY', value: record.apiKey } });
       await this.configureBrowser(name);
       await this.#registry.update(name, { nativeCreated: true, state: 'active' });
-      this.#afterChange();
-      return { ok: true, name, displayName: record.displayName, state: 'active' };
+      const sync = await this.#afterChange();
+      return { ok: true, name, displayName: record.displayName, state: 'active', sync };
     } finally { this.#settingUp.delete(name); }
   }
   /** Change the label people see; the internal profile id and its state stay put. */
-  async rename(name, displayName) {
-    const result = await this.#registry.rename(name, displayName);
-    this.#afterChange();
-    return { ok: true, ...result };
+  async rename(name, displayName) { return this.updateIdentity(name, { displayName }); }
+  async updateIdentity(name, input) {
+    const patch = { identitySync: 'pending' };
+    if ('displayName' in input) patch.displayName = hermesDisplayName(input.displayName);
+    if ('tags' in input) patch.tags = hermesBotTags(input.tags);
+    if ('description' in input) {
+      if (typeof input.description !== 'string' || input.description.length > 2000) throw new HermesError(400, 'Enter a role under 2,000 characters.', 'INVALID_REQUEST');
+      patch.description = input.description.trim();
+    }
+    const result = await this.#registry.update(name, patch);
+    const sync = await this.#afterChange();
+    return { ok: true, ...result, identitySync: sync.failed.some(item => item.name === name || item.name === '*') ? 'pending' : 'synced', sync };
   }
   async remove(name) {
     if (name === 'default') throw new HermesError(400, 'The Main bot cannot be deleted.', 'INVALID_PROFILE');
     await this.#registry.update(name, { state: 'revoked' });
-    this.#afterChange();
+    await this.#afterChange();
     await this.#browser?.remove(name);
     return this.#client.dashboard(`/api/profiles/${hermesProfile(name)}`, { method: 'DELETE' });
   }

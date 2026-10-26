@@ -550,6 +550,8 @@ export class BrowserSession {
   #stateListeners = new Set();
   #castCdp = null; #castSessionId = null; #castTargetId = null; #castPinned = false;
   #castAttach = Promise.resolve();
+  #castAttachRevision = 0;
+  #castAttachedRevision = 0;
   #castStarting = null;
   #castEpoch = 0;
   #frameSeq = 0; #lastFrame = null; #lastFrameAt = 0;
@@ -1789,14 +1791,15 @@ export class BrowserSession {
   }
 
   #attachActiveTarget() {
+    const revision = ++this.#castAttachRevision;
     const preferredTargetId = this.#castTargetId;
     const cdp = this.#castCdp;
-    const pending = this.#castAttach.then(() => this.#attachSelectedTarget(preferredTargetId, cdp));
+    const pending = this.#castAttach.then(() => revision === this.#castAttachRevision ? this.#attachSelectedTarget(preferredTargetId, cdp, revision) : undefined);
     this.#castAttach = pending.catch(() => undefined);
     return pending;
   }
 
-  async #attachSelectedTarget(preferredTargetId, cdp) {
+  async #attachSelectedTarget(preferredTargetId, cdp, revision) {
     // A target can close between `Target.getTargets` and `Target.attachToTarget`
     // — especially when a tab switch races a close. Re-list and choose again
     // rather than leaving the screencast pinned to a page that just vanished.
@@ -1805,7 +1808,7 @@ export class BrowserSession {
       // These calls drive the viewer, not a command from the agent. Bound them
       // so one wedged session cannot block the whole attach queue indefinitely.
       const { targetInfos = [] } = await cdp.send('Target.getTargets', {}, { timeoutMs: 5000 });
-      if (this.#castCdp !== cdp) return;
+      if (this.#castCdp !== cdp || revision !== this.#castAttachRevision) return;
       const pages = targetInfos.filter(isPageTarget);
       if (pages.length === 0) {
         this.#tabs = [];
@@ -1815,22 +1818,27 @@ export class BrowserSession {
       }
       const target = this.#selectTarget(pages, attempt === 0 ? preferredTargetId : null);
       await this.#detachCastSession();
-      if (this.#castCdp !== cdp) return;
+      if (this.#castCdp !== cdp || revision !== this.#castAttachRevision) return;
       this.#castTargetId = target.targetId;
       let sessionId;
       try {
         ({ sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true }, { timeoutMs: 5000 }));
       } catch (error) {
+        if (revision !== this.#castAttachRevision) return;
         this.#castTargetId = null;
         this.#castSessionId = null;
         if (attempt >= 2 || !cdp.open || this.#castCdp !== cdp) throw error;
         continue;
       }
-      if (this.#castCdp !== cdp) return;
+      if (this.#castCdp !== cdp || revision !== this.#castAttachRevision) {
+        await cdp.send('Target.detachFromTarget', { sessionId }, { timeoutMs: 3000 }).catch(() => undefined);
+        return;
+      }
       this.#castSessionId = sessionId;
+      this.#castAttachedRevision = revision;
       await cdp.post('Page.enable', {}, { sessionId, timeoutMs: 5000 });
       const metrics = await cdp.send('Page.getLayoutMetrics', {}, { sessionId, timeoutMs: 5000 }).catch(() => null);
-      if (this.#castCdp !== cdp) return;
+      if (this.#castCdp !== cdp || revision !== this.#castAttachRevision) return;
       const view = metrics?.cssLayoutViewport;
       if (view?.clientWidth && view?.clientHeight) this.#viewport = { w: Math.round(view.clientWidth), h: Math.round(view.clientHeight) };
       this.#updatePageFromTarget(target);
@@ -1904,6 +1912,7 @@ export class BrowserSession {
 
   #stopScreencast() {
     this.#castEpoch += 1;
+    this.#castAttachRevision += 1;
     this.#castStarting = null;
     this.#castCdp?.close();
     this.#castCdp = null;
@@ -1914,7 +1923,7 @@ export class BrowserSession {
 
   #onCastEvent(message) {
     const { method, params, sessionId } = message;
-    if (sessionId && sessionId !== this.#castSessionId) return;
+    if (sessionId && (sessionId !== this.#castSessionId || this.#castAttachedRevision !== this.#castAttachRevision)) return;
     switch (method) {
       case 'Page.screencastFrame': {
         // Ack unconditionally: without it Chromium stops producing frames, and a
@@ -2042,10 +2051,11 @@ export class BrowserSession {
 
   async #refreshTabs() {
     const cdp = this.#castCdp;
+    const revision = this.#castAttachRevision;
     if (!cdp?.open) return;
     try {
       const { targetInfos = [] } = await cdp.send('Target.getTargets', {}, { timeoutMs: 5000 });
-      if (this.#castCdp !== cdp) return;
+      if (this.#castCdp !== cdp || revision !== this.#castAttachRevision) return;
       const pages = targetInfos.filter(isPageTarget);
       this.#tabs = pages.map(target => ({
         id: target.targetId,

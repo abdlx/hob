@@ -6,11 +6,11 @@ import {
   Settings,
   Sparkles,
   Trash2,
-  MoreHorizontal,
   Pencil,
   Users,
   X,
 } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
 import { useChat } from '../context/ChatContext';
 import { useRuntime } from '../context/RuntimeContext';
 import { DogeshAvatar } from './DogeshAvatar';
@@ -48,19 +48,24 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
     setSelectedGroupId,
   } = useChat();
   const runtime = useRuntime();
+  const { toast } = useToast();
 
   const [search, setSearch] = useState('');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newBotName, setNewBotName] = useState('');
   const [newBotDisplayName, setNewBotDisplayName] = useState('');
   const [newBotSoul, setNewBotSoul] = useState('');
+  const [newBotTags, setNewBotTags] = useState('');
+  const [newBotRole, setNewBotRole] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [renameTarget, setRenameTarget] = useState<{ id: string; name: string } | null>(null);
+  const [renameTarget, setRenameTarget] = useState<{ id: string; name: string; tags?: string[]; roleDescription?: string } | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [renameTags, setRenameTags] = useState('');
+  const [renameRole, setRenameRole] = useState('');
   const [renameError, setRenameError] = useState<string | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
 
@@ -91,7 +96,8 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
         b.name.toLowerCase().includes(q) ||
         b.id.toLowerCase().includes(q) ||
         (b.model && b.model.toLowerCase().includes(q)) ||
-        (b.roleDescription && b.roleDescription.toLowerCase().includes(q))
+        (b.roleDescription && b.roleDescription.toLowerCase().includes(q)) ||
+        b.tags?.some(tag => tag.toLowerCase().includes(q))
     );
   }, [agents, search]);
 
@@ -111,13 +117,14 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
       let selectedName = cleanName;
       if (runtime === 'hermes') {
         const label = newBotDisplayName.trim();
-        const created = await apiFetch<{ name?: string }>('/api/hermes/profiles', {
+        const created = await apiFetch<{ name?: string; sync?: { failed: { name: string; error: string }[] } }>('/api/hermes/profiles', {
           method: 'POST',
-          body: JSON.stringify({ name: cleanName, ...(label ? { displayName: label } : {}), soul: newBotSoul.trim() }),
+          body: JSON.stringify({ name: cleanName, ...(label ? { displayName: label } : {}), soul: newBotSoul.trim(), tags: newBotTags.split(',').map(tag => tag.trim()).filter(Boolean), description: newBotRole.trim() }),
         });
         // A deleted profile id is retired, so the server may have allocated a
         // suffixed internal id (for example `coder-2`). Select that identity.
         if (created?.name) selectedName = created.name;
+        if (created.sync?.failed.length) toast('Bot created. Identity synchronization needs a retry: ' + created.sync.failed.map(item => item.name + ': ' + item.error).join('; '), 'error');
       } else {
         await apiFetch('/api/agents', {
           method: 'POST',
@@ -129,6 +136,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
       setNewBotName('');
       setNewBotDisplayName('');
       setNewBotSoul('');
+      setNewBotTags(''); setNewBotRole('');
       setIsCreateOpen(false);
     } catch (err: unknown) {
       setCreateError(err instanceof Error ? err.message : 'Failed to create bot.');
@@ -154,9 +162,11 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
     }
   };
 
-  const openRename = (bot: { id: string; name: string }) => {
+  const openRename = (bot: { id: string; name: string; tags?: string[]; roleDescription?: string }) => {
     setRenameTarget(bot);
     setRenameValue(bot.name);
+    setRenameTags((bot.tags || []).join(', '));
+    setRenameRole(bot.roleDescription || '');
     setRenameError(null);
   };
 
@@ -167,12 +177,13 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
     setIsRenaming(true);
     setRenameError(null);
     try {
-      await apiFetch(`/api/hermes/profiles/${encodeURIComponent(renameTarget.id)}`, {
+      const result = await apiFetch<{ sync?: { failed: { name: string; error: string }[] } }>(`/api/hermes/profiles/${encodeURIComponent(renameTarget.id)}`, {
         method: 'PATCH',
-        body: JSON.stringify({ displayName: label }),
+        body: JSON.stringify({ displayName: label, tags: renameTags.split(',').map(tag => tag.trim()).filter(Boolean), description: renameRole.trim() }),
       });
-      setRenameTarget(null);
       await refresh();
+      if (result.sync?.failed.length) throw new Error('Identity saved, but synchronization needs a retry: ' + result.sync.failed.map(item => item.name + ': ' + item.error).join('; '));
+      setRenameTarget(null);
     } catch (err: unknown) {
       setRenameError(err instanceof Error ? err.message : 'Failed to rename bot.');
     } finally {
@@ -423,7 +434,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
                   : 'disconnected'
                 : 'connected';
 
-              const subtitle = isCurrent
+              const subtitle = bot.identitySync === 'pending' ? 'Identity sync pending' : isCurrent
                 ? isPreparing
                   ? 'Preparing bot...'
                   : connected
@@ -473,29 +484,27 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
                   {/* Info details */}
                   <div className="flex-1 min-w-0 pr-1">
                     <div className="flex items-center justify-between gap-1">
+                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
                       <span
-                        className={`text-[14.5px] font-semibold truncate ${
+                        className={`max-w-full text-[14.5px] font-semibold truncate ${
                           isSelected ? 'text-code-strong' : 'text-ink'
                         }`}
                       >
                         {bot.name}
                       </span>
+                      {bot.tags?.slice(0, 2).map(tag => <span key={tag} className="max-w-20 truncate rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] text-accent" title={tag}>{tag}</span>)}
 
+                      </div>
                       <div className="shrink-0 flex items-center gap-1">
-                        {isSelected && !filteringActivity && (
-                          <div className="p-1 text-accent hover:bg-accent-line rounded-md transition-colors">
-                            <MoreHorizontal size={16} />
-                          </div>
-                        )}
                         {!isCurrent && !isSelected && (
                           <span className="w-2 h-2 rounded-full bg-ok-dot opacity-70" />
                         )}
-                        {runtime === 'hermes' && bot.id !== 'default' && !filteringActivity && (
+                        {runtime === 'hermes' && !filteringActivity && (
                           <button
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();
-                              openRename({ id: bot.id, name: bot.name });
+                              openRename(bot);
                             }}
                             className="rounded-md p-1 text-faint opacity-0 transition-opacity hover:bg-neutral hover:text-ink group-hover:opacity-100 focus-visible:opacity-100 cursor-pointer"
                             aria-label={`Rename ${bot.name}`}
@@ -561,7 +570,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
           <div
-            className="w-full max-w-md bg-surface border border-edge rounded-[26px] shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150"
+            className="w-full max-w-md max-h-[90dvh] overflow-y-auto bg-surface border border-edge rounded-[26px] shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150"
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-title"
@@ -594,6 +603,10 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
             )}
 
             <form onSubmit={handleCreateBot} className="space-y-4">
+              {runtime === 'hermes' && <>
+                <label className="block text-xs font-medium text-ink">Labels (comma separated)<input aria-label="New bot labels" value={newBotTags} onChange={e => setNewBotTags(e.target.value)} className="mt-1 w-full rounded-xl border border-edge bg-panel p-3 text-sm" placeholder="Research, Coding" /></label>
+                <label className="block text-xs font-medium text-ink">Role<textarea aria-label="New bot role" value={newBotRole} onChange={e => setNewBotRole(e.target.value)} maxLength={2000} className="mt-1 w-full rounded-xl border border-edge bg-panel p-3 text-sm" rows={2} /></label>
+              </>}
               <div>
                 <label className="block text-xs md:text-sm font-medium text-ink mb-1.5">
                   Bot Name <span className="text-accent">*</span>
@@ -671,7 +684,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
       {renameTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
           <div
-            className="w-full max-w-md bg-surface border border-edge rounded-[26px] shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150"
+            className="w-full max-w-md max-h-[90dvh] overflow-y-auto bg-surface border border-edge rounded-[26px] shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150"
             role="dialog"
             aria-modal="true"
             aria-labelledby="rename-bot-title"
@@ -683,9 +696,9 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
                 </div>
                 <div>
                   <h3 id="rename-bot-title" className="text-base font-semibold text-ink">
-                    Rename Bot
+                    Bot identity
                   </h3>
-                  <p className="text-xs text-muted">Only the display name changes.</p>
+                  <p className="text-xs text-muted">Edit name, labels and role.</p>
                 </div>
               </div>
               <button
@@ -705,6 +718,13 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
             )}
 
             <form onSubmit={handleRenameBot} className="space-y-4">
+              <label className="block text-xs font-medium text-ink">Labels (comma separated)
+                <input aria-label="Bot labels" value={renameTags} onChange={e => setRenameTags(e.target.value)} disabled={isRenaming} className="mt-1 w-full rounded-xl border border-edge bg-panel p-3 text-sm" placeholder="Research, Coding" />
+              </label>
+              <label className="block text-xs font-medium text-ink">Role
+                <textarea aria-label="Bot role" value={renameRole} onChange={e => setRenameRole(e.target.value)} disabled={isRenaming} maxLength={2000} className="mt-1 w-full rounded-xl border border-edge bg-panel p-3 text-sm" rows={2} />
+              </label>
+              <p className="text-xs text-muted">Name, labels and role sync to SOUL.md and the team roster. Your other personality instructions are preserved.</p>
               <div>
                 <label className="block text-xs md:text-sm font-medium text-ink mb-1.5">
                   Display Name <span className="text-accent">*</span>
@@ -735,10 +755,10 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
                 </button>
                 <button
                   type="submit"
-                  disabled={isRenaming || !renameValue.trim() || renameValue.trim() === renameTarget.name}
+                  disabled={isRenaming || !renameValue.trim()}
                   className="px-4 py-2 rounded-xl text-xs md:text-sm font-semibold bg-accent hover:bg-accent-strong text-white transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
                 >
-                  {isRenaming ? 'Renaming...' : 'Save name'}
+                  {isRenaming ? 'Saving...' : 'Save identity'}
                 </button>
               </div>
             </form>
@@ -750,7 +770,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
           <div
-            className="w-full max-w-md bg-surface border border-edge rounded-[26px] p-6 space-y-4 shadow-2xl"
+            className="w-full max-w-md max-h-[90dvh] overflow-y-auto bg-surface border border-edge rounded-[26px] p-6 space-y-4 shadow-2xl"
             role="dialog"
             aria-modal="true"
             aria-labelledby="delete-bot-title"
@@ -803,7 +823,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
       {disbandTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
           <div
-            className="w-full max-w-md bg-surface border border-edge rounded-[26px] p-6 space-y-4 shadow-2xl"
+            className="w-full max-w-md max-h-[90dvh] overflow-y-auto bg-surface border border-edge rounded-[26px] p-6 space-y-4 shadow-2xl"
             role="dialog"
             aria-modal="true"
             aria-labelledby="disband-group-title"

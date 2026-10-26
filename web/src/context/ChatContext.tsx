@@ -184,6 +184,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     void initialize();
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = chatApi.subscribe(frame => {
+      if (frame.event === 'bot.exchange') {
+        window.dispatchEvent(new CustomEvent('hob:bot-exchange', { detail: frame.payload }));
+        return;
+      }
       if (frame.event === 'chat' && (frame.payload as { state?: string } | undefined)?.state === 'delta') return;
       if (document.visibilityState !== 'visible' && localStorage.getItem('mused-notifications') === 'enabled' && 'Notification' in window && Notification.permission === 'granted') {
         const approval = frame.event.endsWith('approval.requested');

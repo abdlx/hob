@@ -170,6 +170,8 @@ test('approval presentation is profile-scoped and decisions bind the exact nativ
   await (await turn(key)).text();
   const pending = await (await request('/api/security/approvals', 'GET', undefined, 'coder')).json();
   assert.equal(pending.length, 1);
+  const exchangeApprovals = await (await request(`/api/sessions/${key}/approvals`)).json();
+  assert.equal(exchangeApprovals.approvals.length, 1, 'exchange inspector can inspect the exact run approval across selected bots');
   assert.deepEqual(await (await request('/api/security/approvals')).json(), []);
   assert.equal((await request(`/api/security/approvals/${pending[0].id}`, 'POST', { decision: 'approved' })).status, 404);
   assert.equal((await request(`/api/security/approvals/${pending[0].id}`, 'POST', { decision: 'approved' }, 'coder')).status, 200);

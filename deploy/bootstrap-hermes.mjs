@@ -48,7 +48,9 @@ export async function bootstrapHermes(env = process.env) {
   const credentials = await listenerCredentials(join(stateDir, 'listener-auth.json'));
   await seedHermesConfig(home, workspace);
 
-  const shared = { ...env, HERMES_HOME: home, HERMES_DIR: hermesDir,
+  // A process-wide CDP override would send every bot to the same cookie jar.
+  const browserEnv = without(env, /^(?:BROWSER_CDP_URL|BU_CDP_URL|BU_CDP_WS)$/);
+  const shared = { ...browserEnv, HERMES_HOME: home, HERMES_DIR: hermesDir,
     API_SERVER_KEY: credentials.apiKey, API_SERVER_HOST: '127.0.0.1', API_SERVER_PORT: '8642',
     GATEWAY_MULTIPLEX_PROFILES: 'true', HERMES_DASHBOARD: '0' };
   // Environment separation does not replace an execution sandbox.

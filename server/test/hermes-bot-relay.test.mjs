@@ -24,12 +24,13 @@ function fixture() {
   };
   const runtime = [];
   const events = [];
+  let sessionCounter = 0, runCounter = 0;
   const client = {
     async runtime(route, options = {}) {
       runtime.push({ route, ...options });
       if (route === '/api/sessions' && options.method !== 'POST') return { data: [] };
-      if (route === '/api/sessions') return { session: { id: `relay-${options.profile}` } };
-      if (route === '/v1/runs') return { run_id: 'run-1' };
+      if (route === '/api/sessions') return { session: { id: `relay-${options.profile}-${++sessionCounter}` } };
+      if (route === '/v1/runs') return { run_id: `run-${++runCounter}` };
       throw new Error(`unexpected runtime route ${route}`);
     },
     async *events(runId, { profile }) {
@@ -85,17 +86,17 @@ test('Main can relay work to a worker by display name and receives the reply', a
 
   const create = runtime.find(item => item.route === '/api/sessions' && item.method === 'POST');
   assert.equal(create.profile, 'writer');
-  assert.deepEqual(create.body, { title: 'HOB Bot Relay' });
+  assert.match(create.body.title, /^Main .* Scribe/);
   const run = runtime.find(item => item.route === '/v1/runs');
   assert.equal(run.profile, 'writer');
-  assert.equal(run.body.session_id, 'relay-writer');
+  assert.equal(run.body.session_id, 'relay-writer-1');
   assert.match(run.body.input, /^\[HOB relay from Main \(default\)\]/);
   assert.match(run.body.input, /Write the release notes\./);
   assert.match(run.idempotencyKey, /^[a-f0-9-]{36}$/);
   assert.deepEqual(events, [{ runId: 'run-1', profile: 'writer' }]);
 });
 
-test('a worker can ask Main but cannot message another worker directly', async () => {
+test('a worker can ask Main and contact another worker directly', async () => {
   const { call, runtime } = fixture();
   const toMain = await call('/send', {
     method: 'POST', token: WRITER, input: { to: 'default', message: 'Need a decision.', waitMs: 10 },
@@ -107,20 +108,19 @@ test('a worker can ask Main but cannot message another worker directly', async (
   const direct = await call('/send', {
     method: 'POST', token: WRITER, input: { to: 'editor', message: 'Skip Main.', waitMs: 10 },
   }).catch(error => error);
-  assert.equal(direct.status, 403);
-  assert.equal(direct.code, 'RELAY_VIA_MAIN');
-  assert.equal(runtime.filter(item => item.route === '/v1/runs').length, 1,
-    'a refused message must not reach Hermes');
+  assert.equal(direct.status, 200);
+  assert.equal(direct.body.to, 'editor');
+  assert.equal(runtime.filter(item => item.route === '/v1/runs').length, 2);
 });
 
-test('relay reuses one conversation per receiver and serializes concurrent turns', async () => {
+test('relay creates an independent native conversation for every exchange', async () => {
   const { call, runtime } = fixture();
   await Promise.all([
     call('/send', { method: 'POST', token: MAIN, input: { to: 'writer', message: 'First.', waitMs: 100 } }),
     call('/send', { method: 'POST', token: MAIN, input: { to: 'writer', message: 'Second.', waitMs: 100 } }),
   ]);
-  assert.equal(runtime.filter(item => item.route === '/api/sessions' && item.method === 'POST').length, 1,
-    'the relay conversation is created once and reused');
+  assert.equal(runtime.filter(item => item.route === '/api/sessions' && item.method === 'POST').length, 2,
+    'every exchange gets a fresh conversation');
   assert.equal(runtime.filter(item => item.route === '/v1/runs').length, 2);
 });
 
@@ -131,7 +131,7 @@ test('relay waits zero returns admission without claiming a reply', async () => 
   });
   assert.equal(status, 200);
   assert.equal(body.completed, false);
-  assert.equal(body.reply, undefined);
+  assert.equal(body.reply, '');
   assert.equal(body.runId, 'run-1');
 });
 

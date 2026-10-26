@@ -43,7 +43,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
             aria-label="Switch bot"
           >
             <h1 className="text-[15px] font-semibold text-ink tracking-tight leading-tight group-hover:text-accent transition-colors">
-              {agent?.name || 'Main'}
+              {agent?.name || 'Main'}{agent?.tags?.slice(0, 2).map(tag => <span key={tag} className="ml-1.5 rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent">{tag}</span>)}
             </h1>
             <ChevronDown size={13} className="text-muted group-hover:text-accent transition-colors" />
           </button>
@@ -134,7 +134,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
 
         {/* Nametag sits underneath (z-10), moved down by 2px (-mt-[12px] instead of -mt-3.5) */}
         <div className="relative z-10 -mt-[12px] px-4 py-1 rounded-full bg-surface/95 backdrop-blur-md border border-[rgba(0,0,0,0.08)] text-[13px] font-semibold text-code-strong shadow-[0_4px_14px_rgba(0,0,0,0.06)] flex items-center gap-1.5 group-hover:bg-hover transition-all">
-          <span>{agent?.name || 'Main'}</span>
+          <span>{agent?.name || 'Main'}{agent?.tags?.slice(0, 2).map(tag => <span key={tag} className="ml-1.5 rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent">{tag}</span>)}</span>
           <span
             className={`w-2 h-2 rounded-full inline-block ${
               connected && !isPreparing ? 'bg-ok-dot' : 'bg-faint'

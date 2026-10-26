@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { execFileSync } from 'node:child_process';
 import { HermesBotNetwork } from '../hermes-bot-network.mjs';
 
 const ENDPOINT = 'https://hob.example.com/api/hermes/bot-relay';
@@ -37,7 +38,7 @@ test('bot network writes the roster and relay client into each active workspace'
   const main = await readFile(path.join(root, 'main', 'AGENTS.md'), 'utf8');
   assert.match(main, /# House rules/);
   assert.match(main, /Keep this note\./);
-  assert.match(main, /You are Main, the coordinator/);
+  assert.match(main, /You are the main coordinator/);
   assert.match(main, /Writer — id: `writer` — Writes the documentation\./);
   assert.match(main, /node \.hob\/talk\.mjs send <bot-id>/);
   assert.match(main, /You may message any active bot/);
@@ -46,12 +47,13 @@ test('bot network writes the roster and relay client into each active workspace'
 
   const writer = await readFile(path.join(root, 'bots', 'writer', 'AGENTS.md'), 'utf8');
   assert.match(writer, /You are Writer \(stable id: `writer`\)\./);
-  assert.match(writer, /Route cross-bot work through Main/);
+  assert.match(writer, /You may contact any active teammate directly/);
   assert.doesNotMatch(writer, /You may message any active bot/);
   assert.match(writer, /Main — id: `default` \(Main coordinator\)/);
 
   const helper = await readFile(path.join(root, 'bots', 'writer', '.hob', 'talk.mjs'), 'utf8');
   assert.match(helper, new RegExp(`const endpoint = "${ENDPOINT.replace(/[/.]/g, '\\$&')}";`));
+  execFileSync(process.execPath, ['--check', path.join(root, 'bots', 'writer', '.hob', 'talk.mjs')]);
   assert.match(helper, /process\.env\.HOB_TALK_TOKEN \|\| process\.env\.API_SERVER_KEY/);
 
   // A setup-required bot has no workspace and must not receive a roster.

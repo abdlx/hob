@@ -97,7 +97,7 @@ export function createHermesChatRoutes(client, bots, journal = new HermesRunJour
     if (!item) throw new HermesError(404, 'This bot no longer exists.', 'NOT_FOUND');
     const startup = await client.getProfileStatus(profile);
     return { id: profile, name: item.display_name || item.bot_title || (profile === 'default' ? 'Main' : profile),
-      status: startup.ready ? 'connected' : 'disconnected', avatarUrl: await avatarUrl(home, profile), roleDescription: item.description || '',
+      status: startup.ready ? 'connected' : 'disconnected', avatarUrl: await avatarUrl(home, profile), roleDescription: item.description || '', tags: item.tags || [], identitySync: item.identitySync,
       model: item.model || '', agentRuntime: 'hermes' };
   };
 
@@ -123,7 +123,7 @@ export function createHermesChatRoutes(client, bots, journal = new HermesRunJour
         agents: await Promise.all(items.map(async item => ({
           id: item.name,
           name: item.display_name || item.bot_title || (item.name === 'default' ? 'Main' : item.name),
-          roleDescription: item.description || '',
+          roleDescription: item.description || '', tags: item.tags || [], identitySync: item.identitySync,
           model: item.model || '',
           avatarUrl: await avatarUrl(home, item.name),
         })))
@@ -163,7 +163,7 @@ export function createHermesChatRoutes(client, bots, journal = new HermesRunJour
       approvals.delete(item.id);
       json(res, 200, result); return true;
     }
-    const match = /^\/api\/sessions\/([^/]+)\/(messages|turns|abort|run|recover|resolve-unknown|clarify)$/.exec(url.pathname);
+    const match = /^\/api\/sessions\/([^/]+)\/(messages|turns|abort|run|recover|resolve-unknown|clarify|approvals)$/.exec(url.pathname);
     if (!match) return false;
     const key = decodeURIComponent(match[1]);
     const owner = parseHermesSessionKey(key);
@@ -224,6 +224,14 @@ export function createHermesChatRoutes(client, bots, journal = new HermesRunJour
         await refreshRun(journal.get(key));
         json(res, 200, { run: runView(journal.get(key)) }); return true;
       } finally { recovering.delete(key); }
+    }
+    if (match[2] === 'approvals' && method === 'GET') {
+      await client.credentialBinding(owner.profile);
+      await reconcile(owner.profile);
+      const run = journal.get(key);
+      json(res, 200, { approvals: [...approvals.values()].filter(item => item.profile === owner.profile && item.runId === run?.runId)
+        .map(({ profile: _profile, runId: _runId, requestId: _requestId, generation: _generation, ...view }) => view) });
+      return true;
     }
     if (match[2] === 'messages' && method === 'GET') {
       const messages = rows(await client.runtime(`${sessionPath}/messages`, { profile: owner.profile }));

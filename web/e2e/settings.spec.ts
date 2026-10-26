@@ -23,6 +23,7 @@ async function fixture(page: Page) {
     if (path === '/api/sessions/session-test/messages' || path === '/api/tasks' || path === '/api/security/approvals') return json([]);
     if (path === '/api/stats') return json({ tokensUsed: 0, maxTokens: 128000 });
     if (path === '/api/hermes/profiles') return json({ profiles: [{ name: 'default' }, { name: 'research', display_name: 'Research' }] });
+    if (path === '/api/hermes/exchanges') return json({ exchanges: [], nextBefore: null });
     if (path === '/api/hermes/groups') return json({ groups: [] });
     if (path === '/api/hermes/config') {
       if (request.method() === 'PUT') {

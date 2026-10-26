@@ -807,3 +807,40 @@ test('gateway: stopping is graceful and the same profile returns at the same URL
   const version = await (await fetch(`${revived.cdpUrl}/json/version`)).json();
   assert.match(version.Browser, /^HOB-Gateway\//);
 });
+
+
+test('gateway: persistent login cookies are isolated per bot across browser and manager restarts', async t => {
+  const started = await startManager(t);
+  if (!started) return;
+  const { manager, stateDir } = started;
+  const alpha = await agentClient(await manager.ensure('alpha'));
+  const beta = await agentClient(await manager.ensure('beta'));
+  const origin = 'https://cookie-isolation.test/';
+  const cookies = async agent => {
+    const response = await agent.raw.call('Network.getCookies', { urls: [origin] }, agent.sessionId);
+    assert.equal(response.error, undefined);
+    return response.result.cookies.map(cookie => [cookie.name, cookie.value]);
+  };
+  const set = async (agent, value) => {
+    const response = await agent.raw.call('Network.setCookie', { url: origin, name: 'login', value, secure: true, expires: Date.now() / 1000 + 86400 }, agent.sessionId);
+    assert.equal(response.error, undefined); assert.equal(response.result.success, true);
+  };
+  try {
+    await set(alpha, 'alpha-private');
+    assert.deepEqual(await cookies(beta), [], 'one bot cannot inherit another bot login');
+    await set(beta, 'beta-private');
+    assert.deepEqual(await cookies(alpha), [['login', 'alpha-private']]);
+    assert.deepEqual(await cookies(beta), [['login', 'beta-private']]);
+  } finally { alpha.raw.close(); beta.raw.close(); }
+  await manager.shutdown();
+  const restoredRegistry = await BrowserRegistry.open({ stateDir });
+  const restored = await BrowserManager.open({ registry: restoredRegistry, stateDir, options: { idleMs: 0 } });
+  try {
+    const a = await agentClient(await restored.ensure('alpha'));
+    const b = await agentClient(await restored.ensure('beta'));
+    try {
+      assert.deepEqual(await cookies(a), [['login', 'alpha-private']]);
+      assert.deepEqual(await cookies(b), [['login', 'beta-private']]);
+    } finally { a.raw.close(); b.raw.close(); }
+  } finally { await restored.shutdown(); }
+});

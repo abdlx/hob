@@ -1,4 +1,4 @@
-import type { AgentProfile, ChatMessage, ChatSession, SecurityApproval, SystemStats, TaskItem } from '../types/chat';
+import type { AgentProfile, AgentListItem, ChatMessage, ChatSession, SecurityApproval, SystemStats, TaskItem } from '../types/chat';
 import { readTurnStream } from './stream.ts';
 
 const baseUrl = (import.meta.env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
@@ -41,7 +41,7 @@ class ChatApiClient {
     if (!/^[a-z][a-z0-9_-]{0,63}$/.test(profile)) throw new Error('Select a valid bot.');
     activeProfile = profile;
   };
-  getAgents = () => this.request<{ agents: { id: string; name: string }[] }>('/api/agents');
+  getAgents = () => this.request<{ agents: AgentListItem[] }>('/api/agents');
   getReadiness = () => this.request<{ ready: boolean; status: string }>('/api/readiness');
   getSessions = () => this.request<ChatSession[]>('/api/sessions');
   createSession = (title = 'New Conversation') => this.request<ChatSession>('/api/sessions', { method: 'POST', body: JSON.stringify({ title }) });

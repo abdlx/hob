@@ -244,3 +244,13 @@ test('shutdown aborts runtime preparation without launching a stale runtime', as
   assert.equal(await completion, 0);
   assert.equal(launches, 2);
 });
+
+
+test('global browser endpoint overrides cannot merge bot cookie jars at startup', async () => {
+  await fixture(async env => {
+    const commands = await bootstrap({ ...env, BROWSER_CDP_URL: 'http://127.0.0.1:9222', BU_CDP_URL: 'http://127.0.0.1:9222', BU_CDP_WS: 'ws://127.0.0.1:9222' });
+    for (const process of commands.processes) {
+      for (const key of ['BROWSER_CDP_URL', 'BU_CDP_URL', 'BU_CDP_WS']) assert.equal(process.env[key], undefined);
+    }
+  });
+});

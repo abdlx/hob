@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, CalendarClock, Check, FolderOpen, MessageCircle, MoonStar, ShieldAlert, X } from 'lucide-react';
 import { useChat } from '../context/ChatContext';
 import { ChatMessageItem } from './ChatMessageItem';
 import { HermesRunPanel } from './HermesRunPanel';
+import { useBotExchanges } from '../hooks/useBotExchanges';
+import { BotExchangeHistory, BotExchangeNotice } from './BotExchanges';
 import { useRuntime } from '../context/RuntimeContext';
 import { errorText } from './workspaceUtils';
 import type { SecurityApproval } from '../types/chat';
@@ -94,7 +96,13 @@ function InlineApprovalPrompt() {
 export function ChatMessageList() {
   const { messages, isLoading, agent, setActiveNav, isPreparing, activeSessionId } = useChat();
   const runtime = useRuntime();
+  const exchanges = useBotExchanges(agent?.id, activeSessionId, runtime === 'hermes');
   const visibleMessages = messages.filter((message) => message.content.trim());
+  const timeline = [
+    ...visibleMessages.map(message => ({ id: message.id, at: Date.parse(message.timestamp) || 0, node: <ChatMessageItem message={message} /> })),
+    ...exchanges.rows.map(exchange => ({ id: exchange.id, at: exchange.createdAt, node: <BotExchangeNotice exchange={exchange} profile={agent!.id} /> })),
+  ].sort((left, right) => left.at - right.at);
+  const day = (at: number) => at ? new Date(at).toLocaleDateString() : '';
   const bottomRef = useRef<HTMLDivElement>(null);
   const initial = useRef(true);
 
@@ -135,17 +143,10 @@ export function ChatMessageList() {
     <div className="hob-conversation flex-1 min-h-0 overflow-y-auto px-4 md:px-6 pt-[88px] md:pt-0 pb-2 bg-transparent">
       <div
         className={`w-full max-w-[840px] mx-auto flex flex-col min-h-full ${
-          visibleMessages.length ? 'justify-start pt-4' : 'justify-center'
+          visibleMessages.length || exchanges.rows.length ? 'justify-start pt-4' : 'justify-center'
         }`}
       >
-        {/* Date separator at top of conversation */}
-        {visibleMessages.length > 0 && (
-          <div className="flex items-center justify-center my-4">
-            <span className="text-[12px] font-medium text-muted">Today</span>
-          </div>
-        )}
-
-        {visibleMessages.length === 0 && (
+        {visibleMessages.length === 0 && exchanges.rows.length === 0 && (
           <section className="hob-welcome py-8 px-4 text-center max-w-xl mx-auto" aria-label="Welcome to hob">
             <div className="hob-welcome-mark flex justify-center mb-5">
               <div className="w-20 h-20 rounded-full bg-surface flex items-center justify-center shadow-xs border border-line p-3">
@@ -187,9 +188,13 @@ export function ChatMessageList() {
           </section>
         )}
 
-        {visibleMessages.map((message) => (
-          <ChatMessageItem key={message.id} message={message} />
-        ))}
+        {runtime === 'hermes' && agent && <BotExchangeHistory key={agent.id} profile={agent.id} />}
+        {exchanges.earlier && <p className="mb-2 text-center text-xs text-muted">Showing the latest 100 exchanges. Earlier exchanges are in Bot exchange history.</p>}
+        {exchanges.error && <p className="my-2 text-xs text-red-600" role="alert">Bot exchanges: {exchanges.error}</p>}
+        {timeline.map((item, index) => <Fragment key={item.id}>
+          {day(item.at) && (index === 0 || day(timeline[index - 1].at) !== day(item.at)) && <div className="my-4 text-center text-xs text-muted">{new Date(item.at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</div>}
+          {item.node}
+        </Fragment>)}
 
         <InlineApprovalPrompt />
 

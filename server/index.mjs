@@ -2,6 +2,7 @@ import { HermesClient } from './hermes-client.mjs';
 import { createApp } from './app.mjs';
 import path from 'node:path';
 import { HermesBotRegistry, HermesBots } from './hermes-bots.mjs';
+import { HermesExchanges } from './hermes-exchanges.mjs';
 import { HermesRunJournal } from './hermes-run-journal.mjs';
 import { HermesSessionBridge } from './hermes-session.mjs';
 import { BrowserRegistry } from './browser-registry.mjs';
@@ -56,7 +57,8 @@ const bots = new HermesBots({
 const gateway = new HermesClient({ ...clientOptions, profileAccess: profile => registry.token(profile) });
 const runJournal = await HermesRunJournal.open(process.env.HOB_STATE_DIR);
 const nativeSessions = new HermesSessionBridge({ profileAccess: profile => registry.token(profile) });
-const server = createApp({ gateway, bots, browser, runJournal, nativeSessions, ...(process.env.MUSE_STATIC_DIR ? { staticDir: process.env.MUSE_STATIC_DIR } : {}) });
+const exchanges = await HermesExchanges.open(process.env.HOB_STATE_DIR);
+const server = createApp({ gateway, bots, browser, runJournal, nativeSessions, exchanges, ...(process.env.MUSE_STATIC_DIR ? { staticDir: process.env.MUSE_STATIC_DIR } : {}) });
 gateway.start();
 const port = Number(process.env.MUSE_PORT || 3000);
 const build = `${process.env.HOB_GIT_COMMIT || 'unknown'} (${process.env.HOB_GIT_REF || 'unknown'})`;
