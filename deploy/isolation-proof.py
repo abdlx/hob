@@ -23,7 +23,7 @@ for name in active:
   browser_rows=json.loads((state/'browsers.json').read_text())['browsers']
   for browser in browser_rows:
    if browser['bot'] != other: continue
-   cookie_dir=state/'browsers'/other/browser['browserProfileId']/'chromium'
+   cookie_dir=private/'browsers'/other/browser['browserProfileId']/'chromium'
    assert shell(name,'test -r '+str(cookie_dir)).returncode!=0, 'cross-bot browser directory readable'
   otherwork=private/'workspaces'/('main' if other=='default' else 'bots/'+other)
   assert shell(name,'test -r '+str(otherwork/'.hob/relay.json')).returncode!=0, 'cross-bot relay readable'
@@ -33,7 +33,7 @@ for name in active:
  assert denied.returncode!=0, 'bot reached privileged broker'
 # Prove Chromium's namespace/seccomp sandbox under an actual isolated UID.
 first=registry['default']['uid']
-sandbox=subprocess.run(['/usr/local/bin/node','/app/deploy/probe-browser.mjs'],user=first,group=first,extra_groups=[],env={'PATH':'/usr/local/bin:/usr/bin:/bin','HOME':str(home/'workspaces/main')},capture_output=True,text=True,timeout=60)
+sandbox=subprocess.run(['/usr/local/bin/node','/app/deploy/probe-browser.mjs'],user=first,group=first,extra_groups=[],env={'PATH':'/usr/local/bin:/usr/bin:/bin','HOME':str(private/'workspaces/main')},capture_output=True,text=True,timeout=60)
 assert sandbox.returncode==0, 'isolated Chromium sandbox failed: '+sandbox.stderr[-1200:]
 assert sandbox.stdout.startswith('SANDBOX_OK '), 'missing sandbox proof'
 # Existing Chrome processes must use an assigned bot UID, never the operator/root.

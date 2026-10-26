@@ -165,7 +165,8 @@ Both `hermes-data` and `hermes-isolation` volumes must be backed up/restored tog
 An isolated home refuses an accidental return to shared mode or a missing UID
 registry. Setup fails closed on unavailable isolation, linked workspace files or
 foreign ownership; it does not fall back to local execution. Existing independent
-regular files are adopted before Gateway can execute persisted automation.
+regular files are copied from the old private home into the isolation volume
+(the original data stays intact) before Gateway can execute persisted automation.
 Symlinks/hard links need operator review before migration. Revocation removes SSH
 authority and kills that UID's processes, including existing multiplexed sessions.
 
