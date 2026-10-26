@@ -41,7 +41,7 @@ export const DogeshAvatar: React.FC<DogeshAvatarProps> = ({
         <img
           src={isDefault ? '/brand/hob-mark.png' : avatarUrl}
           alt="Agent avatar"
-          className="w-full h-full object-contain p-1.5"
+          className="block w-full h-full object-cover"
         />
       </div>
 
