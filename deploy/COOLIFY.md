@@ -212,6 +212,8 @@ dependency installation or the rendered memory settings UI.
 
 Upgrading repairs relay credentials on boot. Hermes deliberately filters its listener key from terminal commands; the generated helper now uses a distinct relay-only key in each bot's private `.hob/relay.json`. The registry migrates to version 3 without changing native listener keys. Back up the data volume before upgrading; older application versions cannot read this registry version. A failed bot synchronization participates in boot retries and is reported in the server log.
 
+Co-located bots call the private loopback app listener, independently of `MUSE_PUBLIC_URL`, the TLS proxy and host-published ports. An operator configuring a genuinely remote execution backend may explicitly set the complete `HOB_BOT_RELAY_URL`; normal Coolify deployments need no override.
+
 Exchange database version 2 adds a durable result outbox. Newly completed handoffs wake their caller and Main through the pinned runtime's native Bot Chat ingress. Delivery acknowledgements are distinct from completed model turns, and retries reuse the same native delivery ID. Inspect **Automatic follow-up** inside an exchange for its delivery status. Existing historical exchanges are not replayed on upgrade. Heartbeats are configured per native conversation in **Settings → Automation** and require the gateway to remain online. Scheduled jobs remain native Hermes jobs.
 
 These changes have local adapter and Chromium coverage. Their new native automation paths still require image-level and live-model verification. The default container continues to share an OS user between bots; relay credentials and private folders do not create a hostile-bot sandbox.

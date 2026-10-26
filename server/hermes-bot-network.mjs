@@ -18,6 +18,18 @@ const text = value => typeof value === 'string' ? value.replace(/\s+/g, ' ').tri
 const blockText = value => text(value).replace(/<!--|-->/g, ' ').replace(/\s+/g, ' ').trim();
 const label = bot => blockText(bot.displayName || bot.display_name || bot.bot_title) || (bot.name === 'default' ? 'Main' : bot.name);
 
+/** Native bots share the app's network namespace. A public proxy URL (or a
+ * host-published test port) is not the listener inside that namespace. Remote
+ * execution backends may explicitly provision their own reachable relay URL.
+ */
+export function botRelayUrl(env = process.env) {
+  const port = Number(env.MUSE_PORT || 3000);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid app listener port for bot relay.');
+  const url = new URL(env.HOB_BOT_RELAY_URL || `http://127.0.0.1:${port}/api/hermes/bot-relay`);
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('Invalid bot relay URL.');
+  return url.toString();
+}
+
 /** The relay client is installed into a bot workspace and reads its own key. */
 function talkClient(endpoint) {
   return String.raw`#!/usr/bin/env node

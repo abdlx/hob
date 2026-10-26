@@ -8,6 +8,7 @@ import { HermesSessionBridge } from './hermes-session.mjs';
 import { BrowserRegistry } from './browser-registry.mjs';
 import { BrowserManager } from './browser-manager.mjs';
 import { cdpTransportMode } from './browser-launcher.mjs';
+import { botRelayUrl } from './hermes-bot-network.mjs';
 
 if (!process.env.MUSE_PASSWORD && !process.env.MUSE_ACCESS_TOKEN) {
   console.error('Set MUSE_PASSWORD or MUSE_ACCESS_TOKEN before starting hob.');
@@ -49,10 +50,9 @@ const bots = new HermesBots({
   client: new HermesClient(clientOptions),
   workspaceRoot: path.join(process.env.HERMES_HOME, 'workspaces'),
   browser,
-  // Bots call this with a relay-only credential provisioned in their workspace. Use
-  // the public origin when configured, because that is the URL a remote host's
-  // agents would use; otherwise the loopback listener is the same container.
-  relayUrl: new URL('/api/hermes/bot-relay', process.env.MUSE_PUBLIC_URL || `http://127.0.0.1:${Number(process.env.MUSE_PORT || 3000)}`).toString(),
+  // Co-located bots use the private app listener, independently of the public
+  // proxy's origin/port. A remote backend can provision HOB_BOT_RELAY_URL.
+  relayUrl: botRelayUrl(),
 });
 const gateway = new HermesClient({ ...clientOptions, profileAccess: profile => registry.token(profile) });
 const runJournal = await HermesRunJournal.open(process.env.HOB_STATE_DIR);
