@@ -42,6 +42,10 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '24.21.0'
+      # Match npm in the digest-pinned Docker build image. Older npm accepted
+      # an incomplete optional WASM bundle tree that npm 11.19 rejects in ci.
+      - name: Use the Docker build's npm version
+        run: npm install --global npm@11.19.0 --no-audit --no-fund
       - run: npm ci
       - run: npm test
       - run: npm run lint

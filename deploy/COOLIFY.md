@@ -82,6 +82,22 @@ cookies. There is no public Hermes dashboard/API port and no host Docker socket.
 
 ## Manual deploys and commit verification
 
+### Frontend dependency installation fails with EUSAGE
+
+If the build reports missing `@emnapi/core` / `@emnapi/runtime` entries during
+`npm ci`, the frontend lockfile is missing dependencies bundled inside Tailwind's
+optional WASM package. This can pass an older npm's local check and still fail
+with npm 11.19.0 in the pinned Docker build image. The repaired lockfile records
+the actual bundled packages; it does not upgrade application dependencies.
+
+Keep `npm ci` in the Dockerfile. Regenerate lockfile metadata using npm 11.19.0
+and verify a clean install from only `package.json` and `package-lock.json`,
+without an existing `node_modules` directory. The web CI job explicitly uses
+that npm version to catch this mismatch before deployment. The pnpm lockfile
+already describes the bundled dependencies and needs no dependency change.
+
+### Verify the deployed commit
+
 If **Deploy** appears to build an older commit than the one shown in GitHub,
 the running image now states exactly what it contains. The build bakes Coolify's
 `SOURCE_COMMIT` and `COOLIFY_BRANCH` into the image, and the app exposes them:
