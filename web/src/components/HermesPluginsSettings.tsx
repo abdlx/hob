@@ -76,7 +76,7 @@ function PluginCatalog() {
       {consent && <div className="space-y-3 rounded-xl border border-edge bg-panel p-3"><p className="text-xs text-soft">Additional capabilities requested by {consent}:</p><ul className="list-disc pl-5 text-xs text-muted">{result.delta_lines?.map((line, index) => <li key={index}>{line}</li>)}</ul><button className={buttonClass} disabled={!!busy || !result.delta_lines?.length} onClick={() => void act(consent, 'update', undefined, true)}>Accept listed capabilities and update</button></div>}
     </div>}
   </>;
-  const gridClass = 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,180px),1fr))] gap-3';
+  const gridClass = 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,140px),1fr))] gap-3';
   return <section className={`${cardClass} space-y-5`} aria-label="Plugin store">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex items-center gap-2.5"><span className="rounded-xl bg-accent-soft p-2 text-accent"><Package size={19} /></span><div><h3 className="text-base font-semibold tracking-tight text-ink">Plugin store</h3><p className="mt-0.5 text-xs text-muted">Discover apps and tools for Main.</p></div></div>

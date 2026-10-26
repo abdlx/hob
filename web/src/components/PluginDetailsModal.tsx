@@ -52,6 +52,14 @@ export function PluginDetailsModal({ plugin, busy, feedback, onClose, onAction }
   return createPortal(<dialog ref={dialog} aria-labelledby={titleId} aria-describedby={descriptionId}
     className="m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-2xl flex-col overflow-hidden rounded-3xl border border-edge bg-canvas p-0 text-ink shadow-2xl open:flex backdrop:bg-black/40 backdrop:backdrop-blur-sm"
     onCancel={event => { event.preventDefault(); onClose(); }}
+    onKeyDown={event => {
+      if (event.key !== 'Tab') return;
+      const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], [tabindex="0"]')];
+      const target = event.shiftKey ? controls.at(-1) : controls[0];
+      if ((event.shiftKey && document.activeElement === controls[0]) || (!event.shiftKey && document.activeElement === controls.at(-1))) {
+        event.preventDefault(); target?.focus();
+      }
+    }}
     onClick={event => {
       if (event.target !== event.currentTarget) return;
       const bounds = event.currentTarget.getBoundingClientRect();

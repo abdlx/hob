@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test';
 // A real production bundle in Chromium, with explicit Hermes API fixtures.
 // This verifies UI contracts; it does not claim a live Hermes install or model run.
 const sha = 'a'.repeat(40);
-async function fixture(page: Page) {
+async function fixture(page: Page, extraApps = false) {
   const errors: string[] = [], writes: { path: string; body: Record<string, unknown>; profile: string | null }[] = [];
   page.on('pageerror', error => errors.push(error.message));
   let saved = { model: 'test-model', memory: { enabled: true } }, failSave = false, installed = false;
@@ -48,8 +48,14 @@ async function fixture(page: Page) {
     if (path === '/api/hermes/agent-computer/status') return json({ configured: false, connected: false });
     if (path === '/api/hermes/setup/plugins') {
       expect(profile).toBe('default');
-      return json({ scope: 'default', entries: [{ name: 'example', description: 'A test integration', sha, tier: 'community', maintainer: 'Example', repo: 'https://github.com/example/plugin', installed, update_available: false, capabilities: { provides_tools: ['lookup'], provides_hooks: [], provides_middleware: [], requires_env: ['EXAMPLE_KEY'] } }],
-        installed: installed ? [{ name: 'example', description: 'A test integration', version: '1.0', source: 'catalog', runtime_status: 'disabled', can_remove: true, can_update_git: true }] : [], removed: [] });
+      const example = { name: 'example', description: 'A test integration', sha, tier: 'community', maintainer: 'Example', repo: 'https://github.com/example/plugin', docs_url: 'https://example.com/docs', requires_hermes: '>=0.22.0', platforms: ['linux', 'darwin'], installed, update_available: false, capabilities: { provides_tools: ['lookup'], provides_hooks: ['on_start'], provides_middleware: ['request_context'], requires_env: ['EXAMPLE_KEY'] } };
+      return json({ scope: 'default', entries: [example, ...(extraApps ? [
+        { ...example, name: 'notes', description: 'Organize notes and documents.', maintainer: 'Notebook Studio', tier: 'official', capabilities: { provides_tools: ['save_note'], provides_hooks: [], provides_middleware: [], requires_env: [] } },
+        { ...example, name: 'metrics', description: 'Review system measurements.', maintainer: 'Metrics Lab', tier: 'verified', capabilities: { provides_tools: ['read_metrics'], provides_hooks: [], provides_middleware: [], requires_env: [] } },
+      ] : [])], installed: [
+        ...(installed ? [{ name: 'example', description: 'A test integration', version: '1.0', source: 'catalog', runtime_status: 'disabled', can_remove: true, can_update_git: true }] : []),
+        ...(extraApps ? [{ name: 'local-helper', description: 'A locally installed plugin.', version: '2.0', source: 'local', runtime_status: 'enabled', can_remove: true, can_update_git: false }] : []),
+      ], removed: [] });
     }
     if (path === '/api/hermes/setup/plugins/example/install') { installed = true; return json({ ok: true, enabled: false, missing_env: ['EXAMPLE_KEY'] }); }
     errors.push(`Unexpected API: ${request.method()} ${path}`);
@@ -116,14 +122,17 @@ test('catalog install uses reviewed SHA, reports missing credentials and refuses
   const state = await fixture(page);
   await page.goto('/settings');
   await page.getByRole('button', { name: 'Plugins & integrations', exact: false }).click();
+  await expect(page.getByText('EXAMPLE_KEY', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'View example details', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'example', exact: true })).toBeVisible();
   await expect(page.getByText('EXAMPLE_KEY', { exact: true })).toBeVisible();
-  expect(await page.getByRole('textbox', { name: 'Search plugin catalog' }).evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(180);
   await page.getByRole('button', { name: 'Install', exact: true }).click();
   await page.getByRole('button', { name: 'Install reviewed pin', exact: true }).click();
   await expect(page.getByText('Required credentials:', { exact: false })).toBeVisible();
   expect(state.writes.find(write => write.path.endsWith('/example/install'))).toEqual({ path: '/api/hermes/setup/plugins/example/install', body: { confirm: true, expectedSha: sha }, profile: 'default' });
   await expect(page.getByRole('button', { name: 'Enable', exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/settings-plugins-desktop.png', fullPage: true });
+  await page.getByRole('button', { name: 'Close plugin details' }).click();
   await page.getByRole('combobox', { name: 'Bot', exact: true }).selectOption('research');
   await expect(page.getByText('This Hermes version manages plugins for Main only.', { exact: false })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Enable', exact: true })).toHaveCount(0);
@@ -139,5 +148,58 @@ test('opening the computer inspector loads its deferred module and shows actual 
   await computerStatus;
   await expect(page.getByText('Agent Computer is Sleeping', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Live stream', { exact: true })).toHaveCount(0);
+  expect(state.errors).toEqual([]);
+});
+
+
+test('plugin store uses app tiles, filters installed and catalog apps, and opens keyboard-accessible details', async ({ page }) => {
+  const state = await fixture(page, true);
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'Plugins & integrations', exact: false }).click();
+  const apps = page.getByRole('list', { name: 'Plugin apps' });
+  await expect(apps.getByRole('listitem')).toHaveCount(4);
+  const first = await apps.getByRole('listitem').nth(0).boundingBox();
+  const second = await apps.getByRole('listitem').nth(1).boundingBox();
+  expect(Math.abs(first!.y - second!.y)).toBeLessThan(2);
+  expect(second!.x).toBeGreaterThan(first!.x);
+  expect(first!.width).toBeGreaterThan(150);
+  await page.screenshot({ path: 'test-results/plugin-store-grid-desktop.png', fullPage: true });
+  await page.getByRole('textbox', { name: 'Search plugin catalog' }).fill('save_note');
+  await expect(apps.getByRole('listitem')).toHaveCount(1);
+  await expect(apps.getByRole('button', { name: 'View notes details' })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Search plugin catalog' }).fill('');
+  await page.getByRole('combobox', { name: 'Filter plugins' }).selectOption('installed');
+  await expect(apps.getByRole('listitem')).toHaveCount(1);
+  await page.getByRole('button', { name: 'View local-helper details' }).click();
+  let dialog = page.getByRole('dialog', { name: 'local-helper', exact: true });
+  await expect(dialog.getByText('2.0', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('This installed plugin has no matching catalog entry.', { exact: false })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'View local-helper details' })).toBeFocused();
+  await page.getByRole('combobox', { name: 'Filter plugins' }).selectOption('all');
+  const tile = page.getByRole('button', { name: 'View example details', exact: true });
+  await tile.focus(); await page.keyboard.press('Enter');
+  dialog = page.getByRole('dialog', { name: 'example', exact: true });
+  await expect(dialog.getByText('lookup', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('on_start', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('request_context', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('>=0.22.0', { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('link', { name: 'Documentation', exact: true })).toHaveAttribute('href', 'https://example.com/docs');
+  await expect(dialog.getByRole('button', { name: 'Close plugin details' })).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(dialog.getByRole('button', { name: 'Install', exact: true })).toBeFocused();
+  expect(state.writes.filter(write => write.path.includes('/plugins/'))).toEqual([]);
+  await page.screenshot({ path: 'test-results/plugin-store-details-desktop.png', fullPage: true });
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await tile.click();
+  dialog = page.getByRole('dialog', { name: 'example', exact: true });
+  await expect(dialog.getByRole('button', { name: 'Install', exact: true })).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/plugin-store-details-mobile.png', fullPage: true });
+  await page.keyboard.press('Escape');
+  await page.screenshot({ path: 'test-results/plugin-store-grid-mobile.png', fullPage: true });
   expect(state.errors).toEqual([]);
 });
