@@ -11,7 +11,7 @@ test('attachment proof requires actual image content at the provider rather than
     const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/chat/completions`, { method: 'POST', body: JSON.stringify({ messages: [{ role: 'user', content }] }) });
     return (await response.json()).choices[0].message.content;
   };
-  assert.equal(await call(SMOKE_ATTACHMENT_PROMPT + ' proof.png'), 'HOB_NATIVE_IMAGE_MISSING');
+  assert.match(await call(SMOKE_ATTACHMENT_PROMPT + ' proof.png'), /^HOB_NATIVE_IMAGE_MISSING/);
   assert.equal(await call([{ type: 'text', text: SMOKE_ATTACHMENT_PROMPT }, { type: 'image_url', image_url: { url: 'data:image/png;base64,synthetic' } }]), SMOKE_ATTACHMENT_REPLY);
 });
 

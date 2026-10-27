@@ -91,7 +91,9 @@ export function createSmokeModel({ file = defaultFile() } = {}) {
       if (textParts.includes(SMOKE_ATTACHMENT_PROMPT)) {
         const received = Array.isArray(latestUser.content) && latestUser.content.some(part => part.type === 'image_url'
           && /^data:image\/png;base64,/.test(part.image_url?.url || ''));
-        return completion(res, input, { role: 'assistant', content: received ? SMOKE_ATTACHMENT_REPLY : 'HOB_NATIVE_IMAGE_MISSING' });
+        const shape = input.messages.filter(item => item.role === 'user').map(item => typeof item.content === 'string' ? 'text'
+          : (item.content || []).map(part => ({ type: part.type, imageMime: String(part.image_url?.url || '').match(/^data:([^;,]+)/)?.[1] })));
+        return completion(res, input, { role: 'assistant', content: received ? SMOKE_ATTACHMENT_REPLY : 'HOB_NATIVE_IMAGE_MISSING ' + JSON.stringify(shape) });
       }
       if (latestText.includes(SMOKE_RECOVERY_PROMPT)) {
         recoveryRequests++;
