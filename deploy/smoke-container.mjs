@@ -262,6 +262,8 @@ try {
       const script = "fetch('http://127.0.0.1:18793'+process.argv[1], {method:process.argv[2], signal:AbortSignal.timeout(5000)}).then(async r => {if(!r.ok) throw Error(); process.stdout.write(JSON.stringify(await r.json()));}).catch(() => {console.error('Synthetic recovery fixture failed'); process.exitCode=1;});";
       return JSON.parse(docker(['exec', modelContainer, '/usr/local/bin/node', '-e', script, path, method], 10000));
     },
+    diagnose: () => console.log('Native preparation diagnostic: ' + docker(['exec', '--user', '10000:10000', appContainer,
+      '/usr/bin/python3', '/app/deploy/recovery-diagnostic.py'], 15000)),
     crash: async () => {
       const previous = compose('ps', '--quiet', 'muse');
       docker(['kill', '--signal', 'KILL', previous], 30000);

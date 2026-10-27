@@ -279,6 +279,6 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
   };
 
   return { firstBoot, afterRestart, checks,
-    activeCrashRecovery: ({ fixture, crash }) => verifyActiveCrashRecovery({ api, request, retry, check, fixture, crash }),
+    activeCrashRecovery: ({ fixture, crash, diagnose }) => verifyActiveCrashRecovery({ api, request, retry, check, fixture, crash, diagnose }),
   };
 }

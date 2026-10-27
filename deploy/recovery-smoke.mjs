@@ -4,7 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { SMOKE_RECOVERY_PROMPT, SMOKE_RECOVERY_REPLY, SMOKE_RECOVERY_RESUME } from './smoke-model.mjs';
 
 /** Crash only the caller's disposable image after a provider has accepted a turn. */
-export async function verifyActiveCrashRecovery({ api, request, retry, check, fixture, crash }) {
+export async function verifyActiveCrashRecovery({ api, request, retry, check, fixture, crash, diagnose }) {
   console.log('Active crash recovery: creating the disposable native conversation.');
   const conversation = await api('/api/sessions', 'POST', { title: 'Disposable active-crash proof', agentId: 'default' });
   const path = '/api/sessions/' + encodeURIComponent(conversation.id);
@@ -51,6 +51,7 @@ export async function verifyActiveCrashRecovery({ api, request, retry, check, fi
   try { result = await Promise.race([reading, (async () => {
     await delay(30000, undefined, { signal: deadline.signal });
     const [state, observed] = await Promise.all([fixture('/smoke/recovery'), api(path + '/run')]);
+    await diagnose?.();
     throw new Error('Fresh recovery turn did not finish: ' + JSON.stringify({
       fixture: state, status: observed.run?.status, canResolveUnknown: observed.run?.canResolveUnknown,
     }));
