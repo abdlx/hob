@@ -86,5 +86,19 @@ with tempfile.TemporaryDirectory(prefix='hob-migration-proof-') as temporary:
   except ValueError: pass
   else: raise AssertionError('hard-link migration accepted')
   assert not list(destination.iterdir()) and secret.read_text()=='private sentinel'
+  # Intermediate directory links are rejected too, even when the target's
+  # files happen to have the trusted operator owner.
+  home=base/'native'; state=home/'.hob'; state.mkdir(parents=True)
+  outside=base/'other-profile'; (outside/'main').mkdir(parents=True)
+  (outside/'main'/'private.txt').write_text('private sentinel')
+  (home/'workspaces').symlink_to(outside,target_is_directory=True)
+  broker.home=home; broker.state=state
+  broker.home_fd=os.open(home,m.DIR_FLAGS); broker.state_fd=os.open(state,m.DIR_FLAGS)
+  try:
+   try: broker.copy_legacy(home/'workspaces/main',dest,65000)
+   except (ValueError,OSError): pass
+   else: raise AssertionError('intermediate directory alias accepted')
+   assert not list(destination.iterdir())
+  finally: os.close(broker.home_fd); os.close(broker.state_fd)
  finally: os.close(src); os.close(dest)
 print('Revocation and linked-migration checks passed')

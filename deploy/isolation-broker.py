@@ -261,12 +261,24 @@ class Broker:
         acl(fd, f"u:{uid}:---", "g::---", "o::---", default=True)
 
     def copy_legacy(self, legacy, destination, uid, *, browser=False):
+        # Pin every component below the trusted native root. O_NOFOLLOW on
+        # only the last directory would still follow an intermediate alias
+        # into another profile's private home during an upgrade.
+        if legacy.is_relative_to(self.state):
+            anchor, parts = self.state_fd, legacy.relative_to(self.state).parts
+        elif legacy.is_relative_to(self.home):
+            anchor, parts = self.home_fd, legacy.relative_to(self.home).parts
+        else:
+            raise ValueError("legacy_source_outside_native_roots")
+        source = os.dup(anchor)
         try:
-            source = os.open(legacy, DIR_FLAGS)
+            for part in parts:
+                child = directory_at(source, part, self.uid, uid, create=False)
+                os.close(source)
+                source = child
+            self.copy_tree(source, destination, uid, browser=browser)
         except FileNotFoundError:
             return
-        try:
-            self.copy_tree(source, destination, uid, browser=browser)
         finally:
             os.close(source)
 
