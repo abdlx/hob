@@ -98,6 +98,13 @@ export async function prepareBotIsolation(isolation, client, stateDir, signal) {
     records = value.bots;
   } catch (error) { if (error.code !== 'ENOENT') throw error; }
   finally { await handle?.close(); }
+  // Multiplex serves native profiles beyond the dashboard roster. Refuse an
+  // unenrolled profile instead of allowing its schedules to run as the operator.
+  const native = await client.dashboard('/api/profiles');
+  if (!Array.isArray(native?.profiles)) throw unavailable();
+  const enrolled = new Set(records.map(record => record.name));
+  if (native.profiles.some(profile => !enrolled.has(profile.name))) throw new HermesError(409,
+    'Enroll or remove existing native profiles before enabling per-bot OS isolation.', 'ISOLATION_UNENROLLED_PROFILE');
   // Broker readiness is required even before Main is enrolled by the web process.
   await isolation.ready();
   for (const record of records) {

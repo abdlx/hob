@@ -481,10 +481,10 @@ export class HermesBots {
       this.#registry.setup(name);
       await this.#client.dashboard('/api/config', { profile: name, method: 'PUT',
         body: { profile: name, config: { terminal: { cwd: workspace }, auth: { adopt_external_logins: false } } } });
+      await this.#isolation?.configure(this.#client, name);
       this.#registry.setup(name);
       await this.#client.dashboard('/api/env', { profile: name, method: 'PUT',
         body: { profile: name, key: 'API_SERVER_KEY', value: record.apiKey } });
-      await this.#isolation?.configure(this.#client, name);
       await this.configureBrowser(name);
       await this.#registry.update(name, { nativeCreated: true, state: 'active' });
       const sync = await this.#afterChange();

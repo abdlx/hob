@@ -168,7 +168,9 @@ registry. Setup fails closed on unavailable isolation, linked workspace files or
 foreign ownership; it does not fall back to local execution. Existing independent
 regular files are copied from the old private home into the isolation volume
 (the original data stays intact) before Gateway can execute persisted automation.
-Symlinks/hard links need operator review before migration. Revocation removes SSH
+Symlinks/hard links need operator review before migration. Existing native profiles
+must be enrolled before enabling this mode; an unknown profile blocks gateway
+startup so its schedules cannot execute with the operator UID. Revocation removes SSH
 authority and kills that UID's processes, including existing multiplexed sessions.
 
 The native gateway, settings, installed plugins and MCP servers remain trusted

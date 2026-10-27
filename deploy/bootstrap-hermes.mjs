@@ -81,6 +81,7 @@ export async function bootstrapHermes(env = process.env) {
   runtimeEnv.HERMES_GATEWAY_EXTERNAL_SUPERVISOR = '1';
   const dashboardEnv = { ...without(shared, /^(?:MUSE_|HOB_|HERMES_DASHBOARD_)/),
     HERMES_DASHBOARD_SESSION_TOKEN: credentials.dashboardToken };
+  if (mode === 'users') dashboardEnv.HERMES_DASHBOARD_FILES_ROOT = executionRoot;
   const publicOrigin = mcpOAuthOrigin(env.MUSE_PUBLIC_URL);
   if (publicOrigin) {
     dashboardEnv.HERMES_DASHBOARD_PUBLIC_URL = publicOrigin;

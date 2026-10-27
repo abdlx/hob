@@ -44,16 +44,17 @@ export async function proactiveFirstBoot({ api, request, workspace, retry, check
   }, 180000);
   const paused = await workspace('autonomy', 'POST', { sessionKey: conversation.id, kind: 'heartbeat', action: 'pause' });
   check('a real native heartbeat fires and can be paused', paused.control.heartbeat.status === 'paused');
-  await retry('a clock-triggered native scheduled task', async () => {
+  const scheduledRuns = await retry('a clock-triggered native scheduled task', async () => {
     const job = await workspace('jobs/' + scheduled.id);
     assert.equal(job.last_status, 'ok', JSON.stringify({ status: job.last_status, error: job.last_error }));
     assert.equal(job.state, 'completed');
     assert.ok(job.last_run_at);
     const history = await workspace('jobs/' + scheduled.id + '/runs');
     assert.ok(history.runs?.length >= 1);
+    return history.runs.map(run => run.id).sort();
   });
   check('the native scheduler executes a one-time task without a manual trigger', true);
-  return { scheduledId: scheduled.id, exchangeId: exchange.id, wakeId: wake.id, wakeSession: wake.sessionKey, conversation: conversation.id, fireCount: paused.control.heartbeat.fire_count };
+  return { scheduledRuns, scheduledId: scheduled.id, exchangeId: exchange.id, wakeId: wake.id, wakeSession: wake.sessionKey, conversation: conversation.id, fireCount: paused.control.heartbeat.fire_count };
 }
 
 export async function proactiveAfterRestart({ saved, api, workspace, check, retry }) {
@@ -66,6 +67,8 @@ export async function proactiveAfterRestart({ saved, api, workspace, check, retr
   check('recreation does not duplicate coordinator notifications', history.filter(row => row.role === 'user' && row.content.includes(`[HOB background result; exchange ${saved.exchangeId}]`)).length === 1);
   const scheduled = await workspace('jobs/' + saved.scheduledId);
   check('the completed clock-triggered task remains settled after recreation', scheduled.state === 'completed' && scheduled.last_status === 'ok');
+  const runs = await workspace('jobs/' + saved.scheduledId + '/runs');
+  check('recreation does not repeat the completed scheduled task', JSON.stringify(runs.runs.map(run => run.id).sort()) === JSON.stringify(saved.scheduledRuns));
   const { control } = await workspace('autonomy', 'GET', undefined, 'default', { sessionKey: saved.conversation });
   check('paused native heartbeat state survives recreation', control.heartbeat?.status === 'paused' && control.heartbeat.fire_count === saved.fireCount);
 }

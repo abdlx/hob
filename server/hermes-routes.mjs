@@ -154,6 +154,9 @@ export function createHermesRoutes(client, bots, { removeBot, home, stateDir } =
           }
         }
         if (path === 'config') {
+          if (bots?.isolationStatus?.(profile)?.mode === 'users' && input.config?.browser && Object.keys(input.config.browser).some(key => ['backend', 'cdp_url'].includes(key))) {
+            throw new HermesError(400, 'This bot uses its managed isolated browser.', 'MANAGED_ISOLATION');
+          }
           if (bots?.isolationStatus?.(profile)?.mode === 'users' && input.config?.terminal && Object.keys(input.config.terminal).some(key => ['backend', 'cwd', 'ssh_host', 'ssh_port', 'ssh_user', 'ssh_key'].includes(key))) {
             throw new HermesError(400, 'This bot uses managed OS isolation. Its execution backend cannot be changed here.', 'MANAGED_ISOLATION');
           }

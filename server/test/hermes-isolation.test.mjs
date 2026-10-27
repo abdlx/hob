@@ -23,8 +23,9 @@ test('startup prepares enrolled principals before execution, including durable r
  try {
   await writeFile(path.join(root,'bots.json'),JSON.stringify({bots:[{name:'default',state:'active'},{name:'worker',state:'setup_required',nativeCreated:true},{name:'unused',state:'setup_required'},{name:'old',state:'revoked'}]}));
   const calls=[]; const isolation={ready:async()=>calls.push('ready'),configure:async(_c,name)=>calls.push(name),revoke:async name=>calls.push('revoke:'+name)};
-  await prepareBotIsolation(isolation,{},root); assert.deepEqual(calls,['ready','default','worker','revoke:old']);
-  calls.length=0; isolation.ready=async()=>{throw Error('offline');}; await assert.rejects(prepareBotIsolation(isolation,{},root),/offline/); assert.deepEqual(calls,[]);
+  await prepareBotIsolation(isolation,{dashboard:async()=>({profiles:[{name:'default'},{name:'worker'}]})},root); assert.deepEqual(calls,['ready','default','worker','revoke:old']);
+  calls.length=0; await assert.rejects(prepareBotIsolation(isolation,{dashboard:async()=>({profiles:[{name:'unregistered'}]})},root),{code:'ISOLATION_UNENROLLED_PROFILE'}); assert.deepEqual(calls,[]);
+  calls.length=0; isolation.ready=async()=>{throw Error('offline');}; await assert.rejects(prepareBotIsolation(isolation,{dashboard:async()=>({profiles:[{name:'default'}]})},root),/offline/); assert.deepEqual(calls,[]);
  } finally {await rm(root,{recursive:true,force:true});}
 });
 test('private broker protocol bounds replies, refuses malformed/refused results, and never retries',async t=>{
@@ -47,5 +48,6 @@ test('dashboard cannot replace an isolated execution backend or inject a termina
  const route=createHermesRoutes(client,{isolationStatus:()=>({mode:'users'})});
  const dispatch=async(config)=>route({method:'PUT'},{},new URL('http://local/api/hermes/config'),{body:async()=>({config}),json:()=>{}});
  for(const key of ['backend','cwd','ssh_host','ssh_port','ssh_user','ssh_key']) await assert.rejects(dispatch({terminal:{[key]:'untrusted'}}),{code:'MANAGED_ISOLATION'});
+ for(const key of ['backend','cdp_url']) await assert.rejects(dispatch({browser:{[key]:'untrusted'}}),{code:'MANAGED_ISOLATION'});
  assert.equal(calls.length,0); await dispatch({terminal:{timeout:90}}); assert.equal(calls.length,1);
 });

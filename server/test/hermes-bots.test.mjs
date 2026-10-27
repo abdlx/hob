@@ -450,6 +450,7 @@ test('OS isolation must succeed before activation and revokes before native dele
  const bots=new HermesBots({registry,client:upstream.client,workspaceRoot:path.join(root,'work'),isolation});
  await assert.rejects(bots.create({name:'worker'}),/broker unavailable/);
  assert.equal(registry.list().find(b=>b.name==='worker').state,'setup_required');
+ assert.equal(upstream.calls.some(call=>call.route==='/api/env'),false,'a failed isolation setup cannot provision native admission authority');
  denied=false; await bots.finishSetup('worker'); assert.equal(registry.list().find(b=>b.name==='worker').state,'active');
  const original=upstream.client.dashboard; upstream.client.dashboard=async(route,options)=>{if(options?.method==='DELETE'){assert.ok(calls.includes('revoke:worker'));throw Error('native offline');}return original(route,options);};
  await assert.rejects(bots.remove('worker'),/native offline/); assert.throws(()=>registry.token('worker'));
