@@ -53,6 +53,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          log-accepted-android-sdk-licenses: 'false'
       - run: npm install --global npm@11.19.0 --no-audit --no-fund
       - run: npm ci --no-audit --no-fund
       - run: npx expo prebuild --no-install --platform android
