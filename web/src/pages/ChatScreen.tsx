@@ -117,7 +117,7 @@ export const ChatScreen: React.FC = () => {
                 <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden relative">
                   <ChatHeader onBackToBots={() => setMobileView('bots')} />
                   {readOnly && (
-                    <div className="px-6 py-2 shrink-0">
+                    <div className="px-6 pt-[88px] pb-2 shrink-0 z-10">
                       <Notice>
                         This older API conversation is preserved as history.{' '}
                         <button className="underline text-accent" onClick={createNewSession}>
@@ -138,10 +138,10 @@ export const ChatScreen: React.FC = () => {
             {/* ========================================================
                 DESKTOP VIEW: Center conversation panel always active
                ======================================================== */}
-            <div className="hidden md:flex flex-1 flex-col h-full min-h-0 overflow-hidden">
+            <div className="hidden md:flex flex-1 flex-col h-full min-h-0 overflow-hidden relative">
               <ChatHeader onBackToBots={() => setMobileView('bots')} />
               {readOnly && (
-                <div className="px-6 py-2 shrink-0">
+                <div className="px-6 pt-[88px] pb-2 shrink-0 z-10">
                   <Notice>
                     This older API conversation is preserved as history.{' '}
                     <button className="underline text-accent" onClick={createNewSession}>
