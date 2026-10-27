@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useSyncExternalStore } from 'react';
 import { useChat } from '../context/ChatContext';
 import { ChatComposer } from './ChatComposer';
 
@@ -16,18 +16,20 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
     activeSessionId,
     getComposerDraft,
     setComposerDraft,
+    subscribeComposerDraft,
     agent,
     setActiveNav,
   } = useChat();
 
   const readOnly = sessions.find((session) => session.id === activeSessionId)?.readOnly === true;
-  const [text, setText] = useState(() => getComposerDraft(activeSessionId));
-  const disabled = isLoading || isPreparing || isCreatingConversation || readOnly;
+  const subscribe = useCallback((listener: () => void) => subscribeComposerDraft(activeSessionId, listener), [activeSessionId, subscribeComposerDraft]);
+  const snapshot = useCallback(() => getComposerDraft(activeSessionId), [activeSessionId, getComposerDraft]);
+  const text = useSyncExternalStore(subscribe, snapshot);
+  const disabled = isPreparing || isCreatingConversation || readOnly;
 
   const submit = () => {
     const current = text.trim();
-    if (!current || disabled) return;
-    setText('');
+    if (!current || disabled || isLoading) return;
     setComposerDraft(activeSessionId, '');
     void sendMessage(current);
   };
@@ -36,16 +38,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
     <ChatComposer
       value={text}
       onChange={(value) => {
-        setText(value);
         setComposerDraft(activeSessionId, value);
       }}
       onSubmit={submit}
       disabled={disabled}
+      canSend={!isLoading}
+      working={isLoading}
       placeholder={
         readOnly
           ? 'Start a new conversation to continue'
-          : isLoading
-          ? 'Respond to the prompt above…'
           : `Message ${agent?.name || 'Main'}...`
       }
       onAddContext={() => setActiveNav('library')}

@@ -1,10 +1,11 @@
 import React from 'react';
-import { CheckCheck } from 'lucide-react';
+import { LoaderCircle, TriangleAlert } from 'lucide-react';
 import type { ChatMessage } from '../types/chat';
 import { displayGatewayNotice } from '../services/errors';
 import { renderMediaDirectives } from '../services/media';
 import { chatApi } from '../services/api';
 import { MarkdownView } from './MarkdownView';
+import { CopyButton } from './CopyButton';
 
 interface ChatMessageItemProps {
   message: ChatMessage;
@@ -33,30 +34,30 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
 
   if (isUser) {
     return (
-      <div className="flex flex-col items-end w-full mb-4 select-text">
+      <div className="group/message flex min-w-0 flex-col items-end w-full mb-5 select-text" data-message-id={message.id}>
         <div
-          className="max-w-[75%] rounded-[22px] rounded-tr-[6px] bg-surface text-[14.5px] text-ink leading-relaxed px-4 py-2.5 shadow-[0_3px_10px_rgba(0,0,0,0.05)] border border-black/[0.035]"
+          className="min-w-0 max-w-[92%] sm:max-w-[85%] rounded-[22px] rounded-tr-[6px] bg-surface text-[14.5px] text-ink leading-relaxed px-4 py-2.5 shadow-xs border border-hair"
         >
           {renderedContent}
         </div>
 
-        {/* Timestamp beneath bubble with blue double checkmarks */}
-        <div className="flex items-center gap-1 mt-1.5 mr-2 text-[11px] text-faint">
-          <span>{timeString}</span>
-          <CheckCheck size={14} className="text-accent stroke-[2.5]" />
+        <div className="flex min-h-8 items-center gap-2 mt-1 mr-1 text-[11px] text-faint">
+          {message.status === 'sending' ? <span className="inline-flex items-center gap-1"><LoaderCircle size={12} className="animate-spin motion-reduce:animate-none" />In progress</span> : message.status === 'error' ? <span className="inline-flex items-center gap-1 text-bad"><TriangleAlert size={12} />Not confirmed</span> : null}
+          <time dateTime={Number.isNaN(Date.parse(message.timestamp)) ? undefined : message.timestamp} title={message.timestamp}>{timeString}</time>
+          <span className="transition-opacity md:opacity-0 md:group-hover/message:opacity-100 md:group-focus-within/message:opacity-100"><CopyButton text={content} compact /></span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col items-start w-full mb-4 select-text">
+    <div className="group/message flex min-w-0 flex-col items-start w-full mb-5 select-text" data-message-id={message.id}>
       {/* Who is answering matters when several members share one conversation. */}
       {message.sender && (
         <span className="mb-1 ml-2 text-[12px] font-semibold text-muted">{message.sender}</span>
       )}
       {/* Incoming Bubble without bot avatar */}
-      <div className="max-w-[82%] rounded-[22px] rounded-tl-[6px] bg-neutral text-[14.5px] text-code leading-relaxed px-4 py-2.5">
+      <div className="min-w-0 max-w-[96%] sm:max-w-[92%] rounded-[22px] rounded-tl-[6px] bg-neutral text-[14.5px] text-code leading-relaxed px-4 py-3">
         {renderedContent}
         {message.status === 'streaming' && (
           <span className="inline-block w-2 h-4 ml-1.5 bg-accent animate-pulse align-middle rounded-xs" />
@@ -64,11 +65,9 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
       </div>
 
       {/* Timestamp beneath bubble */}
-      {timeString && (
-        <div className="mt-1.5 ml-2 text-[11px] text-faint">
-          {timeString}
-        </div>
-      )}
+      <div className="mt-1 ml-1 flex min-h-8 items-center gap-2 text-[11px] text-faint"><time dateTime={Number.isNaN(Date.parse(message.timestamp)) ? undefined : message.timestamp} title={message.timestamp}>{timeString}</time>
+        {message.status === 'streaming' ? <span role="status" className="text-muted">Writing…</span> : <span className="transition-opacity md:opacity-0 md:group-hover/message:opacity-100 md:group-focus-within/message:opacity-100"><CopyButton text={content} compact /></span>}
+      </div>
     </div>
   );
 };

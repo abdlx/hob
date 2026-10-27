@@ -24,6 +24,7 @@ interface ChatContextValue {
   updateAgent: (partial: Partial<AgentProfile>) => Promise<void>; refresh: () => Promise<void>;
   clearError: () => void;
   getComposerDraft: (id: string) => string; setComposerDraft: (id: string, text: string) => void;
+  subscribeComposerDraft: (id: string, listener: () => void) => () => void;
 }
 const ChatContext = createContext<ChatContextValue | undefined>(undefined);
 const errorText = (error: unknown) => error instanceof Error ? displayGatewayNotice(error.message) : 'Unable to connect. Check gateway settings.';
@@ -84,6 +85,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [isCreatingConversation, setIsCreatingConversation] = useState(false);
   const getComposerDraft = useCallback((id: string) => workRef.current.draft(id), []);
   const setComposerDraft = useCallback((id: string, text: string) => workRef.current.setDraft(id, text), []);
+  const subscribeComposerDraft = useCallback((id: string, listener: () => void) => workRef.current.subscribeDraft(id, listener), []);
 
   const reconcileMessages = useCallback(async () => {
     const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1';
@@ -387,7 +389,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     catch (err) { if (chatApi.getProfile() === profile && viewEpochRef.current === epoch) setError(errorText(err)); throw err; }
   }, []);
 
-  return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, agents, selectAgent, tasks, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isBotsSidebarOpen, toggleBotsSidebar, setBotsSidebarOpen, isLoading, activeNav, error, connected, isPreparing, isCreatingConversation, activityFilter, setActivityFilter, groups, loadGroups, selectedGroupId, setSelectedGroupId, setActiveNav, sendMessage, selectSession, createNewSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, getComposerDraft, setComposerDraft, clearError: () => { operationErrorRef.current = false; workRef.current.clearError(sessionRef.current); setError(null); } }}>{children}</ChatContext.Provider>;
+  return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, agents, selectAgent, tasks, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isBotsSidebarOpen, toggleBotsSidebar, setBotsSidebarOpen, isLoading, activeNav, error, connected, isPreparing, isCreatingConversation, activityFilter, setActivityFilter, groups, loadGroups, selectedGroupId, setSelectedGroupId, setActiveNav, sendMessage, selectSession, createNewSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, getComposerDraft, setComposerDraft, subscribeComposerDraft, clearError: () => { operationErrorRef.current = false; workRef.current.clearError(sessionRef.current); setError(null); } }}>{children}</ChatContext.Provider>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

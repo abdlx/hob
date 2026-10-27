@@ -20,7 +20,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
 
   return (
     <header
-      className="hob-chat-header flex items-center justify-between px-3.5 sm:px-4 md:px-6 h-[78px] min-h-[78px] sm:h-[84px] sm:min-h-[84px] bg-transparent select-none shrink-0 border-none border-b-0 absolute top-0 left-0 right-0 z-20 pointer-events-none md:relative md:pointer-events-auto"
+      className="hob-chat-header relative flex items-center justify-between px-3.5 sm:px-4 md:px-6 h-[94px] min-h-[94px] md:h-[84px] md:min-h-[84px] bg-transparent select-none shrink-0 border-none border-b-0 z-20 pointer-events-none md:pointer-events-auto"
       style={{ background: 'transparent', backgroundColor: 'transparent', border: 'none', borderBottom: 'none', boxShadow: 'none' }}
     >
       {/* ========================================================
@@ -119,6 +119,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onBackToBots }) => {
         className="md:hidden absolute left-1/2 -translate-x-1/2 top-[19px] flex flex-col items-center cursor-pointer group z-20 pointer-events-auto"
         role="button"
         tabIndex={0}
+        onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleRightPanel(); } }}
         aria-label="Open agent details and activity"
       >
         {/* Avatar is in FRONT (z-20) and top edge lines up with left & right buttons; external circle and status dot removed */}

@@ -14,13 +14,23 @@ export class ConversationWork {
   private errors = new Map<string, string>();
   private versions = new Map<string, number>();
   private drafts = new Map<string, string>();
+  private draftListeners = new Map<string, Set<() => void>>();
 
   busy(sessionId: string) { return this.active.has(sessionId); }
   version(sessionId: string) { return this.versions.get(sessionId) || 0; }
   error(sessionId: string) { return this.errors.get(sessionId) || null; }
   clearError(sessionId: string) { this.errors.delete(sessionId); }
   draft(sessionId: string) { return this.drafts.get(sessionId) || ''; }
-  setDraft(sessionId: string, text: string) { if (text) this.drafts.set(sessionId, text); else this.drafts.delete(sessionId); }
+  setDraft(sessionId: string, text: string) {
+    if (this.draft(sessionId) === text) return;
+    if (text) this.drafts.set(sessionId, text); else this.drafts.delete(sessionId);
+    for (const listener of this.draftListeners.get(sessionId) || []) listener();
+  }
+  subscribeDraft(sessionId: string, listener: () => void) {
+    const listeners = this.draftListeners.get(sessionId) || new Set<() => void>();
+    listeners.add(listener); this.draftListeners.set(sessionId, listeners);
+    return () => { listeners.delete(listener); if (!listeners.size) this.draftListeners.delete(sessionId); };
+  }
 
   begin(profile: string, sessionId: string, content: string, userId: string, replyId: string, timestamp: string, history: ChatMessage[]) {
     if (this.active.has(sessionId)) throw new Error('This conversation already has a response in progress.');

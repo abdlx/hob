@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, CalendarClock, Check, FolderOpen, MessageCircle, MoonStar, ShieldAlert, X } from 'lucide-react';
+import { Fragment, useState } from 'react';
+import { ArrowDown, ArrowUpRight, CalendarClock, Check, FolderOpen, MessageCircle, MoonStar, ShieldAlert, X } from 'lucide-react';
 import { useChat } from '../context/ChatContext';
 import { ChatMessageItem } from './ChatMessageItem';
 import { HermesRunPanel } from './HermesRunPanel';
@@ -8,6 +8,7 @@ import { BotExchangeHistory, BotExchangeNotice } from './BotExchanges';
 import { useRuntime } from '../context/RuntimeContext';
 import { errorText } from './workspaceUtils';
 import type { SecurityApproval } from '../types/chat';
+import { useConversationScroll } from '../hooks/useConversationScroll';
 
 function InlineApprovalPrompt() {
   const { approvals, resolveApproval } = useChat();
@@ -103,20 +104,8 @@ export function ChatMessageList() {
     ...exchanges.rows.map(exchange => ({ id: exchange.id, at: exchange.createdAt, node: <BotExchangeNotice exchange={exchange} profile={agent!.id} /> })),
   ].sort((left, right) => left.at - right.at);
   const day = (at: number) => at ? new Date(at).toLocaleDateString() : '';
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const initial = useRef(true);
-
-  useEffect(() => {
-    if (initial.current) {
-      initial.current = false;
-      return;
-    }
-    if (messages.length) {
-      bottomRef.current?.scrollIntoView({
-        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
-      });
-    }
-  }, [messages, isLoading]);
+  const submission = messages.findLast(message => message.role === 'user' && message.status === 'sending')?.id;
+  const { viewport: viewportRef, content: contentRef, onScroll, away, latest } = useConversationScroll(activeSessionId, messages, submission);
 
   const shortcuts = [
     {
@@ -140,8 +129,10 @@ export function ChatMessageList() {
   ];
 
   return (
-    <div className="hob-conversation flex-1 min-h-0 overflow-y-auto px-4 md:px-6 pt-[88px] md:pt-0 pb-2 bg-transparent">
+    <div className="relative flex-1 min-h-0">
+    <div ref={viewportRef} onScroll={onScroll} role="region" aria-label="Conversation messages" tabIndex={0} className="hob-conversation h-full min-h-0 overflow-y-auto overscroll-contain px-4 md:px-6 pb-10 bg-transparent [overflow-anchor:none]">
       <div
+        ref={contentRef}
         className={`w-full max-w-[840px] mx-auto flex flex-col min-h-full ${
           visibleMessages.length || exchanges.rows.length ? 'justify-start pt-4' : 'justify-center'
         }`}
@@ -209,8 +200,10 @@ export function ChatMessageList() {
           </div>
         )}
 
-        <div ref={bottomRef} className="h-1 shrink-0" />
+        <div className="h-1 shrink-0" />
       </div>
+    </div>
+    {away && <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center"><button type="button" onClick={latest} className="pointer-events-auto inline-flex min-h-10 items-center gap-2 rounded-full border border-edge bg-surface px-4 text-xs font-medium text-ink shadow-md hover:bg-hover cursor-pointer"><ArrowDown size={15} />Latest messages</button></div>}
     </div>
   );
 }

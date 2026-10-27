@@ -285,11 +285,6 @@ textarea:focus-visible {
 }
 
 .hob-markdown-view pre {
-  background: var(--color-surface);
-  border: 1px solid var(--color-hair);
-  border-radius: 14px;
-  padding: 12px;
-  margin: 8px 0;
   overflow-x: auto;
 }
 

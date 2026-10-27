@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { Plus, ArrowUp, Mic } from 'lucide-react';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { FolderOpen, ArrowUp, LoaderCircle } from 'lucide-react';
 import { MobileDock } from './MobileDock';
 
 export interface ChatComposerProps {
@@ -10,6 +10,7 @@ export interface ChatComposerProps {
   disabled?: boolean;
   /** Blocks submission while typing stays available (e.g. work already in flight). */
   canSend?: boolean;
+  working?: boolean;
   placeholder?: string;
   onAddContext?: () => void;
   onNavigateBots?: () => void;
@@ -23,22 +24,25 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   onSubmit,
   disabled = false,
   canSend = true,
+  working = false,
   placeholder = 'Message...',
   onAddContext,
   onNavigateBots,
   showMobileDock = true,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [focused, setFocused] = useState(false);
+  const hint = useId();
 
   useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
     if (!value) {
-      textarea.style.height = '';
-      return;
+      textarea.style.height = '24px';
+    } else {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
     }
-    textarea.style.height = 'auto';
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 140)}px`;
   }, [value]);
 
   const submit = (event?: React.FormEvent) => {
@@ -48,63 +52,56 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   };
 
   return (
-    <div className="hob-composer w-full px-3 sm:px-4 md:px-6 pb-2.5 md:pb-6 pt-1 bg-transparent shrink-0 flex flex-col items-center gap-2 select-none">
-      <form onSubmit={submit} className="w-full max-w-[840px] flex items-center justify-center">
-        {/* Floating Pill Prompt Box with Plus, Input, Mic, and Send inside */}
-        <div className="w-full min-h-[48px] sm:min-h-[52px] rounded-full bg-surface/95 backdrop-blur-md border border-[rgba(0,0,0,0.08)] pl-2 sm:pl-2.5 pr-1.5 sm:pr-2 py-1 sm:py-1.5 flex items-center gap-1.5 sm:gap-2 shadow-[0_4px_16px_rgba(0,0,0,0.06)] hover:shadow-[0_6px_20px_rgba(0,0,0,0.08)] transition-all outline-none focus:outline-none focus-within:outline-none ring-0 focus:ring-0 focus-within:ring-0">
+    <div className="hob-composer w-full px-3 sm:px-4 md:px-6 pt-2 bg-canvas shrink-0 flex flex-col items-center gap-2 select-none" style={{ paddingBottom: showMobileDock && !focused ? 10 : 'max(10px, env(safe-area-inset-bottom))' }}>
+      <form aria-label="Message composer" onSubmit={submit} className="w-full max-w-[840px]">
+        <div className="w-full min-h-14 rounded-[26px] bg-surface border border-edge px-2 py-2 flex items-end gap-2 shadow-[0_3px_14px_rgba(0,0,0,0.04)] transition-colors focus-within:border-accent-line focus-within:shadow-[0_0_0_3px_var(--color-accent-soft)]">
           {onAddContext && (
             <button
               type="button"
-              title="Add context / Open library"
-              aria-label="Add context"
+              title="Open file library"
+              aria-label="Open file library"
               onClick={onAddContext}
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-transparent hover:bg-sunken text-code transition-colors shrink-0 cursor-pointer flex items-center justify-center outline-none focus:outline-none"
+              className="w-10 h-10 rounded-full bg-transparent hover:bg-sunken text-muted transition-colors shrink-0 cursor-pointer flex items-center justify-center"
             >
-              <Plus size={18} strokeWidth={2.2} />
+              <FolderOpen size={18} strokeWidth={1.8} />
             </button>
           )}
 
           <textarea
             aria-label="Message"
+            aria-describedby={hint}
             ref={textareaRef}
             rows={1}
             value={value}
             onChange={(event) => onChange(event.target.value)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229 && !window.matchMedia('(pointer: coarse)').matches) {
                 event.preventDefault();
                 submit();
               }
             }}
             placeholder={placeholder}
             disabled={disabled}
-            className="flex-1 bg-transparent text-ink placeholder-faint text-[14px] md:text-[15px] outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 border-none shadow-none resize-none p-0 m-0 min-h-[24px] max-h-[140px] leading-[24px] text-left"
+            className="min-w-0 flex-1 bg-transparent text-ink placeholder-faint text-base md:text-[15px] outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 border-none shadow-none resize-none py-2 px-0 m-0 min-h-10 max-h-40 leading-6 text-left disabled:opacity-60"
           />
 
-          {/* Right Controls inside prompt box: Mic and Send */}
-          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-            <button
-              type="button"
-              title="Voice input"
-              aria-label="Voice input"
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-transparent hover:bg-sunken text-code transition-colors shrink-0 cursor-pointer flex items-center justify-center"
-            >
-              <Mic size={17} strokeWidth={1.8} />
-            </button>
-
+          <div className="flex items-center shrink-0">
             <button
               type="submit"
-              aria-label="Send message"
+              aria-label={working ? 'Waiting for current reply' : 'Send message'}
+              title={working ? 'You can draft while your bot works' : 'Send message'}
               disabled={disabled || !canSend || !value.trim()}
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-accent hover:bg-accent-strong text-white flex items-center justify-center transition-all cursor-pointer shrink-0 disabled:opacity-40 disabled:hover:bg-accent shadow-xs active:scale-95"
+              className="w-10 h-10 rounded-full bg-ink hover:opacity-85 text-canvas flex items-center justify-center transition-colors cursor-pointer shrink-0 disabled:opacity-30 shadow-xs active:scale-95"
             >
-              <ArrowUp size={17} strokeWidth={2.4} />
+              {working ? <LoaderCircle size={18} className="animate-spin motion-reduce:animate-none" /> : <ArrowUp size={19} strokeWidth={2.2} />}
             </button>
           </div>
         </div>
       </form>
-
-      {showMobileDock && <MobileDock currentMobileView="chat" onNavigateBots={onNavigateBots} />}
+      <div id={hint} className="flex min-h-4 w-full max-w-[840px] items-center justify-between gap-2 px-2 text-[10px] text-muted"><span>{working ? 'Your bot is working. Keep drafting while you wait.' : <span className="hidden md:inline">Enter to send · Shift + Enter for a new line</span>}</span>{focused && <button type="button" onClick={() => textareaRef.current?.blur()} className="px-2 py-1 text-xs text-accent md:hidden cursor-pointer">Done</button>}</div>
+      {showMobileDock && <div className={focused ? 'hidden md:contents' : 'contents'}><MobileDock currentMobileView="chat" onNavigateBots={onNavigateBots} /></div>}
     </div>
   );
 };

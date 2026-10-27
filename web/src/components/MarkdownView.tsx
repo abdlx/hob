@@ -1,26 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { isSafeImageSource } from '../services/media';
-
-function ChatImage({ src, alt }: { src: string; alt: string }) {
-  const [failedSource, setFailedSource] = useState<string | null>(null);
-  if (failedSource === src) return <span className="text-xs text-muted">{alt || 'Image'} is unavailable.</span>;
-  const image = (
-    <img
-      src={src}
-      alt={alt || 'Attached image'}
-      loading="lazy"
-      decoding="async"
-      referrerPolicy="no-referrer"
-      onError={() => setFailedSource(src)}
-      className="my-2 block max-h-[420px] max-w-full rounded-2xl border border-hair bg-canvas object-contain md:max-h-[520px]"
-    />
-  );
-  return /^data:/i.test(src) ? image : (
-    <a href={src} target="_blank" rel="noreferrer" className="inline-block max-w-full" title="Open image">
-      {image}
-    </a>
-  );
-}
+import { ChatImage } from './ChatImage';
+import { CopyButton } from './CopyButton';
 
 function inline(text: string): React.ReactNode[] {
   return text.split(/(\*\*[^*]+\*\*|`[^`]+`|!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\)|\*[^*]+\*)/g).map((part, index) => {
@@ -49,9 +30,9 @@ export function MarkdownView({ content }: { content: string }) {
       index++;
       while (index < lines.length && !lines[index].startsWith('```')) code.push(lines[index++]);
       blocks.push(
-        <div key={index} className="my-3">
-          {language && <div className="text-xs text-muted mb-1 font-mono">{language}</div>}
-          <pre className="overflow-x-auto rounded-[16px] border border-hair bg-canvas p-3.5 text-xs md:text-sm font-mono leading-relaxed text-ink">
+        <div key={index} className="my-3 min-w-0 overflow-hidden rounded-2xl border border-hair bg-canvas">
+          <div className="flex items-center justify-between gap-3 border-b border-line bg-panel px-3 py-1"><span className="truncate font-mono text-[11px] text-muted">{language.trim() || 'Plain text'}</span><CopyButton text={code.join('\n')} label="Copy code" /></div>
+          <pre tabIndex={0} aria-label={language.trim() ? `${language.trim()} code` : 'Code block'} className="max-w-full overflow-x-auto p-3.5 text-xs md:text-sm font-mono leading-relaxed text-ink">
             <code>{code.join('\n')}</code>
           </pre>
         </div>
@@ -84,7 +65,7 @@ export function MarkdownView({ content }: { content: string }) {
       index += 2;
       while (index < lines.length && lines[index].includes('|')) rows.push(cells(lines[index++]));
       blocks.push(
-        <div key={index} className="overflow-x-auto my-3">
+        <div key={index} tabIndex={0} role="region" aria-label="Table" className="max-w-full overflow-x-auto rounded-xl border border-hair my-3">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr>
@@ -124,5 +105,5 @@ export function MarkdownView({ content }: { content: string }) {
     index++;
   }
 
-  return <article className="text-[14.5px] leading-relaxed text-code select-text">{blocks}</article>;
+  return <article className="hob-markdown-view min-w-0 max-w-full text-[14.5px] leading-[1.7] text-code select-text">{blocks}</article>;
 }

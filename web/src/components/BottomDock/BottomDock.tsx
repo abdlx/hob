@@ -375,11 +375,18 @@ export const BottomDock: React.FC<BottomDockProps> = ({
   }, [stepPhysics]);
 
   const startPhysics = useCallback(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const p = physicsRef.current;
+      p.x = p.targetX; p.vx = 0;
+      if (indicatorRef.current) indicatorRef.current.style.transform = `translate3d(${p.targetX}px, 0, 0)`;
+      setPillActiveState(false);
+      return;
+    }
     if (rafIdRef.current === null) {
       lastTimeRef.current = performance.now();
       rafIdRef.current = requestAnimationFrame((t) => stepPhysicsRef.current(t));
     }
-  }, []);
+  }, [setPillActiveState]);
 
   const snapToTarget = useCallback(
     (targetId: string, withImpulse = true) => {
@@ -642,6 +649,7 @@ export const BottomDock: React.FC<BottomDockProps> = ({
                   >
                     {iconNode}
                   </span>
+                  <span className="bottomDockItemLabel">{item.label}</span>
                 </button>
               );
             })}
