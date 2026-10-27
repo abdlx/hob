@@ -222,6 +222,7 @@ try {
   assert.equal(JSON.parse(seccomp.slice('seccomp='.length)).defaultAction, 'SCMP_ACT_ERRNO');
   assert.ok(!hardening.Binds?.some(item => item.includes('docker.sock')));
   console.log('Hardening, capabilities, seccomp and the absence of a Docker socket are verified.');
+  if (usersIsolation) console.log(docker(['exec', container, '/usr/bin/python3', '/app/deploy/isolation-acl-test.py'], 15000));
   probeIsolationAccess(container);
   probeChromiumSandbox(container);
   probeRuntimeState(container);

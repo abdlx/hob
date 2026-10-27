@@ -105,7 +105,7 @@ def directory_at(parent_fd, name, owner, gid, *, create=True):
 
 
 def acl(fd, *entries, default=False):
-    run(["/usr/bin/setfacl", "-m", ",".join(entries), *( ["-d"] if default else [] ), f"/proc/{os.getpid()}/fd/{fd}"])
+    run(["/usr/bin/setfacl", *( ["-d"] if default else [] ), "-m", ",".join(entries), f"/proc/{os.getpid()}/fd/{fd}"])
 
 
 def migrate_tree(fd, bot_uid, operator_uid, operator_gid):
