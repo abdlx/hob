@@ -134,7 +134,7 @@ export function ChatMessageList() {
       <div
         ref={contentRef}
         className={`w-full max-w-[840px] mx-auto flex flex-col min-h-full ${
-          visibleMessages.length || exchanges.rows.length ? 'justify-start pt-4' : 'justify-center'
+          visibleMessages.length || exchanges.rows.length ? 'justify-start pt-[88px] md:pt-4' : 'justify-center pt-[88px] md:pt-0'
         }`}
       >
         {visibleMessages.length === 0 && exchanges.rows.length === 0 && (
