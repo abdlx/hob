@@ -12,7 +12,7 @@ async function fixture(t) {
   await mkdir(path.join(home, 'profiles', 'writer'), { recursive: true });
   await writeFile(path.join(home, '.env'), 'native-owned-test-state');
   const secret = 'private-synthetic-provider-key', calls = [], active = new Set(['default', 'writer']);
-  const env = { default: { OPENROUTER_API_KEY: { is_set: true, redacted_value: 'private-prefix' }, HOB_SECRET: { is_set: true }, SEARCH_API_KEY: { is_set: true } }, writer: {} };
+  const env = { default: { OPENROUTER_API_KEY: { is_set: true, redacted_value: 'private-prefix', provider: 'openrouter', provider_label: 'OpenRouter', is_password: true }, HOB_SECRET: { is_set: true }, SEARCH_API_KEY: { is_set: true } }, writer: {} };
   const state = { probe: { ok: true, reachable: true, message: secret }, fail: '', revealKey: 'OPENROUTER_API_KEY' };
   const client = {
     async credentialBinding(profile) { if (!active.has(profile)) throw Object.assign(new Error('Removed bot'), { status: 404 }); },
@@ -22,7 +22,7 @@ async function fixture(t) {
       if (state.fail === `${profile}:${route}`) throw new Error(secret);
       if (route === '/api/env' && method === 'GET') return env[profile];
       if (route === '/api/model/options') return { providers: [
-        { slug: 'openrouter', name: 'OpenRouter', key_env: 'OPENROUTER_API_KEY', authenticated: true },
+        { slug: 'openrouter', name: 'OpenRouter', ...(profile === 'writer' ? { key_env: 'OPENROUTER_API_KEY' } : {}), authenticated: profile === 'default' },
         { slug: 'managed', key_env: 'HOB_SECRET' }, { slug: 'oauth', authenticated: true },
       ] };
       if (route === '/api/env/reveal') { await state.onReveal?.(); return { key: state.revealKey, value: secret }; }

@@ -140,7 +140,8 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
     const savedProviders = await api('/api/hermes/saved-providers?profile=smoke-bot', 'GET', undefined, 'smoke-bot');
     const savedProvider = savedProviders.connections.find(row => row.provider === 'openrouter' && row.sourceProfile === 'default');
     check('native saved provider discovery hides keys and separates saved from verified', Boolean(savedProvider) && savedProvider.configured === false
-      && savedProvider.verifiedAt === null && !JSON.stringify(savedProviders).includes(providerKey));
+      && savedProvider.verifiedAt === null && !JSON.stringify(savedProviders).includes(providerKey),
+    JSON.stringify({ connections: savedProviders.connections.map(row => ({ provider: row.provider, source: row.sourceProfile, configured: row.configured, verified: Boolean(row.verifiedAt) })), unavailable: savedProviders.unavailableProfiles }));
     await api('/api/hermes/saved-providers?profile=smoke-bot', 'POST', { id: savedProvider.id, action: 'connect' }, 'smoke-bot');
     const afterConnect = await api('/api/hermes/config?profile=smoke-bot', 'GET', undefined, 'smoke-bot');
     check('native key reuse configures the target without changing its selected model',

@@ -28,15 +28,29 @@ export function createSavedProviders(client, bots, { home, managedEnv }) {
       client.dashboard('/api/model/options', { profile, query: { include_unconfigured: true, explicit_only: true } }),
     ]);
     if (!env || typeof env !== 'object' || !Array.isArray(catalog.providers)) throw new HermesError(502, 'Hermes returned an invalid provider inventory.', 'HERMES_PROTOCOL_ERROR');
-    const rows = [];
+    const rows = [], seen = new Set();
+    const add = (key, provider, name) => {
+      if (!keyName(key) || managedEnv.test(key) || /^HERMES_CUSTOM_/.test(key)
+        || typeof provider !== 'string' || !/^[a-z][a-z0-9_-]{0,127}$/.test(provider)
+        || env[key]?.is_set !== true || env[key]?.is_password === false) return;
+      const id = idFor(profile, provider, key);
+      if (seen.has(id)) return;
+      seen.add(id);
+      rows.push({ id, provider, name: String(name || provider).slice(0, 128), key, sourceProfile: profile });
+    };
+    // The native picker only supplies key_env on unconfigured skeletons. Once
+    // a provider is configured that hint disappears; /api/env owns credential
+    // membership, including aliases shared by several provider identities.
+    for (const [key, metadata] of Object.entries(env)) {
+      if (metadata?.provider) add(key, metadata.provider, metadata.provider_label);
+      for (const identity of Array.isArray(metadata?.provider_profiles) ? metadata.provider_profiles : []) {
+        add(key, identity.provider, identity.provider_label);
+      }
+    }
     for (const provider of catalog.providers) {
       // OAuth accounts and custom endpoint definitions need their native setup
       // flows; copying their bare env values would create a broken connection.
-      const key = provider.key_env;
-      if (!keyName(key) || managedEnv.test(key) || /^HERMES_CUSTOM_/.test(key)
-        || typeof provider.slug !== 'string' || !provider.slug || !env[key]?.is_set) continue;
-      rows.push({ id: idFor(profile, provider.slug, key), provider: provider.slug,
-        name: String(provider.name || provider.slug).slice(0, 128), key, sourceProfile: profile });
+      add(provider.key_env, provider.slug, provider.name);
     }
     return { rows, env };
   }
