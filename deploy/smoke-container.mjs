@@ -251,7 +251,8 @@ try {
   console.log('Actual image first boot passed ' + smoke.checks.length + ' authenticated native checks.');
   compose('up', '-d', '--no-build', '--pull', 'never', '--force-recreate', '--wait', '--wait-timeout', '300');
   await ready();
-  assert.notEqual(compose('ps', '--quiet', 'muse'), container, 'Recreation must replace the container.');
+  appContainer = compose('ps', '--quiet', 'muse');
+  assert.notEqual(appContainer, container, 'Recreation must replace the container.');
   await smoke.afterRestart(saved);
   verifyRuntimeUsers(compose('ps', '--quiet', 'muse'));
   if (usersIsolation) console.log('OS isolation after recreation: ' + docker(['exec', compose('ps', '--quiet', 'muse'), '/usr/bin/python3', '/app/deploy/isolation-proof.py'], 120000));
