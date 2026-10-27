@@ -133,9 +133,10 @@ profile isolation, groups and recovery against copied state, then deploy. Keep a
 matching state backup for rollback; an older runtime may not read upgraded state.
 
 The local reference snapshot has not been proven identical to the runtime image.
-The [Coolify image first run workflow](https://github.com/abdlx/hob/actions/runs/39036456635)
-passed at `1dd39956`, including an image build and 33 authenticated/native checks
-across container recreation using a deterministic model fixture. It verifies
+The [Coolify image first run workflow](https://github.com/abdlx/hob/actions/runs/40377004694)
+passed at `e66b05cd`, including image build, native relay/worker/coordinator execution,
+a fired heartbeat and retained state across container recreation using a deterministic
+model fixture. It verifies
 hardening configuration, native session/tool execution and persisted state.
 Service UID checks verify the supervisor, web server, gateway and settings service
 are unprivileged before and after recreation. The isolated Chromium probe
