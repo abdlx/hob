@@ -21,7 +21,9 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
     signal: AbortSignal.timeout(120000),
   });
   const api = async (path, method, value, profile) => {
-    const response = await request(path, method, value, profile);
+    let response;
+    try { response = await request(path, method, value, profile); }
+    catch (error) { throw new Error(`${method || 'GET'} ${path.split('?')[0]} transport failed (${error.name}).`, { cause: error }); }
     assert.ok(response.ok, (method || 'GET') + ' ' + path + ' returned ' + response.status);
     return response.json();
   };

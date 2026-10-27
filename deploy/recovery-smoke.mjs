@@ -4,6 +4,7 @@ import { SMOKE_RECOVERY_PROMPT, SMOKE_RECOVERY_REPLY, SMOKE_RECOVERY_RESUME } fr
 
 /** Crash only the caller's disposable image after a provider has accepted a turn. */
 export async function verifyActiveCrashRecovery({ api, request, retry, check, fixture, crash }) {
+  console.log('Active crash recovery: creating the disposable native conversation.');
   const conversation = await api('/api/sessions', 'POST', { title: 'Disposable active-crash proof', agentId: 'default' });
   const path = '/api/sessions/' + encodeURIComponent(conversation.id);
   const requestKey = randomUUID();
@@ -14,9 +15,11 @@ export async function verifyActiveCrashRecovery({ api, request, retry, check, fi
     const state = await fixture('/smoke/recovery');
     assert.equal(state.requests, 1); assert.equal(state.held, 1);
   }, 30000);
+  console.log('Active crash recovery: the provider is holding the admitted request.');
   const before = (await api(path + '/run')).run;
   check('the crash probe interrupts an actually running native admission', before?.status === 'running' && Boolean(before.runId));
   await crash();
+  console.log('Active crash recovery: the container was killed and replaced.');
   await retry('the native authority after the active crash', async () => { assert.equal((await api('/api/readiness')).ready, true); });
   const run = await retry('the interrupted admission receipt', async () => {
     const result = (await api(path + '/run')).run;
@@ -25,6 +28,7 @@ export async function verifyActiveCrashRecovery({ api, request, retry, check, fi
     assert.equal(result.canResolveUnknown, true);
     return result;
   }, 30000);
+  console.log('Active crash recovery: the original admission is fenced as unknown.');
   check('an interrupted model call retains its native admission and unknown-work fence', true);
   const history = await api(path + '/messages');
   check('an interrupted model call never invents a successful reply', !history.some(row => row.role === 'assistant' && row.content.includes(SMOKE_RECOVERY_REPLY)));
@@ -34,9 +38,11 @@ export async function verifyActiveCrashRecovery({ api, request, retry, check, fi
   await fixture('/smoke/recovery/release', 'POST');
   check('recovery observes the interrupted input without calling the provider again', (await fixture('/smoke/recovery')).requests === 1);
   await api(path + '/resolve-unknown', 'POST', { expectedRevision: run.revision, confirmReviewed: true });
+  console.log('Active crash recovery: explicit review resolved the interrupted admission.');
   check('explicit side-effect review resolves the unknown native admission', (await api(path + '/run')).run?.status === 'interrupted');
   const resumed = await request(path + '/turns', 'POST', { content: SMOKE_RECOVERY_RESUME, idempotencyKey: randomUUID() });
   const result = await resumed.text();
+  console.log('Active crash recovery: the fresh reviewed turn returned.');
   check('a fresh reviewed turn works after crash recovery', resumed.ok && result.includes('event: done') && result.includes(SMOKE_RECOVERY_RESUME) && !result.includes('event: error'));
   check('reviewed recovery never resends the original input', (await fixture('/smoke/recovery')).requests === 1);
   await stream;
