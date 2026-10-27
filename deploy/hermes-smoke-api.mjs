@@ -132,6 +132,7 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       // entry. Declare native routing for this probe; production keeps Hermes'
       // capability-aware default rather than forcing images into text models.
       await api('/api/hermes/config', 'PUT', { config: { agent: { image_input_mode: 'native' } } });
+      check('the owned vision probe explicitly selects native image routing', (await api('/api/hermes/config')).agent?.image_input_mode === 'native');
       const mediaConversation = await api('/api/sessions', 'POST', { title: 'Native attachment proof', agentId: 'default' });
       const upload = (name, mime, base64) => api(session(mediaConversation.id, '/attachments'), 'POST', { name, mime, base64 });
       const photo = await upload('proof.png', 'image/png', 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jq1sAAAAASUVORK5CYII=');
