@@ -48,13 +48,13 @@ function completion(res, input, message) {
 export function createSmokeModel({ file = defaultFile() } = {}) {
   const mcp = createMcpOAuthFixture({ baseUrl: process.env.HOB_SMOKE_MCP_BASE });
   const held = new Map();
-  let recoveryRequests = 0, recoveryReleased = false;
+  let recoveryRequests = 0, recoveryReleased = false, resumedRequests = 0;
   return createServer(async (req, res) => {
     if (await mcp(req, res)) return;
     const json = (status, value) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
     if (req.method === 'GET' && req.url === '/healthz') return json(200, { fixture: true });
     // Test-only controls on this disposable private-network provider, never app routes.
-    if (req.method === 'GET' && req.url === '/smoke/recovery') return json(200, { requests: recoveryRequests, held: held.size, released: recoveryReleased });
+    if (req.method === 'GET' && req.url === '/smoke/recovery') return json(200, { requests: recoveryRequests, held: held.size, released: recoveryReleased, resumedRequests });
     if (req.method === 'POST' && req.url === '/smoke/recovery/release') {
       recoveryReleased = true;
       for (const [response, input] of held) completion(response, input, { role: 'assistant', content: SMOKE_RECOVERY_REPLY });
@@ -92,7 +92,7 @@ export function createSmokeModel({ file = defaultFile() } = {}) {
         res.once('close', () => held.delete(res));
         return;
       }
-      if (latestText.includes(SMOKE_RECOVERY_RESUME)) { tool = null; content = SMOKE_RECOVERY_RESUME; }
+      if (latestText.includes(SMOKE_RECOVERY_RESUME)) { resumedRequests++; tool = null; content = SMOKE_RECOVERY_RESUME; }
       if (latestText.includes(SMOKE_RELAY_PROMPT)) {
         const result = input.messages.findLast(item => item.role === 'tool' && item.tool_call_id === 'hob-smoke-relay');
         tool = !result && input.tools?.some(item => item.function?.name === 'terminal') ? [{ id: 'hob-smoke-relay', type: 'function', function: {

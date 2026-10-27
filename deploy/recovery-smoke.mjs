@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { SMOKE_RECOVERY_PROMPT, SMOKE_RECOVERY_REPLY, SMOKE_RECOVERY_RESUME } from './smoke-model.mjs';
 
 /** Crash only the caller's disposable image after a provider has accepted a turn. */
@@ -41,7 +42,19 @@ export async function verifyActiveCrashRecovery({ api, request, retry, check, fi
   console.log('Active crash recovery: explicit review resolved the interrupted admission.');
   check('explicit side-effect review resolves the unknown native admission', (await api(path + '/run')).run?.status === 'interrupted');
   const resumed = await request(path + '/turns', 'POST', { content: SMOKE_RECOVERY_RESUME, idempotencyKey: randomUUID() });
-  const result = await resumed.text();
+  console.log('Active crash recovery: the fresh turn returned HTTP ' + resumed.status + '.');
+  const reading = resumed.text();
+  const deadline = new AbortController();
+  // Keep diagnostics bounded to public states and fixture counters. No model
+  // input, credentials, native settings or runtime logs are printed.
+  let result;
+  try { result = await Promise.race([reading, (async () => {
+    await delay(30000, undefined, { signal: deadline.signal });
+    const [state, observed] = await Promise.all([fixture('/smoke/recovery'), api(path + '/run')]);
+    throw new Error('Fresh recovery turn did not finish: ' + JSON.stringify({
+      fixture: state, status: observed.run?.status, canResolveUnknown: observed.run?.canResolveUnknown,
+    }));
+  })()]); } finally { deadline.abort(); }
   console.log('Active crash recovery: the fresh reviewed turn returned.');
   check('a fresh reviewed turn works after crash recovery', resumed.ok && result.includes('event: done') && result.includes(SMOKE_RECOVERY_RESUME) && !result.includes('event: error'));
   check('reviewed recovery never resends the original input', (await fixture('/smoke/recovery')).requests === 1);

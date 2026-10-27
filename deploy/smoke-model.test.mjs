@@ -57,11 +57,11 @@ test('the crash fixture holds a real provider response and counts retries withou
     if (state.held === 1) break;
     await new Promise(resolve => setTimeout(resolve, 10));
   }
-  assert.deepEqual(await (await fetch(origin + '/smoke/recovery')).json(), { requests: 1, held: 1, released: false });
+  assert.deepEqual(await (await fetch(origin + '/smoke/recovery')).json(), { requests: 1, held: 1, released: false, resumedRequests: 0 });
   controller.abort();
   assert.equal(await interrupted, 'aborted');
   await fetch(origin + '/smoke/recovery/release', { method: 'POST' });
   assert.match(await (await call(SMOKE_RECOVERY_PROMPT)).text(), new RegExp(SMOKE_RECOVERY_REPLY));
   assert.match(await (await call(SMOKE_RECOVERY_RESUME)).text(), new RegExp(SMOKE_RECOVERY_RESUME));
-  assert.deepEqual(await (await fetch(origin + '/smoke/recovery')).json(), { requests: 2, held: 0, released: true });
+  assert.deepEqual(await (await fetch(origin + '/smoke/recovery')).json(), { requests: 2, held: 0, released: true, resumedRequests: 1 });
 });
