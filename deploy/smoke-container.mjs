@@ -124,6 +124,27 @@ function reportContainerState() {
     console.error('Container diagnostic: Docker state inspection was unavailable.');
   }
 }
+function probeIsolationAccess(container) {
+  if (!usersIsolation) return;
+  const script = `import json, os, pwd, subprocess
+from pathlib import Path
+base=Path('/var/lib/hob-isolation')
+for target in [Path('/var'),Path('/var/lib'),base,base/'workspaces',base/'workspaces/main']:
+ try:
+  info=target.stat()
+  print(json.dumps({'path':str(target),'mode':oct(info.st_mode & 0o777),'uid':info.st_uid,'gid':info.st_gid,'acl':subprocess.run(['/usr/bin/getfacl','-cpn',str(target)],capture_output=True,text=True).stdout}))
+ except FileNotFoundError: print('not yet created: '+str(target))
+try:
+ data=json.loads((base/'users.json').read_text())
+ for name,row in data['bots'].items():
+  uid=row['uid']
+  print(json.dumps({'profile':name,'uid':uid,'access':subprocess.run(['/usr/bin/python3','-c',"import os,json;print(json.dumps({'uid':os.getuid(),'traverse':os.access('/var/lib/hob-isolation/workspaces/main',os.X_OK)}))"],user=uid,group=uid,extra_groups=[],capture_output=True,text=True).stdout}))
+except FileNotFoundError: print('principals not yet assigned')
+`;
+  try { console.log('Isolation filesystem diagnostic: ' + docker(['exec', container, '/usr/bin/python3', '-c', script], 30000)); }
+  catch { console.log('Isolation filesystem diagnostic unavailable.'); }
+}
+
 function probeChromiumSandbox(container) {
   // docker exec starts with the image's root HOME. Match the upstream main
   // wrapper's runtime HOME as well as its user; a UID-only switch leaves
@@ -201,6 +222,7 @@ try {
   assert.equal(JSON.parse(seccomp.slice('seccomp='.length)).defaultAction, 'SCMP_ACT_ERRNO');
   assert.ok(!hardening.Binds?.some(item => item.includes('docker.sock')));
   console.log('Hardening, capabilities, seccomp and the absence of a Docker socket are verified.');
+  probeIsolationAccess(container);
   probeChromiumSandbox(container);
   probeRuntimeState(container);
   const unauthorized = await fetch(origin + '/api/sessions', { headers: { Connection: 'close' }, signal: AbortSignal.timeout(10000) });
@@ -229,7 +251,7 @@ try {
   else console.log('The synthetic provider tier was disabled (MUSE_SMOKE_PROVIDER=0); no model turn was claimed.');
 } catch (error) {
   runError = error;
-  if (started) { reportContainerState(); if (appContainer) probeRuntimeState(appContainer); }
+  if (started) { reportContainerState(); if (appContainer) { probeRuntimeState(appContainer); probeIsolationAccess(appContainer); } }
   throw error;
 } finally {
   // Only this freshly generated Compose project and its test volume are removed.
