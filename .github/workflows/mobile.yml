@@ -60,7 +60,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npx expo prebuild --no-install --platform android
       - name: Install the pinned React Native SDK and NDK
-        run: sdkmanager 'platforms;android-37' 'build-tools;37.0.0' 'ndk;27.1.12297006'
+        run: sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0' 'ndk;27.1.12297006'
       - name: Compile an installable phone preview
         working-directory: mobile/android
         run: ./gradlew assembleRelease --no-daemon --max-workers=2 -PreactNativeArchitectures=arm64-v8a '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g'
