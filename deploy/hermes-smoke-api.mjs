@@ -128,6 +128,10 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       check('the written artifact has the expected content', Buffer.from(String(file.dataUrl).split(',')[1], 'base64').toString('utf8') === SMOKE_CONTENT);
       const history = await api(session(sessionId, '/messages'));
       check('native history includes the assistant reply', history.some(item => item.role === 'assistant' && item.content.includes(SMOKE_REPLY)));
+      // This owned fixture accepts image parts but has no public model-catalog
+      // entry. Declare native routing for this probe; production keeps Hermes'
+      // capability-aware default rather than forcing images into text models.
+      await api('/api/hermes/config', 'PUT', { config: { agent: { image_input_mode: 'native' } } });
       const mediaConversation = await api('/api/sessions', 'POST', { title: 'Native attachment proof', agentId: 'default' });
       const upload = (name, mime, base64) => api(session(mediaConversation.id, '/attachments'), 'POST', { name, mime, base64 });
       const photo = await upload('proof.png', 'image/png', 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jq1sAAAAASUVORK5CYII=');
@@ -138,6 +142,7 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       const mediaStream = await mediaTurn.text();
       check('the native image reaches the model as actual image content', mediaTurn.ok && mediaStream.includes(SMOKE_ATTACHMENT_REPLY)
         && mediaStream.includes('event: done') && !mediaStream.includes('event: error'), mediaStream.slice(-1600));
+      await api('/api/hermes/config', 'PUT', { config: { agent: { image_input_mode: 'auto' } } });
       providerTier = true;
     } else {
       check('the native runtime status endpoint answers', typeof (await api('/api/readiness')).ready === 'boolean');

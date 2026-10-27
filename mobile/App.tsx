@@ -35,11 +35,12 @@ function HobApp() {
   const [bootstrap, setBootstrap] = useState<{ ticket: string } | null>(null), [busy, setBusy] = useState(true), [error, setError] = useState('');
   const [account, setAccount] = useState(false), [pushEnabled, setPushEnabled] = useState(false), [pushMessage, setPushMessage] = useState('');
   const [picker, setPicker] = useState<string | null>(null), pickerBusy = useRef(false), downloadBusy = useRef(false);
+  const mediaSelection = useRef<{ id: string; kind: 'library' | 'camera' | 'files' } | null>(null), workspaceReady = useRef(false);
   const [pageLoading, setPageLoading] = useState(false), [webError, setWebError] = useState('');
   const web = useRef<WebView<unknown>>(null), operation = useRef(false), canGoBack = useRef(false), pendingTarget = useRef<{ profile: string; sessionKey: string } | null>(null);
   const setCurrent = useCallback((next: Connection | null) => { connectionRef.current = next; setConnection(next); }, []);
   const connectWorkspace = useCallback(async (current: Connection) => {
-    setWebError('');
+    setWebError(''); workspaceReady.current = false;
     const ticket = await deviceRequest<{ ticket: string }>(current, 'session', 'POST');
     if (connectionRef.current?.token === current.token) { setBootstrap(ticket); setPageLoading(true); }
   }, []);
@@ -69,7 +70,10 @@ function HobApp() {
     const target = notificationTarget(response.notification.request.content.data || {}, current);
     if (!target) return;
     pendingTarget.current = target;
-    web.current?.injectJavaScript(`window.__hobPendingConversation=${JSON.stringify(target)};window.dispatchEvent(new Event('hob:open-conversation'));true;`);
+    if (workspaceReady.current && web.current) {
+      pendingTarget.current = null;
+      web.current.injectJavaScript(`window.__hobPendingConversation=${JSON.stringify(target)};window.dispatchEvent(new Event('hob:open-conversation'));true;`);
+    }
   }, []);
   useEffect(() => {
     const listener = Notifications.addNotificationResponseReceivedListener(handleNotification);
@@ -133,9 +137,16 @@ function HobApp() {
   async function selectMedia(kind: 'library' | 'camera' | 'files' | null) {
     const id = picker; if (!id || pickerBusy.current) return;
     setPicker(null); if (!kind) { respond(id, { files: [] }); return; }
-    pickerBusy.current = true;
-    try { respond(id, { files: await pickMedia(kind) }); }
-    catch (error) { respond(id, { error: errorMessage(error) }); }
+    pickerBusy.current = true; mediaSelection.current = { id, kind };
+    // iOS presents from the current controller; wait until our sheet has
+    // actually dismissed before presenting the system media controller.
+    if (Platform.OS !== 'ios') await pickSelectedMedia();
+  }
+  async function pickSelectedMedia() {
+    const selection = mediaSelection.current; if (!selection) return;
+    mediaSelection.current = null;
+    try { respond(selection.id, { files: await pickMedia(selection.kind) }); }
+    catch (error) { respond(selection.id, { error: errorMessage(error) }); }
     finally { pickerBusy.current = false; }
   }
   function onMessage(event: WebViewMessageEvent) {
@@ -163,11 +174,12 @@ function HobApp() {
         injectedJavaScript={injected} injectedJavaScriptForMainFrameOnly injectedJavaScriptBeforeContentLoadedForMainFrameOnly
         onMessage={onMessage} onNavigationStateChange={state => { canGoBack.current = state.canGoBack; }}
         onShouldStartLoadWithRequest={request => { if (sameInstance(request.url, connection.origin)) return true; if (request.isTopFrame === false) return false; if (/^(https:|mailto:|tel:)/i.test(request.url)) void Linking.openURL(request.url).catch(() => undefined); return false; }}
-        onOpenWindow={event => { if (/^https:\/\//i.test(event.nativeEvent.targetUrl)) void Linking.openURL(event.nativeEvent.targetUrl); }}
-        onLoadStart={() => setPageLoading(true)} onLoadEnd={() => { setPageLoading(false); if (pendingTarget.current) { const target = pendingTarget.current; pendingTarget.current = null; web.current?.injectJavaScript(`window.__hobPendingConversation=${JSON.stringify(target)};window.dispatchEvent(new Event('hob:open-conversation'));true;`); } }}
+        onOpenWindow={event => { if (/^https:\/\//i.test(event.nativeEvent.targetUrl)) void Linking.openURL(event.nativeEvent.targetUrl).catch(() => undefined); }}
+        onLoadStart={() => { workspaceReady.current = false; setPageLoading(true); }} onLoadEnd={() => { workspaceReady.current = true; setPageLoading(false); if (pendingTarget.current) { const target = pendingTarget.current; pendingTarget.current = null; web.current?.injectJavaScript(`window.__hobPendingConversation=${JSON.stringify(target)};window.dispatchEvent(new Event('hob:open-conversation'));true;`); } }}
         onError={() => { setPageLoading(false); setWebError('The workspace could not be loaded. Check your connection, then reconnect.'); }}
         onHttpError={event => { if (event.nativeEvent.statusCode === 401) setWebError('Your workspace session expired. Reconnect to continue.'); }}
         onContentProcessDidTerminate={() => { setWebError('The workspace was paused by your phone. Reconnect to continue.'); }}
+        onRenderProcessGone={() => { workspaceReady.current = false; setWebError('The workspace was paused by your phone. Reconnect to continue.'); }}
       />{pageLoading && <View style={styles.loading}><ActivityIndicator color={palette.accent} /></View>}</View>
         : <View style={styles.center}><Text style={[styles.body, { color: palette.muted }]}>{webError || error || 'Reconnect to your hob workspace.'}</Text>{button(busy ? 'Connecting…' : 'Reconnect workspace', () => { if (!connection) return; setBusy(true); void connectWorkspace(connection).catch(error => setError(errorMessage(error))).finally(() => setBusy(false)); })}</View>}
     </> : <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}><ScrollView contentContainerStyle={styles.setup} keyboardShouldPersistTaps="handled">
@@ -184,7 +196,7 @@ function HobApp() {
       {pushMessage ? <Text accessibilityLiveRegion="polite" style={[styles.small, { color: palette.muted }]}>{pushMessage}</Text> : null}
       {button('Disconnect this device', () => Alert.alert('Disconnect this device?', 'This signs out and stops its server-side notifications.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Disconnect', style: 'destructive', onPress: () => void disconnect() }]), true)}{button('Done', () => setAccount(false), true)}
     </View></View></Modal>
-    <Modal visible={Boolean(picker)} transparent animationType="slide" onRequestClose={() => void selectMedia(null)}><View style={styles.scrim}><View style={[styles.sheet, { backgroundColor: palette.bg }]}><Text style={[styles.sheetTitle, { color: palette.ink }]}>Add to your prompt</Text><Text style={[styles.small, { color: palette.muted }]}>Up to 10 files, 5 MB each. Photos are optimized for your bot.</Text>{button('Photos and videos', () => void selectMedia('library'))}{button('Take a photo', () => void selectMedia('camera'), true)}{button('Choose files', () => void selectMedia('files'), true)}{button('Cancel', () => void selectMedia(null), true)}</View></View></Modal>
+    <Modal visible={Boolean(picker)} transparent animationType="slide" onDismiss={() => void pickSelectedMedia()} onRequestClose={() => void selectMedia(null)}><View style={styles.scrim}><View style={[styles.sheet, { backgroundColor: palette.bg }]}><Text style={[styles.sheetTitle, { color: palette.ink }]}>Add to your prompt</Text><Text style={[styles.small, { color: palette.muted }]}>Up to 10 files, 5 MB each. Photos are optimized for your bot.</Text>{button('Photos and videos', () => void selectMedia('library'))}{button('Take a photo', () => void selectMedia('camera'), true)}{button('Choose files', () => void selectMedia('files'), true)}{button('Cancel', () => void selectMedia(null), true)}</View></View></Modal>
   </SafeAreaView>;
 }
 export default function App() { return <SafeAreaProvider><HobApp /></SafeAreaProvider>; }
