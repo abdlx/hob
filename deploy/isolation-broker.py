@@ -181,6 +181,16 @@ class Broker:
         self.uid, self.gid = account.pw_uid, account.pw_gid
         if self.uid == 0:
             raise RuntimeError("operator_must_be_unprivileged")
+        # Revocation must be available before any isolated principal can run.
+        # Signal zero probes kernel support without changing a process's state.
+        try:
+            probe = os.pidfd_open(os.getpid())
+            try:
+                signal.pidfd_send_signal(probe, 0)
+            finally:
+                os.close(probe)
+        except (AttributeError, OSError) as exc:
+            raise RuntimeError("isolation_requires_pidfd_support") from exc
         self.home = Path(os.environ.get("HERMES_HOME", "/opt/data")).resolve()
         self.state = Path(os.environ.get("HOB_STATE_DIR", str(self.home / ".hob"))).resolve()
         if self.home == Path("/") or self.state == Path("/"):

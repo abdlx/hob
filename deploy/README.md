@@ -155,7 +155,8 @@ unverified. No local Docker daemon is available.
 ## Per-bot Linux process isolation
 
 `docker compose -f compose.yaml -f compose.isolation.yaml up -d --build`
-enables `HOB_ISOLATION=users`. Each enrolled bot receives a persistent Linux UID,
+enables `HOB_ISOLATION=users`. It requires Linux pidfd support and POSIX ACLs
+on the data volume. Each enrolled bot receives a persistent Linux UID,
 its own workspace and Chromium processes. Hermes's native SSH execution backend
 runs terminal, file and code operations as that UID. The private root broker
 accepts only the operator UID over a Unix socket and a closed protocol. Chromium
