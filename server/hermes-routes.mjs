@@ -3,6 +3,7 @@ import { HermesError, hermesProfile, hermesResource } from './hermes-client.mjs'
 import { containsStoredSecret, redactHermesSettings } from './hermes-settings.mjs';
 import { clearAvatar, readAvatar, setAvatar, streamAvatar } from './hermes-avatars.mjs';
 import { serveHermesMedia } from './hermes-media.mjs';
+import { createSavedProviders } from './hermes-saved-providers.mjs';
 
 // Explicit public operations, rather than an arbitrary upstream-URL proxy.
 const MANAGEMENT = new Map([
@@ -28,6 +29,7 @@ function object(value) {
 }
 
 export function createHermesRoutes(client, bots, { removeBot, home, stateDir, workspaces } = {}) {
+  const savedProviders = createSavedProviders(client, bots, { home, managedEnv: MANAGED_ENV });
   return async (req, res, url, { json, body, startEvents, sendEvent }) => {
     const method = req.method;
     const path = url.pathname.slice('/api/hermes/'.length);
@@ -35,6 +37,9 @@ export function createHermesRoutes(client, bots, { removeBot, home, stateDir, wo
     if (profiles.length > 1) throw new HermesError(400, 'Select one profile.', 'INVALID_PROFILE');
     const profile = hermesProfile(profiles[0] ?? 'default');
     const options = { profile, method };
+
+    if (path === 'saved-providers' && method === 'GET') return json(res, 200, await savedProviders.list(profile));
+    if (path === 'saved-providers' && method === 'POST') return json(res, 200, await savedProviders.operate(profile, await body(req)));
 
     if (path === 'media' && ['GET', 'HEAD'].includes(method)) {
       if (bots && !bots.has(profile)) throw new HermesError(404, 'This bot no longer exists.', 'BOT_NOT_FOUND');
@@ -172,7 +177,8 @@ export function createHermesRoutes(client, bots, { removeBot, home, stateDir, wo
           input.make_default = false;
         }
       }
-      const result = await client.dashboard(upstream, { ...options, body: input });
+      const invoke = () => client.dashboard(upstream, { ...options, body: input });
+      const result = path === 'credentials' && method === 'PUT' ? await savedProviders.exclusive(profile, invoke) : await invoke();
       return json(res, 200, ['config', 'custom-endpoints'].includes(path) ? redactHermesSettings(result) : result);
     }
 

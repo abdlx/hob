@@ -61,6 +61,8 @@ test('production computer WebSocket wiring rejects anonymous and cross-origin da
 test('native Hermes endpoints retain application authentication and origin checks', async () => {
   const count = calls.length;
   assert.equal((await fetch(`${origin}/api/hermes/profiles`)).status, 401);
+  assert.equal((await fetch(`${origin}/api/hermes/saved-providers`)).status, 401);
+  assert.equal((await request('saved-providers', 'POST', { id: 'a'.repeat(64), action: 'connect' }, { Origin: 'https://attacker.invalid' })).status, 403);
   assert.equal((await request('profiles', 'POST', { name: 'research' }, { Origin: 'https://attacker.invalid' })).status, 403);
   assert.equal(calls.length, count);
 });

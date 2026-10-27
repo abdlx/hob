@@ -5,11 +5,12 @@ import type { Page } from '@playwright/test';
 // This verifies UI contracts; it does not claim a live Hermes install or model run.
 const sha = 'a'.repeat(40);
 const nativeSession = Buffer.from(JSON.stringify(['default', 'native-conversation', 'canonical'])).toString('base64url');
-async function fixture(page: Page, extraApps = false) {
+async function fixture(page: Page, extraApps = false, savedProviderCards = false) {
   const errors: string[] = [], writes: { path: string; body: Record<string, unknown>; profile: string | null }[] = [];
   page.on('pageerror', error => errors.push(error.message));
   let saved = { model: 'test-model', memory: { enabled: true } }, failSave = false, installed = false;
   let heartbeat: { status: string; prompt: string; interval_seconds: number; fire_count: number } | null = null;
+  let providerConnected = false, providerVerified = false;
   await page.route('**/api/**', async route => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname;
     const profile = url.searchParams.get('profile') || 'default';
@@ -37,6 +38,16 @@ async function fixture(page: Page, extraApps = false) {
     }
     if (path === '/api/hermes/config/schema') return json({ fields: { 'memory.enabled': { type: 'boolean', category: 'memory', description: 'Enable long-term memory' } }, category_order: ['memory'] });
     if (path === '/api/hermes/credentials') return json({ OPENAI_API_KEY: { is_set: true } });
+    if (path === '/api/hermes/saved-providers') {
+      if (request.method() === 'POST') {
+        const body = request.postDataJSON();
+        expect(Object.keys(body).sort()).toEqual(['action', 'id']);
+        if (body.action === 'connect') providerConnected = true;
+        else providerVerified = true;
+        return json({ ok: true, message: 'The provider accepted this key.' });
+      }
+      return json({ connections: savedProviderCards ? [{ id: 'a'.repeat(64), provider: 'openrouter', name: 'OpenRouter', sourceProfile: 'default', sourceName: 'Main', configured: profile === 'default' || providerConnected, verifiedAt: providerVerified ? new Date().toISOString() : null }] : [], unavailableProfiles: [] });
+    }
     if (path === '/api/hermes/setup/models') return json({ providers: [] });
     if (path === '/api/hermes/setup/accounts') return json({ providers: [] });
     if (path === '/api/hermes/setup/mcp') return json({ servers: [] });
@@ -75,6 +86,34 @@ async function fixture(page: Page, extraApps = false) {
   });
   return { errors, writes, failSaves: () => { failSave = true; } };
 }
+
+test('saved provider cards connect a bot privately while keeping model choice separate', async ({ page }) => {
+  const state = await fixture(page, false, true);
+  await page.goto('/settings');
+  const providers = page.getByRole('region', { name: 'Saved providers', exact: true });
+  await expect(providers.getByRole('heading', { name: 'OpenRouter' })).toBeVisible();
+  await expect(providers.getByRole('button', { name: 'Configured for Main', exact: true })).toBeDisabled();
+  await page.getByRole('combobox', { name: 'Bot', exact: true }).selectOption('research');
+  await page.getByRole('combobox', { name: /^Model / }).fill('keep-this-model-draft');
+  await providers.getByRole('button', { name: 'Connect to Research', exact: true }).click();
+  await expect(providers.getByRole('status')).toContainText('OpenRouter connected to Research');
+  await expect(providers.getByRole('button', { name: 'Configured for Research', exact: true })).toBeDisabled();
+  await expect(page.getByRole('combobox', { name: /^Model / })).toHaveValue('keep-this-model-draft');
+  expect(state.writes.filter(write => write.path === '/api/hermes/model' || write.path === '/api/hermes/credentials')).toEqual([]);
+  expect(state.writes.filter(write => write.path === '/api/hermes/saved-providers')).toEqual([{ path: '/api/hermes/saved-providers', profile: 'research', body: { id: 'a'.repeat(64), action: 'connect' } }]);
+  await expect(providers.getByText('Not verified recently', { exact: true })).toBeVisible();
+  await providers.getByRole('button', { name: 'Verify key', exact: true }).click();
+  await expect(providers.getByText('Verified recently', { exact: true })).toBeVisible();
+  expect((await providers.getByRole('article').boundingBox())!.width).toBeGreaterThanOrEqual(240);
+  await page.screenshot({ path: 'test-results/saved-providers-desktop.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(providers.getByRole('heading', { name: 'OpenRouter', exact: true })).toBeVisible();
+  await providers.getByRole('heading', { name: 'OpenRouter', exact: true }).scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/saved-providers-mobile.png', fullPage: true });
+  expect(state.errors).toEqual([]);
+});
 
 test('categories retain drafts, failed saves stay unsaved, successful saves survive reload', async ({ page }) => {
   const state = await fixture(page);

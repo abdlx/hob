@@ -70,7 +70,7 @@ In **Settings → Plugins & integrations**, browse app tiles and open a tile for
 | **Chat** | Native durable Hermes sessions, streamed replies, tool activity, approvals, clarifying questions, stop/cancel, run recovery, and multi-bot group rooms. |
 | **Browser** | One managed Chromium identity per bot, persistent cookies and tabs, live frame streaming, human takeover, tab actions, precision input methods over CDP, and opt-in CAPTCHA challenge handling. |
 | **Media** | Inline images in chat bubbles from `MEDIA:`, `@image:`, `#media:` links, and Markdown image syntax. Local files are served through an authenticated, profile-scoped endpoint. |
-| **Providers** | Per-bot provider credentials, model catalogs, custom OpenAI-compatible endpoints, device sign-in where supported, and explicit model selection. |
+| **Providers** | Private saved-provider cards, one-click API-key reuse across bots, model catalogs, custom OpenAI-compatible endpoints, device sign-in where supported, and separate model selection. |
 | **Tools and MCP** | Native toolset controls, dependency setup, messaging channels, MCP servers, OAuth sign-in, connection probes, and per-bot enable/disable. |
 | **Memory and learning** | Built-in or external memory providers, personality/identity editing, task-memory and user-profile switches, and approval-gated skill/memory writes. |
 | **Workspace** | Goals and scheduled tasks, workspace files, skill review in Workshop, activity, approvals, and a live browser side panel. |
@@ -173,6 +173,10 @@ A healthy settings service does not prove that a provider or tool is configured.
 5. Start a new conversation and verify a reply **and** a tool task.
 6. Create additional bots deliberately in Settings. Each bot needs its own provider/model and workspace setup. Incomplete setup stays visible for explicit recovery and never activates silently.
 7. Optional: configure **Tools & providers**, **Messaging channels**, **MCP servers**, **Memory providers**, and **Learning & write approvals** for each bot.
+
+**Saved providers** in Models & providers discovers API keys already saved in your bots' native Hermes profiles. Select a bot and click **Connect** to reuse a saved provider key; its model selection stays unchanged. An existing target key is preserved. Keys never appear in the cards or their API responses. Each bot holds its own copy, so replacing one key does not rotate other bots' keys. OAuth accounts and custom endpoint definitions retain their separate setup flows.
+
+**Verify key** asks Hermes to check the saved credential with its provider. “Verified recently” requires provider acceptance, expires after ten minutes or a profile credential-file change, and resets on application restart. Unsupported or unavailable probes remain unverified; saving a key alone does not prove it works.
 
 Saving a channel's fields does not connect it. Connecting is a separate confirmed action. The same is true for several destructive or credential-bearing operations: hob asks for confirmation and does not retry ambiguous writes.
 

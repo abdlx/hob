@@ -134,6 +134,19 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
     }
     const bot = await api('/api/hermes/profiles', 'POST', { name: 'smoke-bot', soul: 'Independent synthetic smoke bot.' });
     check('an additional bot needs explicit creation', bot.ok === true && bot.state === 'active');
+    const providerKey = 'synthetic-saved-openrouter-key';
+    await api('/api/hermes/credentials', 'PUT', { key: 'OPENROUTER_API_KEY', value: providerKey });
+    const beforeConnect = await api('/api/hermes/config?profile=smoke-bot', 'GET', undefined, 'smoke-bot');
+    const savedProviders = await api('/api/hermes/saved-providers?profile=smoke-bot', 'GET', undefined, 'smoke-bot');
+    const savedProvider = savedProviders.connections.find(row => row.provider === 'openrouter' && row.sourceProfile === 'default');
+    check('native saved provider discovery hides keys and separates saved from verified', Boolean(savedProvider) && savedProvider.configured === false
+      && savedProvider.verifiedAt === null && !JSON.stringify(savedProviders).includes(providerKey));
+    await api('/api/hermes/saved-providers?profile=smoke-bot', 'POST', { id: savedProvider.id, action: 'connect' }, 'smoke-bot');
+    const afterConnect = await api('/api/hermes/config?profile=smoke-bot', 'GET', undefined, 'smoke-bot');
+    check('native key reuse configures the target without changing its selected model',
+      (await api('/api/hermes/credentials?profile=smoke-bot', 'GET', undefined, 'smoke-bot')).OPENROUTER_API_KEY?.is_set === true
+      && JSON.stringify(beforeConnect.model) === JSON.stringify(afterConnect.model));
+    check('connecting again preserves an existing bot credential', (await request('/api/hermes/saved-providers?profile=smoke-bot', 'POST', { id: savedProvider.id, action: 'connect' }, 'smoke-bot')).status === 409);
     const botBrowser = await browserDiagnosis('smoke-bot');
     check('a new bot is bound to its managed browser',
       botBrowser.binding?.profile === 'smoke-bot' && botBrowser.binding?.configured === true

@@ -6,6 +6,7 @@ import { buttonClass, cardClass, Field, inputClass, Notice, Skeleton } from '../
 import { errorText } from '../components/workspaceUtils';
 import { useToast } from '../context/ToastContext';
 import { HermesModelPicker } from '../components/HermesModelPicker';
+import { HermesSavedProviders } from '../components/HermesSavedProviders';
 import { HermesAccountsSettings, HermesChannelsSettings, HermesToolsSettings } from '../components/HermesIntegrations';
 import { HermesMcpSettings } from '../components/HermesMcpSettings';
 import { HermesMemorySettings } from '../components/HermesMemorySettings';
@@ -137,8 +138,9 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
     </select></Field>
     {section === 'general' && <AppearanceSettings />}
     {visited.has('models') && <div hidden={section !== 'models'} className="space-y-5">
+    <HermesSavedProviders key={profile} profile={profile} botName={profiles.find(item => item.name === profile)?.display_name || (profile === 'default' ? 'Main' : profile)} revision={configRevision} busy={busy} onConnected={load} />
     <section className={`${cardClass} space-y-3.5`}><h2 className="text-base md:text-lg font-semibold text-ink">Connect a model</h2>
-      <HermesModelPicker key={profile} profile={profile} provider={provider} model={model} busy={busy}
+      <HermesModelPicker key={`${profile}:${configRevision}`} profile={profile} provider={provider} model={model} busy={busy}
         chooseProvider={(value, keyEnv) => { setProvider(value); setModel(''); setBaseUrl(''); setEndpointName(''); setEndpointSecret(''); setModelConfirmation(''); setSecret(''); setKey(keyEnv || ''); }}
         chooseModel={value => { setModel(value); setModelConfirmation(''); }} />
       <Field label="Credential name" hint="Provider and tool credentials are stored by Hermes for the selected bot."><input className={inputClass} list="hermes-credential-names" value={key} disabled={busy} onChange={event => setKey(event.target.value)} /><datalist id="hermes-credential-names">{Object.keys(credentials).map(name => <option key={name} value={name} />)}</datalist></Field>
