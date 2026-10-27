@@ -23,11 +23,15 @@ export function createSavedProviders(client, bots, { home, managedEnv }) {
   }
   async function inventory(profile) {
     await client.credentialBinding(profile);
-    const [env, catalog] = await Promise.all([
-      client.dashboard('/api/env', { profile }),
-      client.dashboard('/api/model/options', { profile, query: { include_unconfigured: true, explicit_only: true } }),
-    ]);
-    if (!env || typeof env !== 'object' || !Array.isArray(catalog.providers)) throw new HermesError(502, 'Hermes returned an invalid provider inventory.', 'HERMES_PROTOCOL_ERROR');
+    const env = await client.dashboard('/api/env', { profile });
+    if (!env || typeof env !== 'object' || Array.isArray(env)) throw new HermesError(502, 'Hermes returned an invalid credential inventory.', 'HERMES_PROTOCOL_ERROR');
+    const hasMembership = Object.values(env).some(row => row?.provider || row?.provider_profiles?.length);
+    // Older runtimes need picker hints; current native credential metadata is
+    // sufficient, so ordinary card loads never need a model catalog probe.
+    const catalog = hasMembership ? { providers: [] } : await client.dashboard('/api/model/options', {
+      profile, query: { include_unconfigured: true, explicit_only: true },
+    });
+    if (!Array.isArray(catalog.providers)) throw new HermesError(502, 'Hermes returned an invalid provider inventory.', 'HERMES_PROTOCOL_ERROR');
     const rows = [], seen = new Set();
     const add = (key, provider, name) => {
       if (!keyName(key) || managedEnv.test(key) || /^HERMES_CUSTOM_/.test(key)
@@ -65,7 +69,7 @@ export function createSavedProviders(client, bots, { home, managedEnv }) {
     await client.credentialBinding(target);
     const roster = await profiles();
     if (!roster.some(row => row.name === target)) throw new HermesError(404, 'This bot no longer exists.', 'BOT_NOT_FOUND');
-    const targetKeys = await client.dashboard('/api/env', { profile: target });
+    const targetInventory = await inventory(target);
     const connections = [], unavailableProfiles = [];
     for (let offset = 0; offset < roster.length; offset += 4) {
       await Promise.all(roster.slice(offset, offset + 4).map(async source => {
@@ -74,7 +78,8 @@ export function createSavedProviders(client, bots, { home, managedEnv }) {
           for (const row of rows) {
             const proof = verified.get(row.id);
             const verifiedAt = proof && currentRevision && proof.revision === currentRevision && Date.now() - proof.time < 600_000 ? new Date(proof.time).toISOString() : null;
-            connections.push({ ...row, sourceName: source.displayName, configured: targetKeys[row.key]?.is_set === true, verifiedAt });
+            connections.push({ ...row, sourceName: source.displayName,
+              configured: targetInventory.env[row.key]?.is_set === true || targetInventory.rows.some(targetRow => targetRow.provider === row.provider), verifiedAt });
           }
         } catch { unavailableProfiles.push(source.displayName); }
       }));
@@ -104,8 +109,8 @@ export function createSavedProviders(client, bots, { home, managedEnv }) {
     return exclusive(target, async () => {
       const row = await resolve(input.id, target);
       if (input.action === 'connect') {
-        const targetKeys = await client.dashboard('/api/env', { profile: target });
-        if (targetKeys[row.key]?.is_set) throw new HermesError(409, 'This provider is already configured for this bot. Its existing key was preserved.', 'PROVIDER_CONFIGURED');
+        const targetInventory = await inventory(target);
+        if (targetInventory.env[row.key]?.is_set || targetInventory.rows.some(targetRow => targetRow.provider === row.provider)) throw new HermesError(409, 'This provider is already configured for this bot. Its existing key was preserved.', 'PROVIDER_CONFIGURED');
         const value = await reveal(row);
         await client.credentialBinding(row.sourceProfile);
         await client.credentialBinding(target);

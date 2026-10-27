@@ -83,7 +83,7 @@ test('forged references, removed sources, managed keys and caller-supplied secre
 
 test('partial discovery reports unavailable bots and mismatched native reveal never writes a target key', async t => {
   const f = await fixture(t), row = await f.row();
-  f.state.fail = 'default:/api/model/options';
+  f.state.fail = 'default:/api/env';
   assert.deepEqual((await f.service.list('writer')).unavailableProfiles, ['Main']);
   f.state.fail = ''; f.state.revealKey = 'HOB_SECRET';
   await assert.rejects(f.service.operate('writer', { id: row.id, action: 'connect' }), error => error.status === 502);
@@ -101,4 +101,14 @@ test('revocation during a native read and concurrent credential writes cannot ov
   f.active.delete('writer'); release();
   await assert.rejects(connecting, error => error.status === 404);
   assert.equal(f.calls.filter(call => call.method === 'PUT').length, 0);
+});
+
+test('configured picker rows may omit key_env, and a target using a credential alias keeps its existing provider connection', async t => {
+  const f = await fixture(t), row = await f.row();
+  assert.equal(row.name, 'OpenRouter');
+  assert.equal(f.calls.some(call => call.route === '/api/model/options' && call.profile === 'default'), false);
+  f.env.writer.OPENROUTER_ALTERNATE_KEY = { is_set: true, is_password: true, provider: 'openrouter', provider_label: 'OpenRouter' };
+  assert.equal((await f.row()).configured, true);
+  await assert.rejects(f.service.operate('writer', { id: row.id, action: 'connect' }), error => error.status === 409);
+  assert.equal(f.calls.filter(call => call.route === '/api/env/reveal').length, 0);
 });
