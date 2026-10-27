@@ -1,9 +1,11 @@
 """Bounded native stack diagnostics for a disposable CI container only."""
+import ast
 import json
 import os
 from pathlib import Path
 import re
 import signal
+import sys
 import time
 
 
@@ -53,4 +55,16 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    if sys.argv[1:] == ['--lease-policy']:
+        tree = ast.parse(Path('/opt/hermes/agent/turn_facade_lease.py').read_text())
+        policy = {}
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                name = node.targets[0].id
+                if name in {'LEASE_TTL_SECONDS', 'LEASE_WAIT_SECONDS'}:
+                    policy[name] = ast.literal_eval(node.value)
+        if set(policy) != {'LEASE_TTL_SECONDS', 'LEASE_WAIT_SECONDS'} or not 0 < policy['LEASE_TTL_SECONDS'] <= 600:
+            raise RuntimeError('Unqualified native lease policy')
+        print(json.dumps(policy))
+    else:
+        main()

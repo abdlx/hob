@@ -256,6 +256,8 @@ try {
   verifyRuntimeUsers(compose('ps', '--quiet', 'muse'));
   if (usersIsolation) console.log('OS isolation after recreation: ' + docker(['exec', compose('ps', '--quiet', 'muse'), '/usr/bin/python3', '/app/deploy/isolation-proof.py'], 120000));
   if (saved.providerTier) await smoke.activeCrashRecovery({
+    leaseSeconds: JSON.parse(docker(['exec', '--user', '10000:10000', appContainer, '/usr/bin/python3',
+      '/app/deploy/recovery-diagnostic.py', '--lease-policy'], 10000)).LEASE_TTL_SECONDS,
     fixture: (path, method = 'GET') => {
       assert.ok(['/smoke/recovery', '/smoke/recovery/release'].includes(path));
       const modelContainer = compose('ps', '--quiet', 'smoke-model');

@@ -4,7 +4,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { SMOKE_RECOVERY_PROMPT, SMOKE_RECOVERY_REPLY, SMOKE_RECOVERY_RESUME } from './smoke-model.mjs';
 
 /** Crash only the caller's disposable image after a provider has accepted a turn. */
-export async function verifyActiveCrashRecovery({ api, request, retry, check, fixture, crash, diagnose }) {
+export async function verifyActiveCrashRecovery({ api, request, retry, check, fixture, crash, diagnose, leaseSeconds }) {
+  assert.ok(Number.isFinite(leaseSeconds) && leaseSeconds > 0 && leaseSeconds <= 600);
   console.log('Active crash recovery: creating the disposable native conversation.');
   const conversation = await api('/api/sessions', 'POST', { title: 'Disposable active-crash proof', agentId: 'default' });
   const path = '/api/sessions/' + encodeURIComponent(conversation.id);
@@ -41,7 +42,9 @@ export async function verifyActiveCrashRecovery({ api, request, retry, check, fi
   await api(path + '/resolve-unknown', 'POST', { expectedRevision: run.revision, confirmReviewed: true });
   console.log('Active crash recovery: explicit review resolved the interrupted admission.');
   check('explicit side-effect review resolves the unknown native admission', (await api(path + '/run')).run?.status === 'interrupted');
-  const resumed = await request(path + '/turns', 'POST', { content: SMOKE_RECOVERY_RESUME, idempotencyKey: randomUUID() });
+  // A lease stamped by another PID namespace cannot be safely probed after
+  // container replacement. Honor the native TTL; never clear its database row.
+  const resumed = await request(path + '/turns', 'POST', { content: SMOKE_RECOVERY_RESUME, idempotencyKey: randomUUID() }, 'default', { timeoutMs: (leaseSeconds + 90) * 1000 });
   console.log('Active crash recovery: the fresh turn returned HTTP ' + resumed.status + '.');
   const reading = resumed.text();
   const deadline = new AbortController();
@@ -52,6 +55,8 @@ export async function verifyActiveCrashRecovery({ api, request, retry, check, fi
     await delay(30000, undefined, { signal: deadline.signal });
     const [state, observed] = await Promise.all([fixture('/smoke/recovery'), api(path + '/run')]);
     await diagnose?.();
+    console.log('Active crash recovery: observing the native lease wait ' + JSON.stringify({ fixture: state, status: observed.run?.status, leaseSeconds }));
+    await delay(leaseSeconds * 1000 + 30000, undefined, { signal: deadline.signal });
     throw new Error('Fresh recovery turn did not finish: ' + JSON.stringify({
       fixture: state, status: observed.run?.status, canResolveUnknown: observed.run?.canResolveUnknown,
     }));

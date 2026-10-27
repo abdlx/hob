@@ -13,12 +13,12 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
   let cookie = '';
   const checks = [];
   const check = (name, value, detail) => { assert.ok(value, detail ? name + ' (' + detail + ')' : name); checks.push(name); };
-  const request = (path, method = 'GET', value, profile = 'default') => fetchImpl(origin + path, {
+  const request = (path, method = 'GET', value, profile = 'default', { timeoutMs = 120000 } = {}) => fetchImpl(origin + path, {
     method,
     headers: { ...(cookie ? { Cookie: cookie } : {}), Origin: origin, 'X-Hob-Profile': profile,
       'Content-Type': 'application/json', Connection: 'close' },
     ...(value === undefined ? {} : { body: JSON.stringify(value) }),
-    signal: AbortSignal.timeout(120000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const api = async (path, method, value, profile) => {
     let response;
@@ -279,6 +279,6 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
   };
 
   return { firstBoot, afterRestart, checks,
-    activeCrashRecovery: ({ fixture, crash, diagnose }) => verifyActiveCrashRecovery({ api, request, retry, check, fixture, crash, diagnose }),
+    activeCrashRecovery: ({ fixture, crash, diagnose, leaseSeconds }) => verifyActiveCrashRecovery({ api, request, retry, check, fixture, crash, diagnose, leaseSeconds }),
   };
 }
