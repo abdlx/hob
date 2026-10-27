@@ -1,7 +1,7 @@
 # Coolify deployment
 
-The current runtime is a public, digest-pinned image built from unchanged upstream
-Hermes source, with the custom hob application added. It currently supports
+The runtime base is a public, digest-pinned upstream Hermes image. The app adds
+a checksum-guarded native heartbeat fix and the custom hob application. It currently supports
 **Linux amd64 only**. The imported Hermes reference source is not compiled or
 modified by this deployment.
 
@@ -217,3 +217,30 @@ Co-located bots call the private loopback app listener, independently of `MUSE_P
 Exchange database version 2 adds a durable result outbox. Newly completed handoffs wake their caller and Main through the pinned runtime's native Bot Chat ingress. Delivery acknowledgements are distinct from completed model turns, and retries reuse the same native delivery ID. Inspect **Automatic follow-up** inside an exchange for its delivery status. Existing historical exchanges are not replayed on upgrade. Heartbeats are configured per native conversation in **Settings → Automation** and require the gateway to remain online. Scheduled jobs remain native Hermes jobs.
 
 These changes have local adapter and Chromium coverage. Their new native automation paths still require image-level and live-model verification. The default container continues to share an OS user between bots; relay credentials and private folders do not create a hostile-bot sandbox.
+
+## Optional per-bot OS users
+
+The standard Compose configuration retains shared execution for existing installs.
+To enable distinct Linux users, apply `compose.isolation.yaml` after `compose.yaml`.
+The equivalent CLI invocation is:
+
+```sh
+docker compose -f compose.yaml -f compose.isolation.yaml up -d --build
+```
+
+In Coolify, apply all of the overlay's environment, volume and capability changes
+together in the deployment's Compose configuration. Setting only `HOB_ISOLATION`
+is insufficient: OpenSSH also needs `SYS_CHROOT`, and persistent UID/key/workspace/
+browser data need the `hermes-isolation` volume. Public ports remain unchanged.
+
+Back up the existing `hermes-data` volume before enabling this mode. Initial
+migration copies independent workspace/browser files into `hermes-isolation` and
+preserves the originals; allow space for that copy. Links and foreign-owned files
+require review. Enroll/remove existing native profiles before enabling isolation;
+an unenrolled or revoked native profile blocks gateway startup.
+
+After migration, back up and restore both volumes together. A missing UID registry
+or accidental shared-mode deployment fails closed. Rollback requires the matching
+pre-migration state backup, rather than removing the isolation marker or changing
+only an environment variable. The [deployment guide](README.md#per-bot-linux-process-isolation)
+describes the trusted gateway/plugin/MCP boundary.

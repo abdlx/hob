@@ -178,5 +178,8 @@ operator infrastructure. This mode isolates model-issued shell/code and browser
 processes and their files; it does not sandbox arbitrary administrator-installed
 plugin code, provide separate network namespaces, or impose per-bot resource quotas.
 The default Compose file retains shared mode for existing installations; use the
-overlay to enable the stronger boundary. Linux image qualification is required
-before calling the users backend production-ready.
+overlay to enable the stronger boundary. The [Linux image check](https://github.com/abdlx/hob/actions/runs/40465655763)
+passed 80 authenticated/native checks across recreation, including separate UIDs,
+cross-bot/secret access denial, sandboxed Chromium, relay wakeups, fired heartbeat
+and clock-triggered scheduling. These checks use a deterministic local provider;
+production model accounts and the deployment host still need qualification.

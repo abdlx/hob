@@ -391,10 +391,15 @@ test('gateway: an agent creates multiple tabs and switches the live viewer betwe
   t.after(() => viewer.close());
   await waitFor(() => session.status().tabs.find(tab => tab.active)?.id === agent.targetId);
 
-  const second = await agent.raw.call('Target.createTarget', { url: dataUrl('<title>SECOND-TAB</title>') });
+  const second = await agent.raw.call('Target.createTarget', { url: 'about:blank' });
   const third = await agent.raw.call('Target.createTarget', { url: dataUrl('<title>THIRD-TAB</title>') });
   await waitFor(() => session.status().tabs.length === 3);
   assert.equal((await agent.raw.call('Target.activateTarget', { targetId: second.result.targetId })).error, undefined);
+  // An explicit blank-tab selection must survive until that tab navigates;
+  // waiting for its title first would hide the initial-selection race.
+  await waitFor(() => session.status().tabs.find(tab => tab.active)?.id === second.result.targetId);
+  const secondAttached = await agent.raw.call('Target.attachToTarget', { targetId: second.result.targetId, flatten: true });
+  await agent.raw.call('Page.navigate', { url: dataUrl('<title>SECOND-TAB</title>') }, secondAttached.result.sessionId);
   await waitFor(() => session.status().tabs.find(tab => tab.active)?.title === 'SECOND-TAB');
 
   const attached = await agent.raw.call('Target.attachToTarget', { targetId: third.result.targetId, flatten: true });

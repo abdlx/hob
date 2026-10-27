@@ -166,4 +166,42 @@ The existing container CI smoke had failed after identity synchronization becaus
 
 The pinned native LOCAL adapter has no legacy message handler. Its heartbeat poll checked that handler before reaching native admission, suppressing dashboard heartbeats. The image now applies one exact-source-checksum compatibility fix to move that legacy check after the native branch. Native provenance checks, scheduling, admission and execution remain upstream-owned; unknown source bytes fail the image build. `/opt/hermes/hob-compat.json` records the applied fix.
 
-**The overall proactive-platform goal is still active.** OS-enforced separation of bot execution/browser users, image-level qualification of the new paths, and live provider/production failure-recovery verification remain. Default deployment still uses a shared OS user. The user explicitly deferred access to the deployed instance until implementation is ready; no real provider credential or live-deployment success is claimed.
+**The overall proactive-platform goal is still active.** Live provider/production failure-recovery verification remains. Default deployment still uses a shared OS user. The user explicitly deferred access to the deployed instance until implementation is ready; no real provider credential or live-deployment success is claimed.
+
+
+## Linux bot users and native scheduling qualification ? October 27, 2026
+
+The optional `compose.isolation.yaml` backend gives each bot a durable, distinct
+Linux UID for Hermes-native SSH terminal/file/code execution and managed Chromium.
+A root s6 service provisions only enrolled principals and accepts a closed Unix
+socket protocol from the operator UID. It never accepts arbitrary commands, UIDs,
+executables, mount paths or environment dictionaries. The application and native
+gateway remain unprivileged operator processes; installed plugin/MCP code remains
+trusted. No Docker socket or public SSH listener is introduced.
+
+Workspaces and browser data live in the `hermes-isolation` volume, outside the
+private Hermes home. Migration copies independent regular files without following
+links, leaves the old data intact, and pins directory descriptors for privileged
+writes. UID/key state and the two data volumes must be restored together. Missing
+isolation state, unknown native profiles and backend setup failures stop execution;
+there is no local fallback. Revocation removes SSH authorization and kills the
+reserved UID's processes through pinned pidfds. Configuration routes reserve the
+managed SSH/browser fields. The default deployment remains shared until the overlay
+is enabled.
+
+The [qualified isolated image at `5b782c96`](https://github.com/abdlx/hob/actions/runs/40465655763)
+passed web validation and **80 native checks across container recreation**. Kernel
+checks observed bot UIDs 20000, 20001 and 20002, managed Chromium under bot UIDs,
+blocked cross-bot workspaces/browser data, blocked operator credentials and broker
+access, namespace/seccomp sandboxing, process revocation and refused linked-source
+migration. The actual native relay, coordinator wakeup, heartbeat and clock-triggered
+one-time schedule completed; paused/completed state and notification/run identities
+survived recreation without replay. A Linux ACL regression check separately verifies
+that default deny entries do not overwrite parent traversal permissions.
+
+Local regression verification after the storage change passed 422 server tests
+with two platform skips and all 25 deployment tests; later targeted checks also
+cover media from external workspaces and rejection of leftover revoked native
+profiles. The image CI now tests shared and isolated modes and runs Linux server/
+deployment regressions. Real production model credentials, production-host behavior
+and live failure injection remain pending the user-provided instance.

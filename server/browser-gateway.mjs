@@ -549,6 +549,7 @@ export class BrowserSession {
   #activity = new Set();
   #stateListeners = new Set();
   #castCdp = null; #castSessionId = null; #castTargetId = null; #castPinned = false;
+  #agentSelectedTargetId = null;
   #castAttach = Promise.resolve();
   #castAttachRevision = 0;
   #castAttachedRevision = 0;
@@ -919,6 +920,7 @@ export class BrowserSession {
     const pipe = this.#pipe;
     this.#chromium = null;
     this.#chromiumPort = null;
+    this.#agentSelectedTargetId = null;
     this.#pipe = null;
     if (chromium) {
       // Graceful first, and always: `Browser.close` is what flushes cookies and
@@ -965,6 +967,7 @@ export class BrowserSession {
     if (this.#stopping) return;
     this.#chromium = null;
     this.#chromiumPort = null;
+    this.#agentSelectedTargetId = null;
     this.#pipe?.close('The browser exited.');
     this.#pipe = null;
     this.#stopChallengeProbes();
@@ -1512,6 +1515,7 @@ export class BrowserSession {
 
   async agentActivatedTarget(targetId) {
     if (this.#castPinned || this.#lease.holder !== AGENT) return;
+    this.#agentSelectedTargetId = targetId;
     this.#castTargetId = targetId;
     if (this.#castCdp?.open) await this.#attachActiveTarget();
     else await this.refresh();
@@ -1868,7 +1872,10 @@ export class BrowserSession {
    */
   #selectTarget(pages, targetId = this.#castTargetId) {
     const current = pages.find(page => page.targetId === targetId);
-    if (this.#castPinned && current) return current;
+    // An explicit activation is authoritative even before its navigation has
+    // populated the URL/title. Falling back to a different real page here loses
+    // the selection permanently when the chosen tab finishes loading later.
+    if ((this.#castPinned || targetId === this.#agentSelectedTargetId) && current) return current;
     if (current && !isBlankUrl(current.url)) return current;
     // Prefer the newest real page: when an agent opens a tab, that is the one it
     // is about to drive.
@@ -1891,7 +1898,7 @@ export class BrowserSession {
    * alone: a background tab must not yank the view away.
    */
   async #adoptTarget(targetId) {
-    if (!this.#castCdp?.open || this.#castPinned || targetId === this.#castTargetId) return;
+    if (!this.#castCdp?.open || this.#castPinned || (this.#agentSelectedTargetId && this.#agentSelectedTargetId === this.#castTargetId) || targetId === this.#castTargetId) return;
     if (!isBlankUrl(this.#page.url)) return;
     this.#castTargetId = targetId;
     await this.#attachActiveTarget();
@@ -1978,6 +1985,7 @@ export class BrowserSession {
         // not a `targetInfo` object.
         const targetId = params?.targetId;
         if (!targetId) return;
+        if (this.#agentSelectedTargetId === targetId) this.#agentSelectedTargetId = null;
         this.#challengeTracker.forget(targetId);
         this.#activeChallenges.delete(targetId);
         if (this.#challengeActive?.targetId === targetId) {

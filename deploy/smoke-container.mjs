@@ -213,7 +213,7 @@ try {
     // artifact. Stock init assigns ownership; the broker must copy it once.
     const volume = project + '_hermes-data';
     docker(['volume', 'create', '--label', 'com.docker.compose.project=' + project, '--label', 'com.docker.compose.volume=hermes-data', volume]);
-    const seed = "from pathlib import Path; p=Path('/opt/data/workspaces/main'); p.mkdir(parents=True); (p/'legacy-migration-proof.txt').write_text('legacy original\\n')";
+    const seed = "import os,pwd; from pathlib import Path; a=pwd.getpwnam('hermes'); p=Path('/opt/data/workspaces/main'); p.mkdir(parents=True); f=p/'legacy-migration-proof.txt'; f.write_text('legacy original\\n'); [os.chown(x,a.pw_uid,a.pw_gid) for x in [Path('/opt/data'),p.parent,p,f]]";
     docker(['run', '--rm', '--user', 'root', '--entrypoint', '/usr/bin/python3', '--volume', volume + ':/opt/data', image, '-c', seed], 30000);
   }
   compose('up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '300');
