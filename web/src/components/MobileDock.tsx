@@ -51,7 +51,7 @@ export const MobileDock: React.FC<MobileDockProps> = ({
       : 'bots';
 
   return (
-    <div className="md:hidden pt-1 flex justify-center items-center w-full shrink-0" style={{ paddingBottom: 'max(4px, env(safe-area-inset-bottom))' }}>
+    <div className="md:hidden flex justify-center items-center w-full shrink-0" style={{ paddingBottom: 'max(4px, env(safe-area-inset-bottom))' }}>
       <BottomDock
         items={items}
         activeId={activeId}

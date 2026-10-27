@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { FolderOpen, ArrowUp, LoaderCircle, Paperclip } from 'lucide-react';
+import { Plus, FolderOpen, ArrowUp, LoaderCircle, Paperclip } from 'lucide-react';
 import { MobileDock } from './MobileDock';
 
 export interface ChatComposerProps {
@@ -39,6 +39,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [focused, setFocused] = useState(false);
+  const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const hint = useId();
 
   useEffect(() => {
@@ -55,26 +56,77 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
     if (disabled || !canSend || (!value.trim() && !hasAttachments)) return;
+    setActionMenuOpen(false);
     onSubmit();
   };
 
   return (
-    <div className="hob-composer w-full px-3 sm:px-4 md:px-6 pt-2 bg-canvas shrink-0 flex flex-col items-center gap-2 select-none" style={{ paddingBottom: showMobileDock && !focused ? 10 : 'max(10px, env(safe-area-inset-bottom))' }}>
+    <div className="hob-composer w-full px-3 sm:px-4 md:px-6 pt-2 bg-canvas shrink-0 flex flex-col items-center gap-1 md:gap-2 select-none" style={{ paddingBottom: showMobileDock && !focused ? 10 : 'max(10px, env(safe-area-inset-bottom))' }}>
       <form aria-label="Message composer" onSubmit={submit} className="w-full max-w-[840px]">
         <div className="overflow-hidden rounded-[26px] border border-edge bg-surface shadow-[0_3px_14px_rgba(0,0,0,0.04)] transition-colors focus-within:border-accent-line focus-within:shadow-[0_0_0_3px_var(--color-accent-soft)]">
         {attachments}
         <div className="w-full min-h-14 px-2 py-2 flex items-end gap-2">
-          {onAttach && <button type="button" disabled={disabled} aria-label="Attach photos or files" title="Attach photos or files" onClick={onAttach} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted hover:bg-sunken disabled:opacity-40 cursor-pointer"><Paperclip size={18} /></button>}
-          {onAddContext && (
-            <button
-              type="button"
-              title="Open file library"
-              aria-label="Open file library"
-              onClick={onAddContext}
-              className="w-10 h-10 rounded-full bg-transparent hover:bg-sunken text-muted transition-colors shrink-0 cursor-pointer flex items-center justify-center"
-            >
-              <FolderOpen size={18} strokeWidth={1.8} />
-            </button>
+          {(onAttach || onAddContext) && (
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                title="Add files or library"
+                aria-label="Add files or library"
+                aria-expanded={actionMenuOpen}
+                disabled={disabled}
+                onClick={() => {
+                  if (onAttach && onAddContext) {
+                    setActionMenuOpen((prev) => !prev);
+                  } else if (onAttach) {
+                    onAttach();
+                  } else if (onAddContext) {
+                    onAddContext();
+                  }
+                }}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted hover:bg-sunken hover:text-ink disabled:opacity-40 cursor-pointer transition-colors"
+              >
+                <Plus size={19} strokeWidth={2.2} className={`transition-transform duration-150 ${actionMenuOpen ? 'rotate-45 text-ink' : ''}`} />
+              </button>
+
+              {actionMenuOpen && (
+                <>
+                  <span className="fixed inset-0 z-30" aria-hidden onClick={() => setActionMenuOpen(false)} />
+                  <div
+                    role="menu"
+                    className="absolute bottom-full left-0 mb-2 z-40 min-w-[170px] overflow-hidden rounded-2xl border border-hair bg-surface/95 backdrop-blur-md p-1.5 shadow-[0_10px_30px_rgba(0,0,0,0.12)] flex flex-col gap-0.5"
+                  >
+                    {onAttach && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setActionMenuOpen(false);
+                          onAttach();
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13px] text-ink hover:bg-sunken transition-colors cursor-pointer"
+                      >
+                        <Paperclip size={16} className="text-muted shrink-0" />
+                        <span className="font-medium">Attach files</span>
+                      </button>
+                    )}
+                    {onAddContext && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setActionMenuOpen(false);
+                          onAddContext();
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13px] text-ink hover:bg-sunken transition-colors cursor-pointer"
+                      >
+                        <FolderOpen size={16} className="text-muted shrink-0" />
+                        <span className="font-medium">File library</span>
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           )}
 
           <textarea
@@ -111,7 +163,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
         </div>
         </div>
       </form>
-      <div id={hint} className="flex min-h-4 w-full max-w-[840px] items-center justify-between gap-2 px-2 text-[10px] text-muted"><span>{working ? 'Your bot is working. Keep drafting while you wait.' : <span className="hidden md:inline">Enter to send · Shift + Enter for a new line</span>}</span>{focused && <button type="button" onClick={() => textareaRef.current?.blur()} className="px-2 py-1 text-xs text-accent md:hidden cursor-pointer">Done</button>}</div>
+      <div id={hint} className={`w-full max-w-[840px] items-center justify-between gap-2 px-2 text-[10px] text-muted ${working || focused ? 'flex min-h-4' : 'hidden md:flex min-h-4'}`}><span>{working ? 'Your bot is working. Keep drafting while you wait.' : <span>Enter to send · Shift + Enter for a new line</span>}</span>{focused && <button type="button" onClick={() => textareaRef.current?.blur()} className="px-2 py-1 text-xs text-accent md:hidden cursor-pointer">Done</button>}</div>
       {showMobileDock && <div className={focused ? 'hidden md:contents' : 'contents'}><MobileDock currentMobileView="chat" onNavigateBots={onNavigateBots} /></div>}
     </div>
   );

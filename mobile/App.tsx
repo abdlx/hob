@@ -162,13 +162,13 @@ function HobApp() {
         void downloadFile(current, message.url, message.name).catch(error => Alert.alert('Download unavailable', errorMessage(error))).finally(() => { downloadBusy.current = false; });
       }
       if (message.type === 'auth-expired') { setBootstrap(null); setError('Your workspace session expired. Reconnect to continue.'); }
+      if (message.type === 'open-connection') { setAccount(true); }
     } catch { /* A page message is data, never native code. */ }
   }
   const button = (label: string, action: () => void, secondary = false) => <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={busy} onPress={action} style={[styles.button, { backgroundColor: secondary ? palette.card : palette.ink, borderColor: palette.border, opacity: busy ? 0.5 : 1 }]}><Text style={{ color: secondary ? palette.ink : palette.bg, fontWeight: '600', fontSize: 15 }}>{label}</Text></Pressable>;
 
   return <SafeAreaView style={[styles.root, { backgroundColor: palette.bg }]} edges={['top', 'bottom']}><StatusBar style={dark ? 'light' : 'dark'} />
     {connection ? <>
-      <View style={[styles.toolbar, { borderBottomColor: palette.border }]}><Text numberOfLines={1} style={{ color: palette.muted, flex: 1, fontSize: 12 }}>{new URL(connection.origin).host}</Text><Pressable accessibilityRole="button" accessibilityLabel="Connection and notifications" onPress={() => setAccount(true)} hitSlop={12}><Text style={{ color: palette.accent, fontSize: 13, fontWeight: '600' }}>Connection</Text></Pressable></View>
       {bootstrap && !webError ? <View style={{ flex: 1 }}><WebView<unknown> key={bootstrap.ticket} ref={web} source={{ html: `<!DOCTYPE html><html><body style="background:${palette.bg}"><form id="b" method="POST" action="${connection.origin}/api/mobile/bootstrap"><input type="hidden" name="ticket" value="${bootstrap.ticket.replace(/"/g, '&quot;')}"></form><script>document.getElementById("b").submit();</script></body></html>`, baseUrl: connection.origin }}
         style={{ backgroundColor: palette.bg }} originWhitelist={[connection.origin]} javaScriptEnabled domStorageEnabled sharedCookiesEnabled thirdPartyCookiesEnabled={false} mixedContentMode="never" allowFileAccess={false} allowFileAccessFromFileURLs={false} allowUniversalAccessFromFileURLs={false}
         injectedJavaScript={injected} injectedJavaScriptForMainFrameOnly injectedJavaScriptBeforeContentLoadedForMainFrameOnly
