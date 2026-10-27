@@ -89,6 +89,21 @@ test('legacy model selection forwards scalar runtime fields and rejects object-s
   assert.equal(invalid.status, 400);
   assert.equal(calls.length, 0);
 });
+
+test('legacy bot previews use the latest activity in each bot history', async () => {
+  handler = method => {
+    if (method === 'agents.list') return { agents: [{ id: 'main' }, { id: 'writer' }] };
+    if (method === 'sessions.list') return { sessions: [
+      { key: 'agent:main:old', updatedAt: '2026-10-26T10:00:00Z', lastMessagePreview: 'Old reply' },
+      { key: 'agent:writer:latest', updatedAt: '2026-10-27T11:00:00Z', lastMessagePreview: 'Writer reply' },
+      { key: 'agent:main:latest', updatedAt: '2026-10-27T10:00:00Z', lastMessagePreview: 'Latest Main reply' },
+    ] };
+    throw new Error(method);
+  };
+  const response = await request('/api/agents');
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).agents.map(bot => [bot.id, bot.lastMessageSnippet]), [['main', 'Latest Main reply'], ['writer', 'Writer reply']]);
+});
 test('stream handles synchronous events before admission reply and replaces content correctly', async () => {
   handler = (method, params) => {
     assert.equal(method, 'chat.send');

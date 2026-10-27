@@ -29,6 +29,7 @@ export interface AgentListItem {
   tags?: string[];
   identitySync?: 'pending' | 'synced';
   model?: string;
+  lastMessageSnippet?: string | null;
   status?: 'connected' | 'idle' | 'busy' | 'disconnected';
 }
 

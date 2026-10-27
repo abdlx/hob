@@ -39,6 +39,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const profileLoadingRef = useRef(false);
   const viewEpochRef = useRef(0);
   const refreshSequenceRef = useRef(0);
+  const rosterSequenceRef = useRef(0);
   const lastSessionsRef = useRef(new Map<string, string>());
   const operationErrorRef = useRef(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -99,28 +100,34 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const loadAgents = useCallback(async () => {
+    const sequence = ++rosterSequenceRef.current;
+    const roster = await chatApi.getAgents();
+    if (sequence === rosterSequenceRef.current) setAgents(roster.agents);
+  }, []);
+
   const refresh = useCallback(async () => {
     const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1';
     if (isPreview) return;
     const selectedProfile = chatApi.getProfile();
     const api = chatApi.forProfile(selectedProfile), epoch = viewEpochRef.current, sequence = ++refreshSequenceRef.current;
-    const results = await Promise.allSettled([api.getSessions(), api.getAgentProfile(), api.getTasks(), api.getSecurityApprovals(), api.getSystemStats(), api.getAgents()]);
+    const results = await Promise.allSettled([api.getSessions(), api.getAgentProfile(), api.getTasks(), api.getSecurityApprovals(), api.getSystemStats(), loadAgents()]);
     if (selectedProfile !== chatApi.getProfile() || viewEpochRef.current !== epoch || refreshSequenceRef.current !== sequence) return;
-    const [sess, profile, activity, pending, system, roster] = results;
+    const [sess, profile, activity, pending, system] = results;
     if (sess.status === 'fulfilled') setSessions(sess.value);
     if (profile.status === 'fulfilled') { setAgent(profile.value); setConnected(profile.value.status !== 'disconnected'); }
     if (activity.status === 'fulfilled') setTasks(activity.value);
     if (pending.status === 'fulfilled') setApprovals(pending.value);
     if (system.status === 'fulfilled') setStats(system.value);
-    if (roster.status === 'fulfilled') setAgents(roster.value.agents);
     const failed = results.find(result => result.status === 'rejected');
     if (failed?.status === 'rejected') { if (!operationErrorRef.current) setError(errorText(failed.reason)); }
     else if (!operationErrorRef.current) setError(null);
     await reconcileMessages();
-  }, [reconcileMessages]);
+  }, [reconcileMessages, loadAgents]);
 
   useEffect(() => {
     let alive = true;
+    const rosterRequests = rosterSequenceRef;
     async function initialize() {
       const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1';
       if (isPreview) {
@@ -182,6 +189,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       } catch (err) { if (alive) { setIsPreparing(false); setError(errorText(err)); } }
     }
     void initialize();
+    // Unopened bots can finish unattended work without an attached chat stream.
+    const rosterTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible' && new URLSearchParams(window.location.search).get('preview') !== '1') {
+        void loadAgents().catch(() => {});
+      }
+    }, 15000);
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = chatApi.subscribe(frame => {
       if (frame.event === 'bot.exchange') {
@@ -205,8 +218,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         void refresh();
       }, 300);
     }, value => { if (alive) { setConnected(value); if (value) void refresh(); } });
-    return () => { alive = false; unsubscribe(); clearTimeout(refreshTimer); };
-  }, [refresh]);
+    return () => { alive = false; unsubscribe(); clearTimeout(refreshTimer); window.clearInterval(rosterTimer); rosterRequests.current++; };
+  }, [refresh, loadAgents]);
 
   const selectSession = useCallback(async (id: string) => {
     if (profileLoadingRef.current || isPreparing) return;

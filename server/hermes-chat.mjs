@@ -3,6 +3,7 @@ import { HermesError, hermesProfile, hermesResource, hermesSessionKey, parseHerm
 import { avatarUrl } from './hermes-avatars.mjs';
 import { messageContentText } from './hermes-content.mjs';
 import { HermesRunJournal, TERMINAL_RUNS, runFingerprint } from './hermes-run-journal.mjs';
+import { createHermesChatPreviews } from './hermes-chat-previews.mjs';
 
 function iso(value) {
   const date = new Date(typeof value === 'number' ? value * 1000 : value);
@@ -20,6 +21,7 @@ function rows(value) {
 }
 
 export function createHermesChatRoutes(client, bots, journal = new HermesRunJournal(), { home } = {}) {
+  const chatPreview = createHermesChatPreviews(client);
   // These are presentation caches, not approval authority. Hermes validates the
   // exact prompt ID/generation when a human responds. Run references survive
   // restart in the journal; prompt authority always comes from native status.
@@ -125,6 +127,7 @@ export function createHermesChatRoutes(client, bots, journal = new HermesRunJour
           name: item.display_name || item.bot_title || (item.name === 'default' ? 'Main' : item.name),
           roleDescription: item.description || '', tags: item.tags || [], identitySync: item.identitySync,
           model: item.model || '',
+          lastMessageSnippet: await chatPreview(item.name).catch(() => null),
           avatarUrl: await avatarUrl(home, item.name),
         })))
       }); return true;

@@ -351,7 +351,13 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
           await rpc('agents.update', { agentId: selected, ...Object.fromEntries(['name', 'model', 'agentRuntime', 'emoji', 'avatar'].filter(k => k in input).map(k => [k, input[k]])) });
           return json(res, 200, await agent(selected));
         }
-        if (route === '/api/agents' && method === 'GET') return json(res, 200, await rpc('agents.list'));
+        if (route === '/api/agents' && method === 'GET') {
+          const [roster, history] = await Promise.all([rpc('agents.list'), sessions().catch(() => null)]);
+          const latest = history?.sort((a, b) => (new Date(b.updatedAt || 0).getTime() || 0) - (new Date(a.updatedAt || 0).getTime() || 0));
+          return json(res, 200, { ...roster, agents: (roster.agents || []).map(bot => ({
+            ...bot, lastMessageSnippet: latest ? latest.find(row => (row.agentId || row.key?.split(':')[1]) === bot.id && row.lastMessagePreview)?.lastMessagePreview || '' : null,
+          })) });
+        }
         if (route === '/api/agents' && method === 'POST') return json(res, 201, await rpc('agents.create', await body(req)));
         if (segments[1] === 'agent' && segments[2] === 'files' && segments.length === 4) {
           const name = segments[3];

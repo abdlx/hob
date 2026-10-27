@@ -16,6 +16,7 @@ import { useRuntime } from '../context/RuntimeContext';
 import { DogeshAvatar } from './DogeshAvatar';
 import { apiFetch } from '../services/api';
 import { requestId } from '../services/id';
+import { chatPreview } from '../services/chat-preview';
 import { buttonClass } from './WorkspaceUI';
 import type { GroupSummary } from '../types/chat';
 
@@ -434,15 +435,13 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
                   : 'disconnected'
                 : 'connected';
 
-              const subtitle = bot.identitySync === 'pending' ? 'Identity sync pending' : isCurrent
-                ? isPreparing
+              const subtitle = isCurrent
+                ? bot.identitySync === 'pending' ? 'Identity sync pending' : isPreparing
                   ? 'Preparing bot...'
                   : connected
                   ? 'Active now'
                   : 'Offline'
-                : bot.model
-                ? bot.model
-                : bot.roleDescription || 'Available';
+                : chatPreview(bot.lastMessageSnippet);
 
               const select = () => {
                 if (filteringActivity) {

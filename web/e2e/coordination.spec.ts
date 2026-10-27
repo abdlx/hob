@@ -4,6 +4,7 @@ const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-22
 async function fixture(page: Page) {
   const errors: string[] = [], writes: unknown[] = [];
   let name = 'Main', tags = ['Coordinator'], role = 'Coordinate the team.';
+  let writerPreview = '**The launch plan** is ready for review.';
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
@@ -12,7 +13,7 @@ async function fixture(page: Page) {
     if (path === '/api/runtime') return json({ runtime: 'hermes' });
     if (path === '/api/readiness') return json({ ready: true, status: 'ready' });
     if (path === '/api/events') return route.fulfill({ contentType: 'text/event-stream', body: 'event: connection\ndata: {"connected":true}\n\n' });
-    if (path === '/api/agents') return json({ agents: [{ id: 'default', name, tags, roleDescription: role }, { id: 'writer', name: 'Scribe', tags: ['Writing'] }] });
+    if (path === '/api/agents') return json({ agents: [{ id: 'default', name, tags, roleDescription: role }, { id: 'writer', name: 'Scribe', tags: ['Writing'], model: 'synthetic-preview-model', lastMessageSnippet: writerPreview }, { id: 'empty', name: 'New bot', lastMessageSnippet: '' }] });
     if (path === '/api/agent') return json({ id: 'default', name, tags, roleDescription: role, status: 'connected', avatarUrl: '' });
     if (path === '/api/sessions') return json([{ id: 'session-test', agentId: 'default', title: 'Launch plan', createdAt: '2026-10-26T00:00:00Z' }]);
     if (path === '/api/sessions/session-test/messages') return json([{ id: 'user-1', role: 'user', content: 'Prepare the launch plan.', timestamp: '2026-10-26T10:00:00Z' }]);
@@ -36,8 +37,24 @@ async function fixture(page: Page) {
     errors.push(`Unexpected API: ${request.method()} ${path}`);
     return route.fulfill({ status: 404, json: { error: path } });
   });
-  return { errors, writes };
+  return { errors, writes, setWriterPreview: (value: string) => { writerPreview = value; } };
 }
+
+test('unopened bots show five-word last-message previews and pick up unattended replies', async ({ page }) => {
+  await page.clock.install();
+  const state = await fixture(page);
+  await page.goto('/chat');
+  const writer = page.getByRole('listitem').filter({ has: page.getByText('Scribe', { exact: true }) });
+  await expect(writer.getByText('The launch plan is ready…', { exact: true })).toBeVisible();
+  await expect(page.getByText('synthetic-preview-model', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('listitem').filter({ has: page.getByText('New bot', { exact: true }) }).getByText('No messages yet')).toBeVisible();
+  state.setWriterPreview('The revised report is ready to share.');
+  await page.clock.fastForward(16000);
+  await expect(writer.getByText('The revised report is ready…', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(writer.getByText('The revised report is ready…', { exact: true })).toBeVisible();
+  expect(state.errors).toEqual([]);
+});
 
 test('each bot exchange is a separate expandable notice with its own transcript and survives refresh', async ({ page }) => {
   const state = await fixture(page);

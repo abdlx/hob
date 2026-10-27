@@ -65,6 +65,14 @@ const request = (path, method = 'GET', data, profile = 'default') => fetch(`${or
 });
 const turn = (session, profile = 'default') => request(`/api/sessions/${encodeURIComponent(session)}/turns`, 'POST', { content: 'Hello', idempotencyKey: `request-${admissions}` }, profile);
 
+test('the bot roster includes unopened chat previews from each bound profile', async () => {
+  const response = await request('/api/agents');
+  assert.equal(response.status, 200);
+  const { agents } = await response.json();
+  assert.deepEqual(agents.map(bot => [bot.id, bot.lastMessageSnippet]), [['default', 'Hello'], ['coder', 'Hello']]);
+  assert.ok(calls.some(call => call.url.startsWith('/p/coder/api/sessions/session-1/messages?')));
+});
+
 test('a canonical conversation never falls back to HTTP when its native bridge is missing', async () => {
   const before = calls.length;
   const response = await request(`/api/sessions/${hermesNativeSessionKey('coder', 'session-1')}/messages`);
