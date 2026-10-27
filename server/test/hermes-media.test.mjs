@@ -94,3 +94,16 @@ test('the authenticated Hermes route binds media to the selected profile', async
     new URL('http://hob.local/api/hermes/media?profile=other&path=workspace.png'),
     { json() {}, body() {}, startEvents() {}, sendEvent() {} }), /no longer exists/);
 });
+
+
+test('media follows external isolated workspaces while keeping bot ownership',async()=>{
+ const external=path.join(root,'isolated-workspaces');
+ await mkdir(path.join(external,'bots','scout'),{recursive:true});
+ const image=path.join(external,'bots','scout','proof.png'); await writeFile(image,PNG);
+ const route=createHermesRoutes({}, {has:name=>name==='scout'}, {home,stateDir,workspaces:external});
+ const res={writeHead(status){this.status=status;},end(bytes){this.bytes=bytes;}};
+ await route({method:'GET'},res,new URL('http://local/api/hermes/media?profile=scout&path='+encodeURIComponent(image)),{json(){}});
+ assert.equal(res.status,200); assert.deepEqual(res.bytes,PNG);
+ await assert.rejects(resolveMediaFile({home,stateDir,workspaces:external,profile:'default',value:image}),/unavailable/);
+ await assert.rejects(resolveMediaFile({home,stateDir,workspaces,profile:'default',value:path.join(workspaces,'bots','scout','workspace.png')}),/unavailable/);
+});

@@ -7,6 +7,15 @@ registry=json.loads((private/'users.json').read_text())['bots']
 active=[row['name'] for row in json.loads((state/'bots.json').read_text())['bots'] if row['state']=='active']
 assert 'default' in active and 'proactive-worker' in active
 app=pwd.getpwnam('hermes'); seen=set()
+original=home/'workspaces/main/legacy-migration-proof.txt'
+copied=private/'workspaces/main/legacy-migration-proof.txt'
+assert original.read_text()=='legacy original\n', 'legacy source changed'
+assert copied.read_text() in ('legacy original\n','updated in isolated workspace\n'), 'workspace copy missing'
+# The second invocation after recreation must preserve the updated copy.
+if (private/'migration-proof-ran').exists():
+ assert copied.read_text()=='updated in isolated workspace\n', 'old source overwrote isolated work'
+else:
+ copied.write_text('updated in isolated workspace\n'); (private/'migration-proof-ran').write_text('1')
 def shell(name, code):
  uid=registry[name]['uid']; user='hob'+str(uid)
  return subprocess.run(['/usr/bin/ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=10','-p','22220','-i',str(state/'isolation-keys'/(name+'.key')),user+'@127.0.0.1',code],user=app.pw_uid,group=app.pw_gid,extra_groups=[],env={'PATH':'/usr/local/bin:/usr/bin:/bin','HOME':str(home)},capture_output=True,timeout=20,text=True)
@@ -71,6 +80,11 @@ with tempfile.TemporaryDirectory(prefix='hob-migration-proof-') as temporary:
   try: broker.copy_tree(src,dest,65000)
   except ValueError: pass
   else: raise AssertionError('symbolic migration accepted')
+  assert not list(destination.iterdir()) and secret.read_text()=='private sentinel'
+  (source/'linked').unlink(); os.link(secret,source/'linked')
+  try: broker.copy_tree(src,dest,65000)
+  except ValueError: pass
+  else: raise AssertionError('hard-link migration accepted')
   assert not list(destination.iterdir()) and secret.read_text()=='private sentinel'
  finally: os.close(src); os.close(dest)
 print('Revocation and linked-migration checks passed')

@@ -25,6 +25,7 @@ test('startup prepares enrolled principals before execution, including durable r
   const calls=[]; const isolation={ready:async()=>calls.push('ready'),configure:async(_c,name)=>calls.push(name),revoke:async name=>calls.push('revoke:'+name)};
   await prepareBotIsolation(isolation,{dashboard:async()=>({profiles:[{name:'default'},{name:'worker'}]})},root); assert.deepEqual(calls,['ready','default','worker','revoke:old']);
   calls.length=0; await assert.rejects(prepareBotIsolation(isolation,{dashboard:async()=>({profiles:[{name:'unregistered'}]})},root),{code:'ISOLATION_UNENROLLED_PROFILE'}); assert.deepEqual(calls,[]);
+  await assert.rejects(prepareBotIsolation(isolation,{dashboard:async()=>({profiles:[{name:'old'}]})},root),{code:'ISOLATION_UNENROLLED_PROFILE'});
   calls.length=0; isolation.ready=async()=>{throw Error('offline');}; await assert.rejects(prepareBotIsolation(isolation,{dashboard:async()=>({profiles:[{name:'default'}]})},root),/offline/); assert.deepEqual(calls,[]);
  } finally {await rm(root,{recursive:true,force:true});}
 });

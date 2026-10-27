@@ -54,7 +54,26 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+  server-validation:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.21.0'
+      - run: npm install --global npm@11.19.0 --no-audit --no-fund
+      - run: npm ci --prefix server
+      - run: node --test --test-concurrency=2 server/test/*.test.mjs
+      - run: node --test deploy/*.test.mjs
   first-run:
+    name: first-run (${{ matrix.isolation }})
+    strategy:
+      fail-fast: false
+      matrix:
+        isolation: [shared, users]
     # Ubuntu 22.04 supports Chromium user namespaces without Ubuntu 24.04's
     # additional AppArmor restriction. No sandbox or seccomp bypass is applied.
     runs-on: ubuntu-22.04
@@ -73,7 +92,7 @@ jobs:
       - name: Verify first boot, sandboxed browser, and persistence
         env:
           MUSE_SMOKE_IMAGE: openmuse:ci
-          MUSE_SMOKE_ISOLATION: ${{ github.ref_name == 'codex/bot-os-isolation' && 'users' || 'shared' }}
+          MUSE_SMOKE_ISOLATION: ${{ matrix.isolation }}
         shell: bash
         run: |
           set +e

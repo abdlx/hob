@@ -63,14 +63,16 @@ export async function resolveMediaFile({ home, workspaces, stateDir, profile = '
     if (!within(base, candidate)) continue;
     // Main's home is the shared parent of every profile directory. Serving
     // through that root would make one bot's images readable as another's.
-    if (name === 'default' && within(path.join(base, 'profiles'), candidate)) continue;
+    if (name === 'default' && (within(path.join(base, 'profiles'), candidate)
+      || within(path.join(path.resolve(workspaces || path.join(home, 'workspaces')), 'bots'), candidate))) continue;
     let entry;
     try { entry = await lstat(candidate); } catch { continue; }
     if (!entry.isFile() || entry.isSymbolicLink()) continue;
     let resolved;
     try { resolved = await realpath(candidate); } catch { continue; }
     if (!within(base, resolved) || !IMAGE.test(resolved)) continue;
-    if (name === 'default' && within(path.join(base, 'profiles'), resolved)) continue;
+    if (name === 'default' && (within(path.join(base, 'profiles'), resolved)
+      || within(path.join(path.resolve(workspaces || path.join(home, 'workspaces')), 'bots'), resolved))) continue;
     let info;
     try { info = await stat(resolved); } catch { continue; }
     if (!info.isFile() || info.size <= 0 || info.size > MAX) continue;

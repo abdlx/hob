@@ -27,7 +27,7 @@ function object(value) {
   return value;
 }
 
-export function createHermesRoutes(client, bots, { removeBot, home, stateDir } = {}) {
+export function createHermesRoutes(client, bots, { removeBot, home, stateDir, workspaces } = {}) {
   return async (req, res, url, { json, body, startEvents, sendEvent }) => {
     const method = req.method;
     const path = url.pathname.slice('/api/hermes/'.length);
@@ -42,7 +42,7 @@ export function createHermesRoutes(client, bots, { removeBot, home, stateDir } =
       if (values.length !== 1) throw new HermesError(400, 'Select one media path.', 'INVALID_REQUEST');
       return await serveHermesMedia(req, res, {
         home,
-        workspaces: home ? nodePath.join(home, 'workspaces') : undefined,
+        workspaces: workspaces || (home ? nodePath.join(home, 'workspaces') : undefined),
         stateDir,
         profile,
         value: values[0],

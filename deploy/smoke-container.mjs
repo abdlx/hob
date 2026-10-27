@@ -208,6 +208,14 @@ try {
   compose('config', '--quiet');
   console.log('Using isolated test project ' + project + ' on localhost port ' + port + '.');
   started = true;
+  if (usersIsolation) {
+    // This generated project owns a fresh volume, seeded with an older-layout
+    // artifact. Stock init assigns ownership; the broker must copy it once.
+    const volume = project + '_hermes-data';
+    docker(['volume', 'create', '--label', 'com.docker.compose.project=' + project, '--label', 'com.docker.compose.volume=hermes-data', volume]);
+    const seed = "from pathlib import Path; p=Path('/opt/data/workspaces/main'); p.mkdir(parents=True); (p/'legacy-migration-proof.txt').write_text('legacy original\\n')";
+    docker(['run', '--rm', '--user', 'root', '--entrypoint', '/usr/bin/python3', '--volume', volume + ':/opt/data', image, '-c', seed], 30000);
+  }
   compose('up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '300');
   await ready();
   const container = compose('ps', '--quiet', 'muse');

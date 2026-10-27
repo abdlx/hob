@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import grp
 import json
 import os
 from pathlib import Path
@@ -358,7 +359,7 @@ class Broker:
             if not record:
                 if len(self.data["bots"]) >= 500:
                     raise ValueError("isolation_user_limit")
-                used = {r["uid"] for r in self.data["bots"].values()} | {r.pw_uid for r in pwd.getpwall()} | {self.uid}
+                used = {r["uid"] for r in self.data["bots"].values()} | {r.pw_uid for r in pwd.getpwall()} | {r.gr_gid for r in grp.getgrall()} | {self.uid}
                 uid = next(uid for uid in range(20000, 60000) if uid not in used)
                 record = self.data["bots"][name] = {"uid": uid, "revoked": False}
                 self.save()  # Reserve before creating an OS principal; never reuse.
@@ -370,7 +371,14 @@ class Broker:
                     if account.pw_uid != uid or account.pw_gid != uid:
                         raise ValueError("isolation_account_conflict")
                 except KeyError:
-                    run(["/usr/sbin/groupadd", "--gid", str(uid), username])
+                    # A previous interrupted setup may already have created the
+                    # group. Reuse only its exact reserved identity.
+                    try:
+                        group = grp.getgrgid(uid)
+                        if group.gr_name != username:
+                            raise ValueError("isolation_group_conflict")
+                    except KeyError:
+                        run(["/usr/sbin/groupadd", "--gid", str(uid), username])
                     run(["/usr/sbin/useradd", "--uid", str(uid), "--gid", str(uid), "--no-create-home", "--home-dir", str(workspace), "--shell", "/bin/bash", "--password", "*", username])
                 workspace = self.workspace(name, uid)
                 self.install_key(name, username, uid)

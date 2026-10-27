@@ -119,6 +119,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   const hermesRoutes = hermes ? createHermesRoutes(hermes, bots, {
     ...(hermesGroups ? { removeBot: hermesGroups.removeBot } : {}),
     home: process.env.HERMES_HOME,
+    workspaces: process.env.HOB_WORKSPACE_ROOT,
     stateDir: hermesMediaState,
   }) : null;
   const mcpOAuth = hermes ? createHermesMcpOAuth(hermes, { publicUrl }) : null;
