@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSmokeModel, SMOKE_SKILL_PROMPT, SMOKE_SKILL_REPLY, SMOKE_SKILL_NAME, SMOKE_RELAY_PROMPT, SMOKE_RELAY_REPLY,
-  SMOKE_WORKER_PROMPT, SMOKE_WORKER_REPLY, SMOKE_WAKE_REPLY, SMOKE_HEARTBEAT_PROMPT, SMOKE_HEARTBEAT_REPLY } from './smoke-model.mjs';
+  SMOKE_WORKER_PROMPT, SMOKE_WORKER_REPLY, SMOKE_WAKE_REPLY, SMOKE_HEARTBEAT_PROMPT, SMOKE_HEARTBEAT_REPLY,
+  SMOKE_RECOVERY_PROMPT, SMOKE_RECOVERY_REPLY, SMOKE_RECOVERY_RESUME } from './smoke-model.mjs';
 
 test('the learning probe issues a real skill tool call and only reports staging for an actual pending receipt', async t => {
   const server = createSmokeModel();
@@ -41,4 +42,26 @@ test('proactive fixture issues a real relay tool and distinguishes worker, coord
   assert.equal((await call([{ role: 'user', content: SMOKE_WORKER_PROMPT }])).content, SMOKE_WORKER_REPLY);
   assert.equal((await call([{ role: 'user', content: `[HOB background result; exchange 123]\n${SMOKE_WORKER_PROMPT}` }])).content, SMOKE_WAKE_REPLY);
   assert.equal((await call([{ role: 'user', content: SMOKE_HEARTBEAT_PROMPT }])).content, SMOKE_HEARTBEAT_REPLY);
+});
+
+test('the crash fixture holds a real provider response and counts retries without exposing prompts', async t => {
+  const server = createSmokeModel(); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  const controller = new AbortController();
+  const call = (text, options = {}) => fetch(origin + '/v1/chat/completions', { method: 'POST',
+    body: JSON.stringify({ stream: true, messages: [{ role: 'user', content: text }] }), ...options });
+  const interrupted = call(SMOKE_RECOVERY_PROMPT, { signal: controller.signal }).then(() => 'Unexpected reply', () => 'aborted');
+  for (let count = 0; count < 100; count++) {
+    const state = await (await fetch(origin + '/smoke/recovery')).json();
+    if (state.held === 1) break;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.deepEqual(await (await fetch(origin + '/smoke/recovery')).json(), { requests: 1, held: 1, released: false });
+  controller.abort();
+  assert.equal(await interrupted, 'aborted');
+  await fetch(origin + '/smoke/recovery/release', { method: 'POST' });
+  assert.match(await (await call(SMOKE_RECOVERY_PROMPT)).text(), new RegExp(SMOKE_RECOVERY_REPLY));
+  assert.match(await (await call(SMOKE_RECOVERY_RESUME)).text(), new RegExp(SMOKE_RECOVERY_RESUME));
+  assert.deepEqual(await (await fetch(origin + '/smoke/recovery')).json(), { requests: 2, held: 0, released: true });
 });

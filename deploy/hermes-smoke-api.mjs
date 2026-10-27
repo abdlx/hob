@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { SMOKE_MODEL, SMOKE_PROMPT, SMOKE_REPLY, SMOKE_FILE, SMOKE_CONTENT, SMOKE_SKILL_PROMPT, SMOKE_SKILL_REPLY, SMOKE_SKILL_NAME, SMOKE_SKILL_CONTENT } from './smoke-model.mjs';
 import { proactiveFirstBoot, proactiveAfterRestart } from './proactive-smoke.mjs';
+import { verifyActiveCrashRecovery } from './recovery-smoke.mjs';
 
 // Reusable against the published image or an owned source-launched fixture.
 // Every write here is synthetic, and the caller must supply a fresh isolated
@@ -275,5 +276,7 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
     check('a completed request cannot be replayed', replay.status === 409, 'observed ' + replay.status);
   };
 
-  return { firstBoot, afterRestart, checks };
+  return { firstBoot, afterRestart, checks,
+    activeCrashRecovery: ({ fixture, crash }) => verifyActiveCrashRecovery({ api, request, retry, check, fixture, crash }),
+  };
 }

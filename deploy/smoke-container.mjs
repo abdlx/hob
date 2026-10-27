@@ -255,6 +255,22 @@ try {
   await smoke.afterRestart(saved);
   verifyRuntimeUsers(compose('ps', '--quiet', 'muse'));
   if (usersIsolation) console.log('OS isolation after recreation: ' + docker(['exec', compose('ps', '--quiet', 'muse'), '/usr/bin/python3', '/app/deploy/isolation-proof.py'], 120000));
+  if (saved.providerTier) await smoke.activeCrashRecovery({
+    fixture: (path, method = 'GET') => {
+      assert.ok(['/smoke/recovery', '/smoke/recovery/release'].includes(path));
+      const modelContainer = compose('ps', '--quiet', 'smoke-model');
+      const script = "fetch('http://127.0.0.1:18793'+process.argv[1], {method:process.argv[2], signal:AbortSignal.timeout(5000)}).then(async r => {if(!r.ok) throw Error(); process.stdout.write(JSON.stringify(await r.json()));}).catch(() => {console.error('Synthetic recovery fixture failed'); process.exitCode=1;});";
+      return JSON.parse(docker(['exec', modelContainer, '/usr/local/bin/node', '-e', script, path, method], 10000));
+    },
+    crash: async () => {
+      const previous = compose('ps', '--quiet', 'muse');
+      docker(['kill', '--signal', 'KILL', previous], 30000);
+      compose('up', '-d', '--no-build', '--pull', 'never', '--force-recreate', '--wait', '--wait-timeout', '300', 'muse');
+      appContainer = compose('ps', '--quiet', 'muse');
+      assert.notEqual(appContainer, previous, 'The active-crash check must replace the container.');
+      await ready();
+    },
+  });
   console.log('All ' + smoke.checks.length + ' checks passed across container recreation.');
   if (saved.providerTier) console.log('A real Hermes tool turn used only the isolated local fixture provider.');
   else console.log('The synthetic provider tier was disabled (MUSE_SMOKE_PROVIDER=0); no model turn was claimed.');
