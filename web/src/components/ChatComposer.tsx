@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
-import { FolderOpen, ArrowUp, LoaderCircle } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { FolderOpen, ArrowUp, LoaderCircle, Paperclip } from 'lucide-react';
 import { MobileDock } from './MobileDock';
 
 export interface ChatComposerProps {
@@ -11,6 +12,9 @@ export interface ChatComposerProps {
   /** Blocks submission while typing stays available (e.g. work already in flight). */
   canSend?: boolean;
   working?: boolean;
+  attachments?: ReactNode;
+  hasAttachments?: boolean;
+  onAttach?: () => void;
   placeholder?: string;
   onAddContext?: () => void;
   onNavigateBots?: () => void;
@@ -25,6 +29,9 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   disabled = false,
   canSend = true,
   working = false,
+  attachments,
+  hasAttachments = false,
+  onAttach,
   placeholder = 'Message...',
   onAddContext,
   onNavigateBots,
@@ -47,14 +54,17 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
 
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
-    if (disabled || !canSend || !value.trim()) return;
+    if (disabled || !canSend || (!value.trim() && !hasAttachments)) return;
     onSubmit();
   };
 
   return (
     <div className="hob-composer w-full px-3 sm:px-4 md:px-6 pt-2 bg-canvas shrink-0 flex flex-col items-center gap-2 select-none" style={{ paddingBottom: showMobileDock && !focused ? 10 : 'max(10px, env(safe-area-inset-bottom))' }}>
       <form aria-label="Message composer" onSubmit={submit} className="w-full max-w-[840px]">
-        <div className="w-full min-h-14 rounded-[26px] bg-surface border border-edge px-2 py-2 flex items-end gap-2 shadow-[0_3px_14px_rgba(0,0,0,0.04)] transition-colors focus-within:border-accent-line focus-within:shadow-[0_0_0_3px_var(--color-accent-soft)]">
+        <div className="overflow-hidden rounded-[26px] border border-edge bg-surface shadow-[0_3px_14px_rgba(0,0,0,0.04)] transition-colors focus-within:border-accent-line focus-within:shadow-[0_0_0_3px_var(--color-accent-soft)]">
+        {attachments}
+        <div className="w-full min-h-14 px-2 py-2 flex items-end gap-2">
+          {onAttach && <button type="button" disabled={disabled} aria-label="Attach photos or files" title="Attach photos or files" onClick={onAttach} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted hover:bg-sunken disabled:opacity-40 cursor-pointer"><Paperclip size={18} /></button>}
           {onAddContext && (
             <button
               type="button"
@@ -92,12 +102,13 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
               type="submit"
               aria-label={working ? 'Waiting for current reply' : 'Send message'}
               title={working ? 'You can draft while your bot works' : 'Send message'}
-              disabled={disabled || !canSend || !value.trim()}
+              disabled={disabled || !canSend || (!value.trim() && !hasAttachments)}
               className="w-10 h-10 rounded-full bg-ink hover:opacity-85 text-canvas flex items-center justify-center transition-colors cursor-pointer shrink-0 disabled:opacity-30 shadow-xs active:scale-95"
             >
               {working ? <LoaderCircle size={18} className="animate-spin motion-reduce:animate-none" /> : <ArrowUp size={19} strokeWidth={2.2} />}
             </button>
           </div>
+        </div>
         </div>
       </form>
       <div id={hint} className="flex min-h-4 w-full max-w-[840px] items-center justify-between gap-2 px-2 text-[10px] text-muted"><span>{working ? 'Your bot is working. Keep drafting while you wait.' : <span className="hidden md:inline">Enter to send · Shift + Enter for a new line</span>}</span>{focused && <button type="button" onClick={() => textareaRef.current?.blur()} className="px-2 py-1 text-xs text-accent md:hidden cursor-pointer">Done</button>}</div>

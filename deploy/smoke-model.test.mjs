@@ -2,7 +2,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSmokeModel, SMOKE_SKILL_PROMPT, SMOKE_SKILL_REPLY, SMOKE_SKILL_NAME, SMOKE_RELAY_PROMPT, SMOKE_RELAY_REPLY,
   SMOKE_WORKER_PROMPT, SMOKE_WORKER_REPLY, SMOKE_WAKE_REPLY, SMOKE_HEARTBEAT_PROMPT, SMOKE_HEARTBEAT_REPLY,
-  SMOKE_RECOVERY_PROMPT, SMOKE_RECOVERY_REPLY, SMOKE_RECOVERY_RESUME } from './smoke-model.mjs';
+  SMOKE_RECOVERY_PROMPT, SMOKE_RECOVERY_REPLY, SMOKE_RECOVERY_RESUME, SMOKE_ATTACHMENT_PROMPT, SMOKE_ATTACHMENT_REPLY } from './smoke-model.mjs';
+
+test('attachment proof requires actual image content at the provider rather than a filename in text', async t => {
+  const server = createSmokeModel(); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+  const call = async content => {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/chat/completions`, { method: 'POST', body: JSON.stringify({ messages: [{ role: 'user', content }] }) });
+    return (await response.json()).choices[0].message.content;
+  };
+  assert.equal(await call(SMOKE_ATTACHMENT_PROMPT + ' proof.png'), 'HOB_NATIVE_IMAGE_MISSING');
+  assert.equal(await call([{ type: 'text', text: SMOKE_ATTACHMENT_PROMPT }, { type: 'image_url', image_url: { url: 'data:image/png;base64,synthetic' } }]), SMOKE_ATTACHMENT_REPLY);
+});
 
 test('the learning probe issues a real skill tool call and only reports staging for an actual pending receipt', async t => {
   const server = createSmokeModel();

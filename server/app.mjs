@@ -14,6 +14,7 @@ import { createHermesMcpOAuth } from './hermes-mcp-oauth.mjs';
 import { createHermesBotRelay } from './hermes-bot-relay.mjs';
 import { createBrowserRoutes } from './browser-routes.mjs';
 import { createAgentComputerRoutes } from './agent-computer-routes.mjs';
+import { MobileDevices } from './mobile-devices.mjs';
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -51,13 +52,13 @@ function json(res, status, value) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(value));
 }
-async function body(req) {
+async function body(req, { maxBytes = MAX_BODY } = {}) {
   if (!req.headers['content-type']?.startsWith('application/json')) throw new HttpError(415, 'Send application/json.');
   let size = 0;
   const chunks = [];
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > MAX_BODY) throw new HttpError(413, 'Request exceeds 2 MB.');
+    if (size > maxBytes) throw new HttpError(413, `Request exceeds ${maxBytes / 1024 / 1024} MB.`);
     chunks.push(chunk);
   }
   try {
@@ -110,6 +111,12 @@ async function browserImage(stateDir, filename) {
 }
 
 export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gateway : undefined, bots, browser, runJournal, nativeSessions, exchanges, password = process.env.MUSE_PASSWORD, accessToken = process.env.MUSE_ACCESS_TOKEN, sessionSecret = process.env.MUSE_SESSION_SECRET, publicUrl = process.env.MUSE_PUBLIC_URL, secureCookies = process.env.MUSE_SECURE_COOKIES === 'true', stateDir = process.env.OPENCLAW_STATE_DIR, viewerTicketTtlMs, staticDir = fileURLToPath(new URL('../web/dist', import.meta.url)) }) {
+  const configured = Boolean(password || accessToken);
+  const secret = sessionSecret || createHash('sha256').update(`muse-session:${password || accessToken || randomBytes(32).toString('hex')}`).digest();
+  const fingerprint = createHash('sha256').update(`${password || ''}:${accessToken || ''}`).digest('base64url');
+  const mobile = new MobileDevices({ stateDir: process.env.HOB_STATE_DIR || stateDir, fingerprint });
+  const bootstrapTickets = new Map();
+  const notifyCompleted = value => { try { mobile.completed(value); } catch { console.warn('[hob] A mobile notification could not be queued.'); } };
   if (nativeSessions && !runJournal) throw new Error('Native chat requires a durable admission journal.');
   const hermesGroups = hermes && nativeSessions ? createHermesGroups({ client: hermes, bridge: nativeSessions, bots, home: process.env.HERMES_HOME }) : null;
   // Agent-written media lives beside the Hermes profile, in its workspace, or
@@ -131,7 +138,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
     },
     workspaceRoot: process.env.HOB_WORKSPACE_ROOT || (process.env.HERMES_HOME ? path.join(process.env.HERMES_HOME, 'workspaces') : undefined) }) : null;
   const hermesChat = gateway?.kind === 'hermes' ? createHermesChatRoutes(gateway, bots, runJournal, { home: process.env.HERMES_HOME }) : null;
-  const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat }) : null;
+  const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat, attachmentSecret: secret, onCompleted: notifyCompleted }) : null;
   // The relay authenticates each bot with its own relay-scoped credential, not the
   // dashboard session, so it is mounted before the `/api/*` login gate.
   const botRelay = hermes && bots ? createHermesBotRelay({ client: hermes, bots, exchanges, journal: runJournal, bridge: nativeSessions, onWake: key => canonicalChat?.watch(key) }) : null;
@@ -152,9 +159,6 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
     assertOrigin: req => assertOrigin(req),
     knownBot: name => !bots || bots.has(name),
   }) : null;
-  const configured = Boolean(password || accessToken);
-  const secret = sessionSecret || createHash('sha256').update(`muse-session:${password || accessToken || randomBytes(32).toString('hex')}`).digest();
-  const fingerprint = createHash('sha256').update(`${password || ''}:${accessToken || ''}`).digest('base64url');
   const attempts = new Map();
   const streams = new Set();
   const sign = value => createHmac('sha256', secret).update(value).digest('base64url');
@@ -163,9 +167,9 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
     if (!token || token.length > 1024) return false;
     const [payload, signature] = token.split('.');
     if (!signature || !safeEquals(sign(payload), signature)) return false;
-    try { const data = JSON.parse(Buffer.from(payload, 'base64url')); return data.exp > Date.now() && data.fp === fingerprint; } catch { return false; }
+    try { const data = JSON.parse(Buffer.from(payload, 'base64url')); return data.exp > Date.now() && data.fp === fingerprint && (!data.mobileDeviceId || mobile.active(data.mobileDeviceId)); } catch { return false; }
   };
-  const authenticated = req => configured && (cookieValid(req) || (accessToken && safeEquals(req.headers.authorization || '', `Bearer ${accessToken}`)));
+  const authenticated = req => configured && (cookieValid(req) || mobile.authenticate(req.headers.authorization) || (accessToken && safeEquals(req.headers.authorization || '', `Bearer ${accessToken}`)));
   const setCookie = (res, value, maxAge) => res.setHeader('Set-Cookie', `muse_session=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${secureCookies || publicUrl?.startsWith('https:') ? '; Secure' : ''}`);
   const assertOrigin = req => {
     if (req.headers['sec-fetch-site'] === 'cross-site') throw new HttpError(403, 'Cross-site requests are refused.');
@@ -203,6 +207,12 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   gateway.on('event', frame => { if (EXPOSED_EVENTS.test(frame.event)) for (const res of streams) sendEvent(res, 'gateway', { event: frame.event, payload: frame.payload }); });
   gateway.on('connected', () => { for (const res of streams) sendEvent(res, 'connection', { connected: true }); });
   gateway.on('disconnected', () => { for (const res of streams) sendEvent(res, 'connection', { connected: false }); });
+  const mobileEvent = ({ profile, event }) => {
+    if (event?.type === 'message.complete' && event.payload?.status === 'complete' && typeof event.payload?.text === 'string' && event.payload.text.trim()) {
+      notifyCompleted({ profile, sessionId: event.session_id, admissionId: event.admission_id || event.payload.admission_id });
+    }
+  };
+  nativeSessions?.on('event', mobileEvent);
 
   // Baked at image build time by the Dockerfile/Compose args. It is deliberately
   // public and contains no credentials: the point is to answer "which commit is
@@ -235,9 +245,11 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
         return json(res, state.ready ? 200 : 503, { ok: state.ready, gatewayConnected: gateway.connected, version: build });
       }
       if (route === '/api/version' && method === 'GET') return json(res, 200, build);
+      if (route === '/api/mobile/discovery' && method === 'GET') return json(res, 200, { app: 'hob', protocol: 1, instanceId: mobile.instanceId,
+        auth: 'password', configured, version: build, capabilities: { workspace: true, attachments: Boolean(canonicalChat), push: true, maxAttachmentBytes: 5 * 1024 * 1024, maxAttachments: 10 } });
       if (route === '/api/auth/status' && method === 'GET') return json(res, 200, { authenticated: Boolean(authenticated(req)), configured, gatewayConnected: gateway.connected });
       if (method !== 'GET' && method !== 'HEAD') assertOrigin(req);
-      if (route === '/api/auth/login' && method === 'POST') {
+      if (['/api/auth/login', '/api/mobile/login'].includes(route) && method === 'POST') {
         if (!configured) throw new HttpError(503, 'Set MUSE_PASSWORD or MUSE_ACCESS_TOKEN on the server.');
         const ip = req.socket.remoteAddress;
         const now = Date.now();
@@ -250,9 +262,21 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
         const input = await body(req);
         if (!((password && safeEquals(input.password || '', password)) || (accessToken && safeEquals(input.password || input.token || '', accessToken)))) throw new HttpError(401, 'Invalid password or access token.');
         attempts.delete(ip);
+        if (route === '/api/mobile/login') return json(res, 200, { authenticated: true, ...mobile.login(input.deviceName) });
         const payload = Buffer.from(JSON.stringify({ exp: now + 86400000, fp: fingerprint, nonce: randomUUID() })).toString('base64url');
         setCookie(res, `${payload}.${sign(payload)}`, 86400);
         return json(res, 200, { authenticated: true });
+      }
+      if (route === '/api/mobile/bootstrap' && method === 'POST') {
+        let size = 0; const chunks = [];
+        for await (const chunk of req) { size += chunk.length; if (size > 1024) throw new HttpError(413, 'Invalid bootstrap request.'); chunks.push(chunk); }
+        const fields = new URLSearchParams(Buffer.concat(chunks).toString());
+        if ([...fields.keys()].some(key => key !== 'ticket') || fields.getAll('ticket').length !== 1) throw new HttpError(400, 'Invalid bootstrap ticket.');
+        const ticket = fields.get('ticket'), entry = bootstrapTickets.get(ticket); bootstrapTickets.delete(ticket);
+        if (!entry || entry.expires < Date.now() || !mobile.active(entry.deviceId)) throw new HttpError(401, 'Reconnect the app to continue.');
+        const payload = Buffer.from(JSON.stringify({ exp: Date.now() + 86400_000, fp: fingerprint, nonce: randomUUID(), mobileDeviceId: entry.deviceId })).toString('base64url');
+        setCookie(res, `${payload}.${sign(payload)}`, 86400);
+        res.writeHead(303, { Location: '/chat?mobile=1', 'Cache-Control': 'no-store' }); res.end(); return;
       }
       // Bot-to-bot traffic is authenticated by each bot's own Hermes listener
       // credential, so it must be admitted before the dashboard session gate.
@@ -261,6 +285,21 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
       }
       if (route.startsWith('/api/')) {
         if (!authenticated(req)) throw new HttpError(401, 'Sign in to hob.');
+        if (route.startsWith('/api/mobile/')) {
+          const deviceId = mobile.authenticate(req.headers.authorization);
+          if (!deviceId) throw new HttpError(401, 'Sign in from the mobile app.');
+          if (route === '/api/mobile/session' && method === 'POST') {
+            for (const [key, value] of bootstrapTickets) if (value.expires < Date.now()) bootstrapTickets.delete(key);
+            if (bootstrapTickets.size >= 1000) throw new HttpError(429, 'Try reconnecting shortly.');
+            const ticket = randomBytes(32).toString('base64url'); bootstrapTickets.set(ticket, { deviceId, expires: Date.now() + 60_000 });
+            return json(res, 200, { ticket });
+          }
+          if (route === '/api/mobile/device' && method === 'GET') return json(res, 200, mobile.status(deviceId));
+          if (route === '/api/mobile/device' && method === 'DELETE') { mobile.revoke(deviceId); return json(res, 200, { disconnected: true }); }
+          if (route === '/api/mobile/device/push' && method === 'PUT') { const input = await body(req); if (Object.keys(input).some(key => key !== 'pushToken')) throw new HttpError(400, 'Invalid device settings.'); return json(res, 200, mobile.register(deviceId, input.pushToken)); }
+          if (route === '/api/mobile/device/test' && method === 'POST') return json(res, 202, mobile.test(deviceId));
+          throw new HttpError(404, 'Unknown mobile operation.');
+        }
         if (route === '/api/runtime' && method === 'GET') return json(res, 200, { runtime: hermes ? 'hermes' : 'openclaw' });
         // Before the Hermes catch-all: the managed browser is a Hermes-runtime
         // surface, but it is HOB's own, not a passthrough to Hermes.
@@ -527,6 +566,8 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
     void poll();
   });
   server.once('close', () => clearInterval(runPoll));
+  const pushTimer = setInterval(() => { void mobile.flush().catch(() => console.warn('Mobile notification delivery could not be checked.')); }, 10000); pushTimer.unref();
+  server.once('close', () => { clearInterval(pushTimer); nativeSessions?.off('event', mobileEvent); mobile.close(); });
   server.once('listening', () => botRelay?.start());
   server.once('close', () => { botRelay?.close(); canonicalChat?.close(); nativeSessions?.close(); browserRoutes?.close(); agentComputerRoutes?.close(); });
   server.on('close', () => { for (const res of streams) res.end(); streams.clear(); });

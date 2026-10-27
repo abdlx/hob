@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { LeftSidebar } from '../components/LeftSidebar';
 import { BotsSidebar } from '../components/BotsSidebar';
 import { ChatHeader } from '../components/ChatHeader';
@@ -33,6 +33,11 @@ export const ChatScreen: React.FC = () => {
 
   // On mobile: first screen is the bots directory, selecting a bot opens its chat
   const [mobileView, setMobileView] = useState<'bots' | 'chat'>('bots');
+  useEffect(() => {
+    const opened = () => setMobileView('chat');
+    window.addEventListener('hob:conversation-opened', opened);
+    return () => window.removeEventListener('hob:conversation-opened', opened);
+  }, []);
 
   return (
     <div className="hob-app flex h-[100vh] h-[100dvh] max-h-[100dvh] w-screen max-w-full overflow-hidden bg-canvas md:bg-app p-0 md:p-2.5 gap-0 md:gap-2.5 select-none">

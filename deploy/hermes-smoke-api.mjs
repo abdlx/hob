@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { SMOKE_MODEL, SMOKE_PROMPT, SMOKE_REPLY, SMOKE_FILE, SMOKE_CONTENT, SMOKE_SKILL_PROMPT, SMOKE_SKILL_REPLY, SMOKE_SKILL_NAME, SMOKE_SKILL_CONTENT } from './smoke-model.mjs';
+import { SMOKE_MODEL, SMOKE_PROMPT, SMOKE_REPLY, SMOKE_FILE, SMOKE_CONTENT, SMOKE_SKILL_PROMPT, SMOKE_SKILL_REPLY, SMOKE_SKILL_NAME, SMOKE_SKILL_CONTENT, SMOKE_ATTACHMENT_PROMPT, SMOKE_ATTACHMENT_REPLY } from './smoke-model.mjs';
 import { proactiveFirstBoot, proactiveAfterRestart } from './proactive-smoke.mjs';
 import { verifyActiveCrashRecovery } from './recovery-smoke.mjs';
 
@@ -128,6 +128,16 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       check('the written artifact has the expected content', Buffer.from(String(file.dataUrl).split(',')[1], 'base64').toString('utf8') === SMOKE_CONTENT);
       const history = await api(session(sessionId, '/messages'));
       check('native history includes the assistant reply', history.some(item => item.role === 'assistant' && item.content.includes(SMOKE_REPLY)));
+      const mediaConversation = await api('/api/sessions', 'POST', { title: 'Native attachment proof', agentId: 'default' });
+      const upload = (name, mime, base64) => api(session(mediaConversation.id, '/attachments'), 'POST', { name, mime, base64 });
+      const photo = await upload('proof.png', 'image/png', 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jq1sAAAAASUVORK5CYII=');
+      const document = await upload('proof.txt', 'text/plain', Buffer.from('Synthetic native attachment.').toString('base64'));
+      check('native image and document staging returns session-bound references', typeof photo.id === 'string' && typeof document.id === 'string'
+        && photo.mime === 'image/png' && document.mime === 'text/plain' && !('path' in photo) && !('path' in document));
+      const mediaTurn = await request(session(mediaConversation.id, '/turns'), 'POST', { content: SMOKE_ATTACHMENT_PROMPT, idempotencyKey: randomUUID(), attachments: [photo.id, document.id] });
+      const mediaStream = await mediaTurn.text();
+      check('the native image reaches the model as actual image content', mediaTurn.ok && mediaStream.includes(SMOKE_ATTACHMENT_REPLY)
+        && mediaStream.includes('event: done') && !mediaStream.includes('event: error'), mediaStream.slice(-1600));
       providerTier = true;
     } else {
       check('the native runtime status endpoint answers', typeof (await api('/api/readiness')).ready === 'boolean');

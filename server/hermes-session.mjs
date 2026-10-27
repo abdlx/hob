@@ -10,6 +10,7 @@ const MAX_FRAME = 8 * 1024 * 1024;
 export const SESSION_METHODS = new Set(['ping', 'runtime.describe', 'setup.status', 'setup.runtime_check',
   'session.create', 'session.list', 'session.info', 'session.resume', 'session.detach', 'session.interrupt', 'session.mutate',
   'session.events.since', 'session.stats', 'prompt.submit', 'prompt.receipt', 'prompt.cancel',
+  'image.attach_bytes', 'file.attach',
   'prompt.resolve_unknown', 'approval.respond', 'clarify.respond', 'command.dispatch', 'session.control.read', 'session.control',
   'bot_relay.deliver', 'groups.capabilities', 'groups.list', 'groups.create', 'groups.state', 'groups.log', 'groups.send',
   'groups.stop', 'groups.rename', 'groups.disband', 'groups.retry', 'groups.discard', 'groups.approve',
@@ -141,7 +142,8 @@ export class HermesSessionBridge extends EventEmitter {
     if (!SESSION_METHODS.has(method) || !params || typeof params !== 'object' || Array.isArray(params)
       || Object.hasOwn(params, 'profile')) throw new HermesError(400, 'Invalid native session request.', 'INVALID_REQUEST');
     const encoded = JSON.stringify(params);
-    if (Buffer.byteLength(encoded) > 1024 * 1024) throw new HermesError(413, 'Session request is too large.', 'INVALID_REQUEST');
+    const staging = ['image.attach_bytes', 'file.attach'].includes(method);
+    if (Buffer.byteLength(encoded) > (staging ? 7 : 1) * 1024 * 1024) throw new HermesError(413, 'Session request is too large.', 'INVALID_REQUEST');
     // Freeze the exact validated request before discovery waits. A caller must
     // not change a control generation, input or profile selector in flight.
     const payload = JSON.parse(encoded);

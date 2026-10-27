@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { HermesError, hermesProfile, hermesResource, hermesSessionKey, hermesNativeSessionKey, parseHermesSessionKey } from './hermes-client.mjs';
 import { messageContentText } from './hermes-content.mjs';
 import { TERMINAL_RUNS, runFingerprint } from './hermes-run-journal.mjs';
+import { createHermesAttachments } from './hermes-attachments.mjs';
 
 const iso = value => {
   const date = new Date(typeof value === 'number' ? value * 1000 : value);
@@ -25,7 +26,8 @@ const failureReason = receipt => {
 };
 
 /** Translate custom chat UX into the one native session/FIFO owner, without exposing raw RPC. */
-export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpChat }) {
+export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpChat, attachmentSecret = randomUUID(), onCompleted }) {
+  const attachments = createHermesAttachments({ bridge, client, secret: attachmentSecret });
   const observed = new Set();
   const prompts = new Map();
   const refreshes = new Map();
@@ -72,6 +74,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
           }
           record = await journal.update(key, record.requestKey, { status: nativeStatus(receipt),
             ...(Number.isSafeInteger(receipt.execution_generation) ? { generation: receipt.execution_generation } : {}) });
+          if (record.status === 'completed') onCompleted?.({ profile: owner.profile, sessionId: owner.sessionId, admissionId: record.runId, createdAt: record.submittedAt });
         }
       }
       // Native work from another attached viewer also fences new UI submissions.
@@ -102,7 +105,8 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
   };
   const admit = async (owner, key, run, content) => {
     try {
-      const accepted = await rpc(owner, 'prompt.submit', { submission_id: run.requestKey, text: content });
+      const accepted = await rpc(owner, 'prompt.submit', { submission_id: run.requestKey, text: content,
+        ...(run.attachments?.length ? { attachments: run.attachments } : {}) });
       hermesResource(accepted.admission_id);
       if (accepted.ref?.session_id !== owner.sessionId) throw new HermesError(502, 'Hermes admitted another conversation.', 'HERMES_PROTOCOL_ERROR');
       await journal.update(key, run.requestKey, { runId: accepted.admission_id, status: nativeStatus(accepted) });
@@ -206,7 +210,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
         execution_generation: item.prompt.execution_generation, choice }));
       await refresh(item.key); return true;
     }
-    const match = /^\/api\/sessions\/([^/]+)\/(messages|turns|abort|run|recover|resolve-unknown|clarify)$/.exec(url.pathname);
+    const match = /^\/api\/sessions\/([^/]+)\/(messages|turns|attachments|abort|run|recover|resolve-unknown|clarify)$/.exec(url.pathname);
     if (!match) return false;
     const key = decodeURIComponent(match[1]);
     const owner = parseHermesSessionKey(key);
@@ -223,6 +227,10 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
           profile: owner.profile }))); return true;
     }
     if (match[2] === 'run' && method === 'GET') { json(res, 200, { run: (await refresh(key)).run }); return true; }
+    if (match[2] === 'attachments' && method === 'POST') {
+      if (owner.profile !== profile) throw new HermesError(400, 'The conversation belongs to another selected bot.', 'INVALID_PROFILE');
+      json(res, 201, await attachments.upload(owner, key, await body(req, { maxBytes: 8 * 1024 * 1024 }))); return true;
+    }
     if (match[2] === 'recover' && method === 'POST') {
       // There is no public lookup of a completed admission by submission ID.
       // Observe pending receipts, but do not invent retention/identity authority
@@ -256,12 +264,14 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     }
     if (match[2] !== 'turns' || method !== 'POST') return false;
     const input = await body(req);
-    const content = required(input.content, 'content', 100000);
-    if (input.attachments?.length) throw new HermesError(400, 'Attachment upload has not been connected to Hermes yet.', 'ATTACHMENTS_UNAVAILABLE');
+    const selected = attachments.resolve(key, input.attachments);
+    const prompt = input.content || (input.attachments?.length ? 'Please review the attached files.' : '');
+    const content = [required(prompt, 'content', 100000), ...selected.references].join('\n\n');
+    if (content.length > 100000) throw new HermesError(400, 'The prompt and file references are too long.', 'INVALID_REQUEST');
     const before = await refresh(key);
     if (before.snapshot.pending.length) throw new HermesError(409, 'This conversation has active or unknown work. Review its status before submitting again.', 'RUN_ACTIVE');
     const run = await journal.reserve(key, { input: content, requestKey: input.idempotencyKey ?? randomUUID(),
-      credentialBinding: await client.credentialBinding(owner.profile) });
+      credentialBinding: await client.credentialBinding(owner.profile), ...(selected.images.length ? { attachments: selected.images } : {}) });
     const queue = [];
     let bytes = 0, wake, disconnected = false, accepted, heartbeat;
     const observer = frame => {

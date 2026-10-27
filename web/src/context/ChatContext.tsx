@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { AgentListItem, AgentProfile, ChatMessage, ChatSession, GroupSummary, RightPanelTab, SecurityApproval, SystemStats, TaskItem } from '../types/chat';
 import { chatApi, apiFetch } from '../services/api';
 import { useLocation, useNavigate } from 'react-router-dom';
+import type { ChatAttachment } from '../services/attachments';
 import { requestId } from '../services/id';
 import { displayGatewayNotice } from '../services/errors';
 import { ConversationWork } from '../services/conversation-work';
@@ -17,7 +18,7 @@ interface ChatContextValue {
   activityFilter: string | null; setActivityFilter: (id: string | null) => void;
   groups: GroupSummary[]; loadGroups: () => Promise<void>;
   selectedGroupId: string; setSelectedGroupId: (id: string) => void;
-  setActiveNav: (nav: string) => void; sendMessage: (content: string) => Promise<void>;
+  setActiveNav: (nav: string) => void; sendMessage: (content: string, attachments?: ChatAttachment[]) => Promise<void>;
   selectSession: (id: string) => Promise<void>; createNewSession: () => Promise<void>;
   setActiveTab: (tab: RightPanelTab) => void; toggleRightPanel: () => void; toggleLeftDrawer: () => void;
   resolveApproval: (id: string, decision: 'approved' | 'rejected') => Promise<void>;
@@ -306,7 +307,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   }, [isPreparing, refresh, setActiveNav, agents]);
 
-  const sendMessage = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (content: string, attachments: ChatAttachment[] = []) => {
     const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1';
     if (isPreview) {
       const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -358,7 +359,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const reply = await api.sendMessage(id, content, (chunk, replace) => {
         if (!workRef.current.append(current, chunk, replace)) return;
         if (sessionRef.current === id && chatApi.getProfile() === profile) setMessages(previous => workRef.current.project(id, previous));
-      }, current.user.id);
+      }, current.user.id, attachments.map(file => file.id));
       if (!workRef.current.finish(current)) return;
       if (sessionRef.current === id && chatApi.getProfile() === profile) setMessages(previous => [...previous.filter(item => item.id !== current.reply.id).map(item => ({ ...item, status: 'complete' as const })), reply]);
       await refresh();
@@ -388,6 +389,30 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     try { const updated = await api.updateAgentProfile(partial); if (chatApi.getProfile() === profile && viewEpochRef.current === epoch) setAgent(updated); }
     catch (err) { if (chatApi.getProfile() === profile && viewEpochRef.current === epoch) setError(errorText(err)); throw err; }
   }, []);
+
+  const openingNativeConversation = useRef(false);
+  useEffect(() => {
+    const open = async () => {
+      const target = window.__hobPendingConversation;
+      if (!target || isPreparing || profileLoadingRef.current || openingNativeConversation.current) return;
+      if (!/^[a-z][a-z0-9_-]{0,63}$/.test(target.profile) || !/^[A-Za-z0-9_-]{1,1024}$/.test(target.sessionKey)) { delete window.__hobPendingConversation; return; }
+      openingNativeConversation.current = true;
+      try {
+        await selectAgent(target.profile, { stayOnPage: true });
+        if (chatApi.getProfile() !== target.profile) return;
+        const available = await chatApi.forProfile(target.profile).getSessions();
+        if (!available.some(session => session.id === target.sessionKey)) throw new Error('That notification conversation is no longer available.');
+        delete window.__hobPendingConversation;
+        await selectSession(target.sessionKey);
+        window.dispatchEvent(new Event('hob:conversation-opened'));
+      } catch (error) { delete window.__hobPendingConversation; setError(errorText(error)); }
+      finally { openingNativeConversation.current = false; }
+    };
+    const receive = () => { void open(); };
+    window.addEventListener('hob:open-conversation', receive);
+    const timer = setTimeout(receive, 0);
+    return () => { clearTimeout(timer); window.removeEventListener('hob:open-conversation', receive); };
+  }, [isPreparing, selectAgent, selectSession]);
 
   return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, agents, selectAgent, tasks, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isBotsSidebarOpen, toggleBotsSidebar, setBotsSidebarOpen, isLoading, activeNav, error, connected, isPreparing, isCreatingConversation, activityFilter, setActivityFilter, groups, loadGroups, selectedGroupId, setSelectedGroupId, setActiveNav, sendMessage, selectSession, createNewSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, getComposerDraft, setComposerDraft, subscribeComposerDraft, clearError: () => { operationErrorRef.current = false; workRef.current.clearError(sessionRef.current); setError(null); } }}>{children}</ChatContext.Provider>;
 }

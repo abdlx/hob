@@ -48,6 +48,7 @@ In **Settings → Plugins & integrations**, browse app tiles and open a tile for
 
 ## Contents
 
+- [Android and iPhone app](mobile/README.md)
 - [Features](#features)
 - [Architecture](#architecture)
 - [Quick start](#quick-start)

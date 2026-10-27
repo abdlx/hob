@@ -43,6 +43,8 @@ async function fixture(t) {
       if (method === 'session.mutate') { session.title = params.payload.title; return { title: session.title }; }
       if (method === 'session.resume') return { ...structuredClone(session), authority_epoch: 11, execution_generation: shared.generation,
         info: { private_policy: 'do-not-expose-inventory' }, running: session.pending.some(item => item.status === 'started') };
+      if (method === 'image.attach_bytes') return { attached: true, path: `/native/${profile}/cache/images/upload.png`, mime: 'image/png' };
+      if (method === 'file.attach') return { attached: true, ref_text: '@file:"attachments/notes.txt"' };
       if (method === 'command.dispatch') {
         session.control = { revision: 'goal-state', heartbeat: null, goal: { status: 'active', title: params.arg.slice(3), max_turns: 40, turns_used: 0 } };
         return { type: 'send', message: `Continue the goal: ${session.control.goal.title}` };
@@ -123,6 +125,23 @@ async function fixture(t) {
   });
   return f;
 }
+
+test('HTTP attachment staging preserves native ownership and signed uploads become image inputs and literal file references', async t => {
+  const f = await fixture(t), conversation = await f.create('coder'), other = await f.create('coder');
+  const upload = (value, profile = 'coder') => f.call(`/api/sessions/${conversation.id}/attachments`, 'POST', value, profile);
+  const file = { name: 'photo.png', mime: 'image/png', base64: Buffer.from([137,80,78,71,13,10,26,10]).toString('base64') };
+  assert.equal((await upload(file, 'default')).status, 400);
+  assert.equal(f.shared.calls.some(call => call.method === 'image.attach_bytes'), false);
+  const photoResponse = await upload(file); assert.equal(photoResponse.status, 201); const photo = await photoResponse.json();
+  const notesResponse = await upload({ name: 'notes.txt', mime: 'text/plain', base64: 'bm90ZXM=' }); assert.equal(notesResponse.status, 201); const notes = await notesResponse.json();
+  assert.equal((await f.call(`/api/sessions/${other.id}/turns`, 'POST', { attachments: [photo.id] }, 'coder')).status, 400);
+  const turn = await f.call(`/api/sessions/${conversation.id}/turns`, 'POST', { attachments: [photo.id, notes.id], idempotencyKey: 'media-turn' }, 'coder');
+  assert.equal(turn.status, 200); assert.match(await turn.text(), /event: done/);
+  const submission = f.shared.calls.find(call => call.method === 'prompt.submit');
+  assert.equal(submission.profile, 'coder');
+  assert.deepEqual(submission.params.attachments, [{ path: '/native/coder/cache/images/upload.png', mime: 'image/png' }]);
+  assert.equal(submission.params.text, 'Please review the attached files.\n\n@file:"attachments/notes.txt"');
+});
 
 test('starting a goal consumes its native send directive through the durable chat owner exactly once', async t => {
   const f = await fixture(t), conversation = await f.create('coder');

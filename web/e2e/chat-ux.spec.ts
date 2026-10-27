@@ -28,6 +28,10 @@ async function fixture(page: Page, { long = false, question = false, brokenImage
     if (path === '/api/sessions') return json([{ id: 'ux-session', agentId: 'default', title: 'Launch direction', createdAt: stamp }]);
     if (path === '/api/sessions/ux-session/messages') return json(history);
     if (path === '/api/sessions/ux-session/run') return json({ run });
+    if (path === '/api/sessions/ux-session/attachments') {
+      const file = request.postDataJSON();
+      return json({ id: `ticket-${file.name}`, name: file.name, mime: file.mime, size: Buffer.from(file.base64, 'base64').length });
+    }
     if (path === '/api/sessions/ux-session/clarify') { run = { ...run!, status: 'running', questions: [], revision: 'revision-2' }; return json({ ok: true }); }
     if (path === '/api/sessions/ux-session/abort') { run = { ...run!, status: 'stopping', revision: 'revision-3' }; return json({ ok: true }); }
     if (path === '/api/sessions/ux-session/turns') {
@@ -58,6 +62,71 @@ async function openChat(page: Page, mobile = false) {
     if (await page.getByRole('button', { name: 'Close agent panel', exact: true }).isVisible()) await page.getByRole('button', { name: 'Close agent panel', exact: true }).click();
   }
 }
+
+test('native media appears in removable cards above the text field and attachment-only prompts carry session references', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await fixture(page);
+  await page.addInitScript(() => {
+    Object.assign(window, { ReactNativeWebView: { postMessage: (raw: string) => {
+      const request = JSON.parse(raw);
+      if (request.type === 'pick-media') setTimeout(() => window.dispatchEvent(new CustomEvent('hob:native-response', { detail: { id: request.id, files: [
+        { name: 'photo.png', mime: 'image/png', base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jq1sAAAAASUVORK5CYII=' },
+        { name: 'notes.txt', mime: 'text/plain', base64: 'bm90ZXM=' },
+      ] } })), 0);
+    } } });
+  });
+  await openChat(page, true);
+  const composer = page.getByRole('form', { name: 'Message composer' });
+  const initial = (await composer.boundingBox())!;
+  await page.getByRole('button', { name: 'Attach photos or files', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Remove attachment photo.png', exact: true })).toBeVisible();
+  await expect(composer.getByText('notes.txt', { exact: true })).toBeVisible();
+  expect((await composer.boundingBox())!.height).toBeGreaterThan(initial.height + 50);
+  const input = (await page.getByRole('textbox', { name: 'Message', exact: true }).boundingBox())!;
+  expect((await composer.getByText('notes.txt', { exact: true }).boundingBox())!.y).toBeLessThan(input.y);
+  await page.screenshot({ path: 'test-results/chat-native-attachments-mobile.png', fullPage: true });
+  await page.getByRole('button', { name: 'Remove attachment notes.txt', exact: true }).click();
+  await expect(composer.getByText('notes.txt', { exact: true })).toBeHidden();
+  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await expect.poll(state.submitted).toBe(true);
+  const submitted = state.writes.find(write => write.path.endsWith('/turns'))!;
+  expect(submitted.body.content).toBe('Please review the attached files.');
+  expect(submitted.body.attachments).toEqual(['ticket-photo.png']);
+  await expect(page.getByRole('button', { name: 'Remove attachment photo.png', exact: true })).toBeHidden();
+  state.release();
+  await expect(page.getByRole('region', { name: 'Conversation messages' }).getByText('The new reply is ready.', { exact: true })).toBeVisible();
+  expect(state.errors).toEqual([]);
+});
+
+test('a cancelled native picker releases the composer without staging files', async ({ page }) => {
+  const state = await fixture(page);
+  await page.addInitScript(() => {
+    Object.assign(window, { ReactNativeWebView: { postMessage: (raw: string) => {
+      const request = JSON.parse(raw);
+      setTimeout(() => window.dispatchEvent(new CustomEvent('hob:native-response', { detail: { id: request.id, files: [] } })), 0);
+    } } });
+  });
+  await openChat(page);
+  await page.getByRole('button', { name: 'Attach photos or files', exact: true }).click();
+  await expect(page.getByText('Adding attachments…', { exact: true })).toBeHidden();
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Still ready');
+  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();
+  expect(state.writes).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+test('a notification opens its verified conversation from the mobile bot directory', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await fixture(page);
+  await page.goto('/chat');
+  await expect(page.getByRole('listitem').filter({ has: page.getByText('Main', { exact: true }) })).toBeVisible();
+  await page.evaluate(() => {
+    window.__hobPendingConversation = { profile: 'default', sessionKey: 'ux-session' };
+    window.dispatchEvent(new Event('hob:open-conversation'));
+  });
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Conversation messages' }).getByText('Show the launch direction and the sample code.', { exact: true })).toBeVisible();
+  expect(state.writes).toEqual([]); expect(state.errors).toEqual([]);
+});
 
 test('image previews stay in chat, contain keyboard focus, zoom and restore focus; code copies exact text', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);

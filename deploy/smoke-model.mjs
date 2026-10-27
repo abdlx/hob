@@ -7,6 +7,8 @@ import { createMcpOAuthFixture } from './smoke-mcp.mjs';
 export const SMOKE_MODEL = 'hob-container-smoke';
 export const SMOKE_PROMPT = 'HOB_CONTAINER_SMOKE_WRITE';
 export const SMOKE_REPLY = 'HOB_CONTAINER_SMOKE_OK';
+export const SMOKE_ATTACHMENT_PROMPT = 'HOB_NATIVE_ATTACHMENT_PROOF';
+export const SMOKE_ATTACHMENT_REPLY = 'HOB_NATIVE_IMAGE_RECEIVED';
 export const SMOKE_FILE = 'container-smoke-proof.txt';
 export const SMOKE_CONTENT = 'Hermes executed the isolated container smoke tool.\n';
 export const SMOKE_SCHEDULE_PROMPT = 'HOB_PROACTIVE_SCHEDULE_PROOF';
@@ -85,6 +87,12 @@ export function createSmokeModel({ file = defaultFile() } = {}) {
       let content = asked && wrote ? (writeReceipt?.error ? 'HOB_WRITE_NOT_CONFIRMED: ' + JSON.stringify(writeReceipt).slice(0, 1200) : SMOKE_REPLY) : 'Synthetic smoke metadata.';
       const latestUser = input.messages.findLast(item => item.role === 'user');
       const latestText = String(latestUser?.content || '');
+      const textParts = typeof latestUser?.content === 'string' ? latestUser.content : (latestUser?.content || []).map(part => part.text || '').join('\n');
+      if (textParts.includes(SMOKE_ATTACHMENT_PROMPT)) {
+        const received = Array.isArray(latestUser.content) && latestUser.content.some(part => part.type === 'image_url'
+          && /^data:image\/png;base64,/.test(part.image_url?.url || ''));
+        return completion(res, input, { role: 'assistant', content: received ? SMOKE_ATTACHMENT_REPLY : 'HOB_NATIVE_IMAGE_MISSING' });
+      }
       if (latestText.includes(SMOKE_RECOVERY_PROMPT)) {
         recoveryRequests++;
         if (recoveryReleased) return completion(res, input, { role: 'assistant', content: SMOKE_RECOVERY_REPLY });

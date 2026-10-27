@@ -8,6 +8,9 @@ export const TERMINAL_RUNS = new Set(['completed', 'failed', 'cancelled', 'inter
 const STATES = new Set([...TERMINAL_RUNS, 'admitting', 'queued', 'running', 'waiting_for_approval', 'stopping', 'unknown', 'unavailable']);
 const MAX_BYTES = 16 * 1024 * 1024;
 export const runFingerprint = input => createHash('sha256').update(JSON.stringify(input)).digest('hex');
+const validAttachments = attachments => attachments === undefined || (Array.isArray(attachments) && attachments.length <= 10 && attachments.every(item => item
+  && Object.keys(item).sort().join(',') === 'mime,path' && typeof item.path === 'string' && item.path.length > 0 && item.path.length <= 8192
+  && ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(item.mime)));
 
 // Adapter correlation only; Hermes owns execution, outcome and approvals.
 // Prompt text exists here solely until admission is confirmed, for a deliberate
@@ -49,7 +52,7 @@ export class HermesRunJournal {
         || !STATES.has(record.status) || !/^[\x21-\x7e]{1,255}$/.test(record.requestKey || '')
         || !/^[a-f0-9]{64}$/.test(record.fingerprint || '') || !/^[a-f0-9]{64}$/.test(record.credentialBinding || '')
         || !Number.isFinite(record.submittedAt) || !Number.isFinite(new Date(record.submittedAt).getTime()) || !Number.isFinite(record.replayUntil)
-        || (record.runId !== null && typeof record.runId !== 'string')
+        || (record.runId !== null && typeof record.runId !== 'string') || !validAttachments(record.attachments)
         || (record.runId === null && !TERMINAL_RUNS.has(record.status) && (typeof record.input !== 'string' || record.input.length > 100000))) throw new Error('Invalid run journal.');
       if (record.runId !== null) hermesResource(record.runId);
       keys.add(record.key);
@@ -90,22 +93,25 @@ export class HermesRunJournal {
     return work;
   }
 
-  reserve(key, { input, requestKey, credentialBinding, retentionSeconds = 0 }) {
+  reserve(key, { input, requestKey, credentialBinding, retentionSeconds = 0, attachments }) {
     const owner = parseHermesSessionKey(key);
     if (typeof input !== 'string' || !input.trim() || input.length > 100000
       || typeof requestKey !== 'string' || !/^[\x21-\x7e]{1,255}$/.test(requestKey)
       || typeof credentialBinding !== 'string' || !/^[a-f0-9]{64}$/.test(credentialBinding)
-      || !Number.isFinite(retentionSeconds) || retentionSeconds < 0) {
+      || !Number.isFinite(retentionSeconds) || retentionSeconds < 0
+      || !validAttachments(attachments)) {
       throw new HermesError(400, 'Invalid turn submission.', 'INVALID_REQUEST');
     }
+    const images = attachments?.length ? structuredClone(attachments) : undefined;
     return this.#mutate(records => {
       const previous = records.find(item => item.key === key);
       if (previous && (!TERMINAL_RUNS.has(previous.status) || previous.requestKey === requestKey)) throw new HermesError(409,
         'A run is active, completed under that request key, or awaiting recovery. Review its status before submitting again.', 'RUN_ACTIVE');
       const submittedAt = Date.now();
       const record = { key, ...owner, requestKey, input, credentialBinding, submittedAt,
+        ...(images ? { attachments: images } : {}),
         replayUntil: retentionSeconds > 60 ? submittedAt + (retentionSeconds - 60) * 1000 : 0,
-        fingerprint: runFingerprint({ input, session_id: owner.sessionId }), runId: null, status: 'admitting' };
+        fingerprint: runFingerprint({ input, session_id: owner.sessionId, ...(images ? { attachments: images } : {}) }), runId: null, status: 'admitting' };
       if (previous) records[records.indexOf(previous)] = record; else records.push(record);
       return record;
     });
@@ -119,7 +125,7 @@ export class HermesRunJournal {
       if (patch.status && !STATES.has(patch.status)) throw new HermesError(502, 'Hermes returned an invalid run state.', 'HERMES_PROTOCOL_ERROR');
       if (patch.runId !== undefined) hermesResource(patch.runId);
       Object.assign(record, patch);
-      if (record.runId !== null || TERMINAL_RUNS.has(record.status)) delete record.input;
+      if (record.runId !== null || TERMINAL_RUNS.has(record.status)) { delete record.input; delete record.attachments; }
       return record;
     });
   }

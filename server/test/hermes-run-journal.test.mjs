@@ -39,6 +39,17 @@ test('confirmed native run IDs persist while original prompt text is removed', a
   assert.equal((await readFile(path.join(root, 'runs.json'), 'utf8')).includes(submission.input), false);
 }));
 
+test('unconfirmed image inputs are immutable across queued writes and restart, then removed after native confirmation', async () => fixture(async (root, journal) => {
+  const attachments = [{ path: '/native/coder/cache/images/photo.png', mime: 'image/png' }];
+  const reservation = journal.reserve(key, { ...submission, attachments });
+  attachments[0].path = '/caller-mutation';
+  await reservation;
+  const restored = await HermesRunJournal.open(root);
+  assert.equal(restored.get(key).attachments[0].path, '/native/coder/cache/images/photo.png');
+  await restored.update(key, submission.requestKey, { runId: 'native-run', status: 'running' });
+  assert.equal((await HermesRunJournal.open(root)).get(key).attachments, undefined);
+}));
+
 test('unknown native work is never treated as terminal authority after restart', async () => fixture(async (root, journal) => {
   await journal.reserve(key, submission);
   await journal.update(key, submission.requestKey, { runId: 'run-1', status: 'unknown', generation: 42, admissionId: 'admission-1' });

@@ -1,0 +1,9 @@
+node_modules/
+.expo/
+dist/
+android/
+ios/
+*.jks
+*.keystore
+google-services.json
+GoogleService-Info.plist

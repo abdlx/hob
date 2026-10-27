@@ -13,6 +13,7 @@ async function fixture(run) {
     await run({
       MUSE_PASSWORD: 'synthetic-test-password',
       MUSE_SESSION_SECRET: 'synthetic-session-secret',
+      HOB_EXPO_ACCESS_TOKEN: 'synthetic-private-push-token',
       HERMES_DIR: join(root, 'backend'),
       HERMES_HOME: join(root, 'hermes'),
       HOB_STATE_DIR: join(root, 'private-state'),
@@ -59,7 +60,7 @@ test('runtime environment excludes dashboard authority and application login/ses
     const { processes: [dashboard, runtime, app] } = await bootstrap({
       ...env, HERMES_DASHBOARD_SESSION_TOKEN: 'do-not-inherit', HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: 'do-not-inherit',
     });
-    for (const key of ['MUSE_PASSWORD', 'MUSE_SESSION_SECRET', 'HERMES_DASHBOARD_SESSION_TOKEN', 'HERMES_DASHBOARD_BASIC_AUTH_PASSWORD', 'HOB_STATE_DIR']) {
+    for (const key of ['MUSE_PASSWORD', 'MUSE_SESSION_SECRET', 'HERMES_DASHBOARD_SESSION_TOKEN', 'HERMES_DASHBOARD_BASIC_AUTH_PASSWORD', 'HOB_STATE_DIR', 'HOB_EXPO_ACCESS_TOKEN']) {
       assert.equal(runtime.env[key], undefined, key);
     }
     assert.equal(dashboard.env.MUSE_PASSWORD, undefined);

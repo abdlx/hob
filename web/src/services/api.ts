@@ -52,10 +52,10 @@ class ChatApiClient {
   getSecurityApprovals = () => this.request<SecurityApproval[]>('/api/security/approvals');
   getSystemStats = () => this.request<SystemStats>('/api/stats');
   resolveSecurityApproval = (id: string, decision: 'approved' | 'rejected') => this.request<void>(`/api/security/approvals/${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify({ decision }) });
-  async sendMessage(id: string, content: string, onChunk?: (text: string, replace?: boolean) => void, requestKey?: string): Promise<ChatMessage> {
+  async sendMessage(id: string, content: string, onChunk?: (text: string, replace?: boolean) => void, requestKey?: string, attachments?: string[]): Promise<ChatMessage> {
     const response = await fetch(`${baseUrl}/api/sessions/${encodeURIComponent(id)}/turns`, {
       method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', 'X-Hob-Profile': this.getProfile() },
-      body: JSON.stringify({ content, ...(requestKey ? { idempotencyKey: requestKey } : {}) }),
+      body: JSON.stringify({ content, ...(requestKey ? { idempotencyKey: requestKey } : {}), ...(attachments?.length ? { attachments } : {}) }),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => null);

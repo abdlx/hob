@@ -1,6 +1,10 @@
-import React, { useCallback, useSyncExternalStore } from 'react';
+import React, { useCallback, useState, useSyncExternalStore } from 'react';
 import { useChat } from '../context/ChatContext';
 import { ChatComposer } from './ChatComposer';
+import { attachmentDraft, attachmentsUploading, pickBrowserFiles, pickNativeMedia, setAttachmentDraft, setAttachmentsUploading, subscribeAttachments, uploadAttachment } from '../services/attachments';
+import { chatApi } from '../services/api';
+import { ComposerAttachments } from './ComposerAttachments';
+import { errorText } from './workspaceUtils';
 
 interface ChatInputProps {
   onNavigateBots?: () => void;
@@ -25,24 +29,48 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
   const subscribe = useCallback((listener: () => void) => subscribeComposerDraft(activeSessionId, listener), [activeSessionId, subscribeComposerDraft]);
   const snapshot = useCallback(() => getComposerDraft(activeSessionId), [activeSessionId, getComposerDraft]);
   const text = useSyncExternalStore(subscribe, snapshot);
+  const attachmentSubscribe = useCallback((listener: () => void) => subscribeAttachments(activeSessionId, listener), [activeSessionId]);
+  const filesSnapshot = useCallback(() => attachmentDraft(activeSessionId), [activeSessionId]);
+  const busySnapshot = useCallback(() => attachmentsUploading(activeSessionId), [activeSessionId]);
+  const files = useSyncExternalStore(attachmentSubscribe, filesSnapshot);
+  const uploading = useSyncExternalStore(attachmentSubscribe, busySnapshot);
+  const [attachmentError, setAttachmentError] = useState('');
   const disabled = isPreparing || isCreatingConversation || readOnly;
+  async function attach() {
+    if (!activeSessionId || attachmentsUploading(activeSessionId)) return;
+    const profile = chatApi.getProfile(), session = activeSessionId;
+    setAttachmentsUploading(session, true); setAttachmentError('');
+    try {
+      const picked = window.ReactNativeWebView ? await pickNativeMedia() : await pickBrowserFiles();
+      if (attachmentDraft(session).length + picked.length > 10) throw new Error('Attach up to 10 files per prompt.');
+      for (const file of picked) {
+        const result = await uploadAttachment(profile, session, file);
+        setAttachmentDraft(session, [...attachmentDraft(session), result]);
+      }
+    } catch (error) { setAttachmentError(errorText(error)); }
+    finally { setAttachmentsUploading(session, false); }
+  }
 
   const submit = () => {
-    const current = text.trim();
-    if (!current || disabled || isLoading) return;
+    const current = text.trim() || (files.length ? 'Please review the attached files.' : '');
+    if (!current || disabled || isLoading || uploading) return;
     setComposerDraft(activeSessionId, '');
-    void sendMessage(current);
+    setAttachmentDraft(activeSessionId, []);
+    void sendMessage(current, files);
   };
 
   return (
-    <ChatComposer
+    <><div className="shrink-0 px-4 text-xs">{attachmentError && <p role="alert" className="py-2 text-bad">{attachmentError}</p>}{uploading && <p role="status" className="py-2 text-muted">Adding attachments…</p>}</div><ChatComposer
       value={text}
       onChange={(value) => {
         setComposerDraft(activeSessionId, value);
       }}
       onSubmit={submit}
       disabled={disabled}
-      canSend={!isLoading}
+      canSend={!isLoading && !uploading}
+      onAttach={!disabled && activeSessionId ? attach : undefined}
+      hasAttachments={files.length > 0}
+      attachments={files.length > 0 ? <ComposerAttachments files={files} disabled={uploading} remove={id => setAttachmentDraft(activeSessionId, files.filter(file => file.id !== id))} /> : undefined}
       working={isLoading}
       placeholder={
         readOnly
@@ -51,6 +79,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
       }
       onAddContext={() => setActiveNav('library')}
       onNavigateBots={onNavigateBots}
-    />
+    /></>
   );
 };
