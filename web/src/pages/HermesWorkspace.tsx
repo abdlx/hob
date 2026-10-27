@@ -7,6 +7,8 @@ import { errorText } from '../components/workspaceUtils';
 import { useToast } from '../context/ToastContext';
 import { DogeshAvatar } from '../components/DogeshAvatar';
 import { BrowserViewer } from '../components/BrowserViewer';
+import { WorkspaceLibrary as HermesLibrary } from '../components/WorkspaceLibrary';
+export { HermesLibrary };
 import { clearBotAvatar, readAvatarFile, setBotAvatar } from '../services/avatars';
 
 function useWorkspaceResource<T>(profile: string, operation: string, query: Record<string, string> = {}) {
@@ -58,21 +60,6 @@ export function HermesGoals({ profile, compact = false }: { profile: string; com
     {!data && !error && <div className="space-y-3">{[0, 1].map((index) => <div key={index} className={`${cardClass} space-y-2`}><Skeleton className="h-4 w-1/3" /><Skeleton className="h-3 w-1/2" /><Skeleton className="h-3 w-2/3" /></div>)}</div>}{data?.length === 0 && <EmptyState title="No scheduled goals for this bot" description="Create a goal to have Hermes run instructions on your schedule." />}
     {data?.map(job => <div key={job.id} className={`${cardClass} space-y-2`}><h3 className="text-sm text-ink">{job.name || job.id}</h3><div className="flex items-center gap-2 flex-wrap"><p className="text-xs text-muted">{typeof job.schedule === 'string' ? job.schedule : JSON.stringify(job.schedule)}</p><StatusPill status={job.enabled === false || job.state === 'paused' ? 'paused' : 'scheduled'} /></div><p className="text-xs whitespace-pre-wrap text-soft">{job.prompt}</p>{job.last_error && <Notice error>{job.last_error}</Notice>}<div className="flex flex-wrap gap-2"><button className={buttonClass} disabled={busy} onClick={() => edit(job)}>Edit</button><button className={buttonClass} disabled={busy} onClick={() => action(() => api(`jobs/${encodeURIComponent(job.id)}/${job.enabled === false || job.state === 'paused' ? 'resume' : 'pause'}`, jsonWrite('POST', {})))}>{job.enabled === false || job.state === 'paused' ? 'Resume' : 'Pause'}</button><button className={buttonClass} disabled={busy} onClick={() => action(() => api(`jobs/${encodeURIComponent(job.id)}/trigger`, jsonWrite('POST', {})))}>Run now</button><button className={buttonClass} disabled={busy} onClick={() => action(async () => setRuns(await api(`jobs/${encodeURIComponent(job.id)}/runs`)))}>Run history</button><ConfirmButton className={buttonClass} disabled={busy} tone="danger" confirmLabel="Delete" message="Delete this goal? This cannot be undone." onConfirm={() => { void action(async () => { await api(`jobs/${encodeURIComponent(job.id)}`, { method: 'DELETE' }); toast('Goal deleted.'); }); }}>Delete</ConfirmButton></div></div>)}
     {runs !== null && <div className={cardClass}><button className={buttonClass} onClick={() => setRuns(null)}>Close history</button><pre className="text-xs whitespace-pre-wrap text-muted mt-3">{JSON.stringify(runs, null, 2)}</pre></div>}
-  </div>;
-}
-
-interface FileEntry { name: string; path: string; directory: boolean; size?: number }
-interface FilePreview { name: string; dataUrl: string; mimeType: string; size: number }
-
-export function HermesLibrary({ profile }: { profile: string }) {
-  const [directory, setDirectory] = useState('');
-  const { api, data, error, busy, load, action } = useWorkspaceResource<{ entries: FileEntry[] }>(profile, 'files', { path: directory });
-  const [preview, setPreview] = useState<FilePreview | null>(null);
-  return <div className="space-y-3"><div className="flex items-center justify-between"><h2 className="text-sm text-ink">Bot workspace</h2><button className={buttonClass} disabled={busy} onClick={load}>Refresh</button></div><Notice>Files created in this bot’s dashboard workspace. Sensitive files and paths outside this workspace are excluded. Downloads and previews support files up to 2 MB.</Notice>{error && <Notice error>{error}</Notice>}
-    <div className="flex items-center gap-2"><button className={buttonClass} disabled={!directory || busy} onClick={() => { setDirectory(directory.split('/').slice(0, -1).join('/')); setPreview(null); }}>Up</button><span className="text-xs text-muted">/{directory}</span></div>
-    {!data && !error && <div className="space-y-3">{[0, 1, 2].map((index) => <div key={index} className={cardClass}><Skeleton className="h-3.5 w-1/3" /></div>)}</div>}{data?.entries.length === 0 && <EmptyState title="No files in this directory yet" description="Files created in this bot’s dashboard workspace appear here." />}
-    {data?.entries.map(file => <button key={file.path} className={`${cardClass} w-full text-left cursor-pointer disabled:opacity-40`} disabled={busy} onClick={() => file.directory ? (setDirectory(file.path), setPreview(null)) : action(async () => setPreview(await api<FilePreview>('file', {}, { path: file.path })))}><span className="text-xs text-ink">{file.directory ? 'Folder: ' : ''}{file.name}</span>{file.size !== undefined && <span className="text-[10px] text-muted ml-2">{file.size.toLocaleString()} bytes</span>}</button>)}
-    {preview && <div className={`${cardClass} space-y-3`}><div className="flex items-center gap-3"><h3 className="text-sm text-ink">{preview.name}</h3><a className={buttonClass} href={preview.dataUrl} download={preview.name}>Download</a><button className={buttonClass} onClick={() => setPreview(null)}>Close</button></div>{/^image\/(png|jpeg|webp|gif)$/.test(preview.mimeType) ? <img src={preview.dataUrl} alt={preview.name} className="max-h-[500px] rounded-xl" /> : <Notice>Download this file to view it.</Notice>}</div>}
   </div>;
 }
 
@@ -266,5 +253,6 @@ export function HermesWorkspace({ page }: { page: string }) {
   const { agent, agents, selectAgent, isPreparing } = useChat();
   const [error, setError] = useState('');
   if (!agent) return <div className="space-y-3"><Skeleton className="h-9 w-full" /><Skeleton className="h-40 w-full" /></div>;
-  return <div className="space-y-5"><Field label="Bot"><select className={inputClass} value={agent.id} disabled={isPreparing} onChange={event => { setError(''); void selectAgent(event.target.value, { stayOnPage: true }).catch(error => setError(errorText(error))); }}>{agents.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>{error && <Notice error>{error}</Notice>}{page === 'goals' ? <HermesGoals key={agent.id} profile={agent.id} /> : page === 'library' ? <HermesLibrary key={agent.id} profile={agent.id} /> : <HermesWorkshop key={agent.id} profile={agent.id} />}</div>;
+  if (page === 'library') return <div className="space-y-3">{error && <Notice error>{error}</Notice>}<HermesLibrary key={agent.id} profile={agent.id} scope={<label className="inline-flex items-center gap-2 rounded-full border border-line bg-panel py-1.5 pl-3 pr-2 text-xs text-muted">Bot<select aria-label="Library bot" className="max-w-36 bg-transparent py-1 text-xs font-medium text-ink outline-none cursor-pointer" value={agent.id} disabled={isPreparing} onChange={event => { setError(''); void selectAgent(event.target.value, { stayOnPage: true }).catch(reason => setError(errorText(reason))); }}>{agents.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>} /></div>;
+  return <div className="space-y-5"><Field label="Bot"><select className={inputClass} value={agent.id} disabled={isPreparing} onChange={event => { setError(''); void selectAgent(event.target.value, { stayOnPage: true }).catch(error => setError(errorText(error))); }}>{agents.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>{error && <Notice error>{error}</Notice>}{page === 'goals' ? <HermesGoals key={agent.id} profile={agent.id} /> : <HermesWorkshop key={agent.id} profile={agent.id} />}</div>;
 }

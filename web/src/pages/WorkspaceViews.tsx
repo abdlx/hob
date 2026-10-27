@@ -350,7 +350,7 @@ export function WorkspaceViews({ activeNav }: { activeNav: string }) {
         <h1 className="text-base md:text-lg font-semibold text-ink">{title}</h1>
       </header>
       <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 md:p-8">
-        <div className="mx-auto max-w-[960px]">
+        <div className={`mx-auto ${activeNav === 'library' ? 'max-w-[1280px]' : 'max-w-[960px]'}`}>
           {activeNav === 'groups' ? (
             <Notice>Groups require the Hermes runtime.</Notice>
           ) : activeNav === 'settings' ? (

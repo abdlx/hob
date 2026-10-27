@@ -29,6 +29,7 @@ export const ChatScreen: React.FC = () => {
   } = useChat();
 
   const readOnly = sessions.find((session) => session.id === activeSessionId)?.readOnly === true;
+  const libraryWorkspace = activeNav === 'library';
 
   // On mobile: first screen is the bots directory, selecting a bot opens its chat
   const [mobileView, setMobileView] = useState<'bots' | 'chat'>('bots');
@@ -38,12 +39,12 @@ export const ChatScreen: React.FC = () => {
       {/* Panel 1: Left Navigation Rail + Bot Directory (Desktop only) */}
       <aside
         className={`hob-panel-left hidden md:flex rounded-[34px] bg-canvas shadow-[0_8px_30px_rgba(0,0,0,0.045)] border border-[rgba(0,0,0,0.035)] overflow-hidden shrink-0 h-full ${
-          isBotsSidebarOpen ? 'w-[23%] min-w-[280px] max-w-[340px]' : 'w-[136px]'
+          libraryWorkspace ? 'w-[76px]' : isBotsSidebarOpen ? 'w-[23%] min-w-[280px] max-w-[340px]' : 'w-[136px]'
         }`}
-        aria-label="Navigation and bots"
+        aria-label={libraryWorkspace ? 'Navigation' : 'Navigation and bots'}
       >
         <LeftSidebar />
-        <BotsSidebar collapsed={!isBotsSidebarOpen} />
+        {!libraryWorkspace && <BotsSidebar collapsed={!isBotsSidebarOpen} />}
       </aside>
 
       {/* Slide-over Conversations Drawer */}
@@ -171,7 +172,7 @@ export const ChatScreen: React.FC = () => {
       </main>
 
       {/* Panel 3: Right Agent & Activity Inspector Panel */}
-      {activeNav !== 'groups' && isRightPanelOpen && (
+      {activeNav !== 'groups' && !libraryWorkspace && isRightPanelOpen && (
           <aside
             className="hob-panel-right fixed inset-0 z-50 flex flex-col w-full h-[100dvh] max-h-[100dvh] bg-canvas overflow-hidden lg:relative lg:inset-auto lg:z-auto lg:rounded-[34px] lg:shadow-[0_8px_30px_rgba(0,0,0,0.045)] lg:border lg:border-hair lg:shrink-0 lg:w-[22%] lg:min-w-[300px] lg:max-w-[350px] lg:h-full"
             aria-label="Agent details"
