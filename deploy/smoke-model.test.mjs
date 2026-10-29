@@ -2,7 +2,24 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSmokeModel, SMOKE_SKILL_PROMPT, SMOKE_SKILL_REPLY, SMOKE_SKILL_NAME, SMOKE_RELAY_PROMPT, SMOKE_RELAY_REPLY,
   SMOKE_WORKER_PROMPT, SMOKE_WORKER_REPLY, SMOKE_WAKE_REPLY, SMOKE_HEARTBEAT_PROMPT, SMOKE_HEARTBEAT_REPLY,
-  SMOKE_RECOVERY_PROMPT, SMOKE_RECOVERY_REPLY, SMOKE_RECOVERY_RESUME, SMOKE_ATTACHMENT_PROMPT, SMOKE_ATTACHMENT_REPLY } from './smoke-model.mjs';
+  SMOKE_RECOVERY_PROMPT, SMOKE_RECOVERY_REPLY, SMOKE_RECOVERY_RESUME, SMOKE_ATTACHMENT_PROMPT, SMOKE_ATTACHMENT_REPLY,
+  SMOKE_MEMORY_PROMPT, SMOKE_MEMORY_CONTENT, SMOKE_MEMORY_REJECTED } from './smoke-model.mjs';
+
+test('the memory fixture requires a real staged receipt and keeps approve/reject contents distinct', async t => {
+  const server = createSmokeModel(); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+  const call = async messages => {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/chat/completions`, { method: 'POST', body: JSON.stringify({ messages, tools: [{ function: { name: 'memory' } }] }) });
+    return (await response.json()).choices[0].message;
+  };
+  for (const [suffix, content] of [['', SMOKE_MEMORY_CONTENT], [' REJECT_CASE', SMOKE_MEMORY_REJECTED]]) {
+    const messages = [{ role: 'user', content: SMOKE_MEMORY_PROMPT + suffix }];
+    const tool = (await call(messages)).tool_calls[0];
+    assert.equal(tool.function.name, 'memory'); assert.equal(JSON.parse(tool.function.arguments).content, content);
+    assert.equal((await call([...messages, { role: 'tool', tool_call_id: tool.id, content: '{"success":true}' }])).content, 'HOB_MEMORY_NOT_STAGED');
+    assert.equal((await call([...messages, { role: 'tool', tool_call_id: tool.id, content: '{"staged":true,"pending_id":"1234abcd"}' }])).content, 'HOB_MEMORY_STAGED:1234abcd');
+  }
+});
 
 test('attachment proof requires actual image content at the provider rather than a filename in text', async t => {
   const server = createSmokeModel(); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));

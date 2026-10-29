@@ -28,6 +28,9 @@ export const SMOKE_SKILL_PROMPT = 'HOB_CONTAINER_SMOKE_SKILL';
 export const SMOKE_SKILL_REPLY = 'HOB_CONTAINER_SKILL_STAGED';
 export const SMOKE_SKILL_NAME = 'hob-smoke-lesson';
 export const SMOKE_SKILL_CONTENT = '---\nname: hob-smoke-lesson\ndescription: Use when validating an isolated staged learning workflow.\n---\n\n# Isolated verification lesson\n\nRequire explicit review before activating this synthetic skill.\n';
+export const SMOKE_MEMORY_PROMPT = 'HOB_NATIVE_BACKGROUND_MEMORY_PROOF';
+export const SMOKE_MEMORY_CONTENT = 'HOB synthetic reviewed memory survives native restart.';
+export const SMOKE_MEMORY_REJECTED = 'HOB synthetic rejected memory must never become active.';
 
 // The artifact path is injectable so a container run can name the bot workspace
 // explicitly instead of depending on the runtime working directory.
@@ -127,6 +130,15 @@ export function createSmokeModel({ file = defaultFile() } = {}) {
         let staged;
         try { staged = JSON.parse(typeof result?.content === 'string' ? result.content : (result?.content || []).map(item => item.text || '').join('')); } catch { /* A malformed tool result cannot prove staging. */ }
         content = staged?.staged === true && /^[a-f0-9]{8}$/.test(staged.pending_id) ? SMOKE_SKILL_REPLY + ':' + staged.pending_id : 'HOB_CONTAINER_SKILL_NOT_STAGED';
+      }
+      if (latestText.includes(SMOKE_MEMORY_PROMPT)) {
+        const result = input.messages.findLast(item => item.role === 'tool' && item.tool_call_id === 'hob-smoke-memory');
+        tool = !result && input.tools?.some(item => item.function?.name === 'memory') ? [{ id: 'hob-smoke-memory', type: 'function', function: {
+          name: 'memory', arguments: JSON.stringify({ action: 'add', target: 'memory', content: latestText.includes('REJECT_CASE') ? SMOKE_MEMORY_REJECTED : SMOKE_MEMORY_CONTENT }),
+        } }] : null;
+        let staged;
+        try { staged = JSON.parse(typeof result?.content === 'string' ? result.content : (result?.content || []).map(item => item.text || '').join('')); } catch { /* A malformed result is not a native staged receipt. */ }
+        content = staged?.staged === true && /^[a-f0-9]{8}$/.test(staged.pending_id) ? 'HOB_MEMORY_STAGED:' + staged.pending_id : 'HOB_MEMORY_NOT_STAGED';
       }
       const message = { role: 'assistant', content: tool ? null : content, ...(tool ? { tool_calls: tool } : {}) };
       return completion(res, input, message);

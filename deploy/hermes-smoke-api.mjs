@@ -4,12 +4,13 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { SMOKE_MODEL, SMOKE_PROMPT, SMOKE_REPLY, SMOKE_FILE, SMOKE_CONTENT, SMOKE_SKILL_PROMPT, SMOKE_SKILL_REPLY, SMOKE_SKILL_NAME, SMOKE_SKILL_CONTENT, SMOKE_ATTACHMENT_PROMPT, SMOKE_ATTACHMENT_REPLY } from './smoke-model.mjs';
 import { proactiveFirstBoot, proactiveAfterRestart } from './proactive-smoke.mjs';
 import { verifyActiveCrashRecovery } from './recovery-smoke.mjs';
+import { memoryReviewFirstBoot, memoryReviewAfterRestart } from './memory-review-smoke.mjs';
 
 // Reusable against the published image or an owned source-launched fixture.
 // Every write here is synthetic, and the caller must supply a fresh isolated
 // home. Checks assert only surfaces whose shape is owned by this repository or
 // is stable in Hermes's own dashboard contract.
-export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp, proactive = false, isolation = false, fetchImpl = fetch }) {
+export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp, proactive = false, isolation = false, expectedCommit, fetchImpl = fetch }) {
   let cookie = '';
   const checks = [];
   const check = (name, value, detail) => { assert.ok(value, detail ? name + ' (' + detail + ')' : name); checks.push(name); };
@@ -64,6 +65,7 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
     check('the session cookie is HttpOnly and SameSite Strict', /HttpOnly; SameSite=Strict/.test(login.headers.get('set-cookie') || ''));
     cookie = login.headers.get('set-cookie').split(';')[0];
     check('Hermes is the selected runtime', (await api('/api/runtime')).runtime === 'hermes');
+    if (expectedCommit) check('the image reports the exact checkout commit', (await api('/api/version')).commit === expectedCommit);
     // A stale OpenClaw-era dashboard must never reach a different runtime's owner.
     check('a stale OpenClaw-era dashboard action is refused', (await request('/api/settings')).status === 409);
     check('the fresh roster contains Main only', JSON.stringify((await api('/api/hermes/profiles')).profiles.map(item => item.name)) === '["default"]');
@@ -270,9 +272,10 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       check('MCP OAuth attempts cannot be observed through another bot', (await request('/api/hermes/setup/mcp/oauth/flows/' + flow.id + '?profile=smoke-bot')).status === 404);
       mcpOAuth = true;
     }
+    const memoryReview = providerTier ? await memoryReviewFirstBoot({ api, request, workspace, retry, check }) : false;
     const proactivity = proactive && providerTier ? await proactiveFirstBoot({ api, request, workspace, retry, check, modelUrl }) : null;
     if (isolation) for (const profile of ['default', 'proactive-worker']) await api('/api/hermes/browser/start?profile=' + profile, 'POST', {}, profile);
-    return { providerTier, sessionId, requestKey, jobId: created.id, soul: persistedSoul, mcpOAuth, memorySetup, expectedLearning, stagedSkill, proactivity };
+    return { providerTier, sessionId, requestKey, jobId: created.id, soul: persistedSoul, mcpOAuth, memorySetup, expectedLearning, stagedSkill, memoryReview, proactivity };
   };
 
   const afterRestart = async saved => {
@@ -303,6 +306,7 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       check('independent native learning settings survive recreation', Object.entries(saved.expectedLearning).every(([id, value]) => result.controls[id]?.value === value));
     }
     if (saved.stagedSkill) check('an explicitly approved skill survives recreation', (await workspace('skill', 'GET', undefined, 'default', { name: SMOKE_SKILL_NAME })).content === SMOKE_SKILL_CONTENT);
+    if (saved.memoryReview) await memoryReviewAfterRestart({ workspace, check });
     if (saved.memorySetup) {
       const memory = await api('/api/hermes/setup/memory?profile=smoke-bot', 'GET', undefined, 'smoke-bot');
       const form = await api('/api/hermes/setup/memory/providers/retaindb?profile=smoke-bot', 'GET', undefined, 'smoke-bot');

@@ -34,6 +34,7 @@ to one enrolled bot; changing the UI selector cannot redirect an in-flight write
 | `GET /api/hermes/workspace/files?path=...` | Assigned workspace listing and delivery receipts/failures |
 | Workspace `file` and `download` routes | Scoped previews up to 2 MB; binary attachments up to 25 MB |
 | `/api/hermes/browser/...` | Per-bot viewer, tab actions and human takeover; agent CDP mutations obey the same lease |
+| `GET /api/hermes/diagnostics/performance?profile=...` | Authenticated, enrolled-bot timing samples and p50/p95/max; bounded metadata, with no prompts or provider billing claims |
 
 Proposal reviews and schedule previews require the complete rebuilt image.
 `deploy/apply-hermes-compat.py` mounts native JSON controls only when pinned

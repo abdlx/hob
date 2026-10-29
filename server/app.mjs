@@ -112,7 +112,7 @@ async function browserImage(stateDir, filename) {
   } finally { await handle?.close(); await rootHandle.close(); }
 }
 
-export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gateway : undefined, bots, browser, runJournal, nativeSessions, exchanges, password = hobEnv().HOB_PASSWORD, accessToken = hobEnv().HOB_ACCESS_TOKEN, sessionSecret = hobEnv().HOB_SESSION_SECRET, publicUrl = hobEnv().HOB_PUBLIC_URL, secureCookies = hobEnv().HOB_SECURE_COOKIES === 'true', stateDir = process.env.OPENCLAW_STATE_DIR, viewerTicketTtlMs, staticDir = fileURLToPath(new URL('../web/dist', import.meta.url)) }) {
+export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gateway : undefined, bots, browser, runJournal, nativeSessions, exchanges, telemetry, password = hobEnv().HOB_PASSWORD, accessToken = hobEnv().HOB_ACCESS_TOKEN, sessionSecret = hobEnv().HOB_SESSION_SECRET, publicUrl = hobEnv().HOB_PUBLIC_URL, secureCookies = hobEnv().HOB_SECURE_COOKIES === 'true', stateDir = process.env.OPENCLAW_STATE_DIR, viewerTicketTtlMs, staticDir = fileURLToPath(new URL('../web/dist', import.meta.url)) }) {
   const configured = Boolean(password || accessToken);
   const secret = sessionSecret || createHash('sha256').update(`hob-session:${password || accessToken || randomBytes(32).toString('hex')}`).digest();
   const fingerprint = createHash('sha256').update(`${password || ''}:${accessToken || ''}`).digest('base64url');
@@ -137,6 +137,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   // those roots after realpath validation.
   const hermesMediaState = process.env.HOB_STATE_DIR || stateDir;
   const artifacts = hermes && process.env.HERMES_HOME && hermesMediaState ? createArtifactPublisher({
+    telemetry,
     home: process.env.HERMES_HOME,
     workspaceRoot: process.env.HOB_WORKSPACE_ROOT || path.join(process.env.HERMES_HOME, 'workspaces'),
     stateDir: hermesMediaState, authorize: profile => hermes.credentialBinding(profile),
@@ -156,7 +157,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
     },
     workspaceRoot: process.env.HOB_WORKSPACE_ROOT || (process.env.HERMES_HOME ? path.join(process.env.HERMES_HOME, 'workspaces') : undefined), artifacts }) : null;
   const hermesChat = gateway?.kind === 'hermes' ? createHermesChatRoutes(gateway, bots, runJournal, { home: process.env.HERMES_HOME }) : null;
-  const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat, attachmentSecret: secret, onCompleted: notifyCompleted, recoverCompleted: Boolean(artifacts) }) : null;
+  const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat, attachmentSecret: secret, onCompleted: notifyCompleted, recoverCompleted: Boolean(artifacts), telemetry }) : null;
   // The relay authenticates each bot with its own relay-scoped credential, not the
   // dashboard session, so it is mounted before the `/api/*` login gate.
   const botRelay = hermes && bots ? createHermesBotRelay({ client: hermes, bots, exchanges, journal: runJournal, bridge: nativeSessions, onWake: key => canonicalChat?.watch(key) }) : null;
@@ -329,6 +330,14 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
         }
         if (route.startsWith('/api/hermes/')) {
           if (!hermesRoutes) throw new HttpError(503, 'Hermes has not been connected to this server.');
+          if (route === '/api/hermes/diagnostics/performance' && method === 'GET') {
+            if (!telemetry) throw new HttpError(503, 'Performance diagnostics are unavailable.');
+            const selected = url.searchParams.getAll('profile');
+            if (selected.length > 1) throw new HttpError(400, 'Select one bot.');
+            const profile = selected[0] || req.headers['x-hob-profile'] || 'default';
+            await hermes.credentialBinding(profile);
+            return json(res, 200, telemetry.snapshot(profile));
+          }
           if (route === '/api/hermes/groups' || route.startsWith('/api/hermes/groups/')) {
             if (!hermesGroups) throw new HttpError(503, 'Hermes native group coordination is unavailable.');
             return await hermesGroups.route(req, res, url, { json, body });

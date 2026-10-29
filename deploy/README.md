@@ -51,6 +51,22 @@ remains available, allowing model/config errors to be repaired from the UI.
 
 ## Health
 
+The app records bounded, metadata-only performance samples in
+`$HOB_STATE_DIR/diagnostics/performance.jsonl` and one rotated file (2 MB each).
+The authenticated `GET /api/hermes/diagnostics/performance?profile=<bot>` endpoint
+returns that enrolled bot's process-local samples and p50/p95/max by stage.
+Native admission IDs are hashed for correlation; browser spans are bot-scoped,
+because CDP has no native turn identifier. These measurements exclude prompts,
+URLs, credentials, files and raw errors. They measure HOB/native boundaries,
+not provider billing or complete model/tool execution internals.
+
+For front-door acceptance, supply `HOB_AUDIT_BASE_URL` and `HOB_AUDIT_PASSWORD`
+privately and run `node deploy/live-acceptance.mjs <new-report.json>`.
+Optionally set `HOB_AUDIT_EXPECT_COMMIT` to require a particular build. The helper
+checks HTTPS routing, auth/origin guards, scope denial and native preview/review
+availability without inference, valid jobs or configuration changes. Reports omit
+credentials and private response bodies. It signs out only its fresh audit session.
+
 `/healthz` checks the application's private settings service. It can be healthy
 before model credentials are configured or while the agent runtime is restarting.
 Authenticated `/api/readiness` separately reports whether the runtime's required

@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
 import { BrowserRegistry } from '../browser-registry.mjs';
 import { BrowserManager } from '../browser-manager.mjs';
+import { createHobTelemetry } from '../hob-telemetry.mjs';
 
 const dataUrl = html => `data:text/html,${encodeURIComponent(html)}`;
 
@@ -109,14 +110,14 @@ async function createViewer(session) {
   };
 }
 
-async function startManager(t) {
+async function startManager(t, telemetry) {
   const stateDir = await mkdtemp(join(tmpdir(), 'hob-browser-gateway-'));
   const registry = await BrowserRegistry.open({ stateDir });
   const manager = await BrowserManager.open({
     registry, stateDir,
     // A short-but-real lease wait, and a fast frame rate, so the tests exercise
     // the queueing/draining paths without waiting on production timings.
-    options: { agentWaitMs: 2500, maxFps: 10, idleMs: 2000 },
+    options: { telemetry, agentWaitMs: 2500, maxFps: 10, idleMs: 2000 },
   });
   t.after(async () => {
     await manager.shutdown();
@@ -127,6 +128,22 @@ async function startManager(t) {
   if (!probe.ready) { t.skip('No Chromium-family browser is installed on this host.'); return null; }
   return { manager, stateDir, registry };
 }
+
+test('gateway: diagnostics measure real startup, human lease waits and command acknowledgements without page content', async t => {
+  const telemetry = createHobTelemetry(), fixture = await startManager(t, telemetry);
+  if (!fixture) return;
+  const session = await fixture.manager.ensure('default');
+  const agent = await agentClient(session); t.after(() => agent.raw.close());
+  await session.lease.requestControl();
+  const mutation = evaluate(agent, 'document.title = "DO_NOT_LOG_PAGE_CONTENT"');
+  await new Promise(resolve => setTimeout(resolve, 80));
+  await session.lease.releaseControl(); await mutation;
+  const view = telemetry.snapshot('default');
+  assert.ok(view.events.some(item => item.stage === 'browser.start' && item.operation === 'cold' && item.outcome === 'ok'));
+  assert.ok(view.events.some(item => item.stage === 'browser.wait' && item.elapsedMs >= 30));
+  assert.ok(view.events.some(item => item.stage === 'browser.command' && item.outcome === 'ok'));
+  assert.doesNotMatch(JSON.stringify(view), /DO_NOT_LOG_PAGE_CONTENT|Runtime.evaluate|devtools|gatewayToken/);
+});
 
 test('gateway: the CDP endpoint is token-scoped and loopback-only', async t => {
   const started = await startManager(t);

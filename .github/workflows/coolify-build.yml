@@ -89,11 +89,12 @@ jobs:
         with:
           node-version: '24.21.0'
       - name: Build the single image from this checkout
-        run: docker build --tag hob:ci .
+        run: docker build --build-arg HOB_GIT_COMMIT="$GITHUB_SHA" --build-arg HOB_GIT_REF="$GITHUB_REF_NAME" --tag hob:ci .
       - name: Verify first boot, sandboxed browser, and persistence
         env:
           HOB_SMOKE_IMAGE: hob:ci
           HOB_SMOKE_ISOLATION: ${{ matrix.isolation }}
+          HOB_SMOKE_EXPECT_COMMIT: ${{ github.sha }}
         shell: bash
         run: |
           set +e

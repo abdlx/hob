@@ -21,7 +21,7 @@ export function resultFileReferences(content) {
 }
 
 /** Durable copies in the existing workspace. The manifest is delivery metadata, not task authority. */
-export function createArtifactPublisher({ home, workspaceRoot, stateDir, authorize }) {
+export function createArtifactPublisher({ home, workspaceRoot, stateDir, authorize, telemetry }) {
   const queues = new Map();
   async function publish(profile, source, runId) {
     hermesProfile(profile); await authorize(profile);
@@ -98,7 +98,9 @@ export function createArtifactPublisher({ home, workspaceRoot, stateDir, authori
       return records.sort((a, b) => String(b.at || '').localeCompare(String(a.at || ''))).slice(0, 100);
     },
     publish(profile, source, runId) {
-      const work = (queues.get(profile) || Promise.resolve()).catch(() => undefined).then(() => publish(profile, source, runId)).catch(async error => {
+      const finish = telemetry?.start(profile, 'artifact.publish', { runId });
+      const work = (queues.get(profile) || Promise.resolve()).catch(() => undefined).then(() => publish(profile, source, runId)).then(value => { finish?.('ok'); return value; }).catch(async error => {
+        finish?.('error');
         if (stateDir) {
           const folder = path.join(stateDir, 'artifacts', hermesProfile(profile));
           await authorize(profile);

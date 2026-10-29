@@ -26,7 +26,7 @@ const failureReason = receipt => {
 };
 
 /** Translate custom chat UX into the one native session/FIFO owner, without exposing raw RPC. */
-export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpChat, attachmentSecret = randomUUID(), onCompleted, recoverCompleted = false }) {
+export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpChat, attachmentSecret = randomUUID(), onCompleted, recoverCompleted = false, telemetry }) {
   const attachments = createHermesAttachments({ bridge, client, secret: attachmentSecret });
   const observed = new Set();
   const prompts = new Map();
@@ -35,6 +35,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
   // Observe retained terminal receipts after restart to recover file delivery.
   // These reads never resubmit a model turn or replay tool side effects.
   const deliveryRecovery = new Set(recoverCompleted ? canonicalRuns().filter(run => run.status === 'completed').map(run => run.key) : []);
+  const measuredSettlements = new Set();
   const rpc = (owner, method, params = {}) => bridge.rpc(owner.profile, method, { session_id: owner.sessionId, ...params });
   const promptId = (key, prompt) => 'native-' + runFingerprint({ key, id: prompt.prompt_id, generation: prompt.execution_generation });
   const revision = (owner, admissionId, generation, epoch) => runFingerprint({ ...owner, admissionId, generation, epoch });
@@ -77,6 +78,12 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
           }
           record = await journal.update(key, record.requestKey, { status: nativeStatus(receipt),
             ...(Number.isSafeInteger(receipt.execution_generation) ? { generation: receipt.execution_generation } : {}) });
+          const measurementKey = `${owner.profile}:${record.runId}`;
+          if (telemetry && TERMINAL_RUNS.has(record.status) && !measuredSettlements.has(measurementKey)) {
+            measuredSettlements.add(measurementKey);
+            if (measuredSettlements.size > 2000) measuredSettlements.delete(measuredSettlements.values().next().value);
+            telemetry.record(owner.profile, 'turn.settlement', Math.max(0, Date.now() - record.submittedAt), record.status === 'completed' ? 'ok' : record.status === 'cancelled' ? 'cancelled' : record.status === 'failed' ? 'error' : 'unknown', { runId: record.runId });
+          }
           if (record.status === 'completed') onCompleted?.({ profile: owner.profile, sessionId: owner.sessionId, admissionId: record.runId, createdAt: record.submittedAt,
             output: messageContentText(receipt.result?.final_response) });
         }
@@ -116,6 +123,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     }));
   };
   const admit = async (owner, key, run, content) => {
+    const finish = telemetry?.start(owner.profile, 'turn.admission');
     try {
       const accepted = await rpc(owner, 'prompt.submit', { submission_id: run.requestKey, text: content,
         ...(run.attachments?.length ? { attachments: run.attachments } : {}) });
@@ -123,8 +131,10 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
       if (accepted.ref?.session_id !== owner.sessionId) throw new HermesError(502, 'Hermes admitted another conversation.', 'HERMES_PROTOCOL_ERROR');
       await journal.update(key, run.requestKey, { runId: accepted.admission_id, status: nativeStatus(accepted) });
       observed.add(key);
+      finish?.('ok', { runId: accepted.admission_id });
       return accepted;
     } catch (error) {
+      finish?.('unknown');
       await journal.update(key, run.requestKey, { status: ['invalid_params', 'permission_denied', 'not_found', 'admission_conflict', 'profile_mismatch'].includes(error.code) ? 'failed' : 'unknown' });
       throw error;
     }
@@ -299,6 +309,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     const run = await journal.reserve(key, { input: content, requestKey: input.idempotencyKey ?? randomUUID(),
       credentialBinding: await client.credentialBinding(owner.profile), ...(selected.images.length ? { attachments: selected.images } : {}) });
     const queue = [];
+    const firstToken = telemetry?.start(owner.profile, 'turn.first_token');
     let bytes = 0, wake, disconnected = false, accepted, heartbeat;
     const observer = frame => {
       if (frame.profile !== owner.profile) return;
@@ -326,6 +337,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
           if (event.type === 'session.replay_gap') { disconnected = true; break; }
           if (event.admission_id !== accepted.admission_id) continue;
           if (event.type === 'message.delta' && typeof event.payload?.text === 'string') {
+            if (event.payload.text) firstToken?.('ok', { runId: accepted.admission_id });
             sendEvent(res, 'delta', { text: event.payload.text });
           }
           if (event.type === 'message.complete') { completedText = event.payload?.text; lastCheck = 0; }

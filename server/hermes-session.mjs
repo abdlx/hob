@@ -49,9 +49,11 @@ export class HermesSessionBridge extends EventEmitter {
   #connections = new Map();
   #closed = false;
   #timeout;
-  constructor({ bootstrap = createSessionBootstrap(), profileAccess, WebSocketClass = globalThis.WebSocket, timeout = 30000 } = {}) {
+  #telemetry;
+  constructor({ bootstrap = createSessionBootstrap(), profileAccess, telemetry, WebSocketClass = globalThis.WebSocket, timeout = 30000 } = {}) {
     super();
     this.#bootstrap = bootstrap; this.#access = profileAccess; this.#WebSocket = WebSocketClass; this.#timeout = timeout;
+    this.#telemetry = telemetry;
     if (typeof profileAccess !== 'function') throw new Error('Native sessions require an enrolled bot authority.');
   }
 
@@ -153,18 +155,23 @@ export class HermesSessionBridge extends EventEmitter {
     // This native ingress requires a profile hint even on a profile-bound
     // ticket. Derive it here; callers still cannot supply or override it.
     if (method === 'bot_relay.deliver') payload.profile = profile;
-    const entry = await this.#connection(profile);
-    if (this.#access(profile) !== entry.binding || !entry.canonical || entry.ws.readyState !== 1) { entry.close(); throw unavailable(); }
-    if (entry.pending.size >= 128) throw new HermesError(429, 'Too many pending session requests.', 'SESSION_BUSY');
-    const id = ++entry.sequence;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        entry.pending.delete(id); reject(unavailable()); // unknown outcome, never replay
-      }, this.#timeout);
-      entry.pending.set(id, { resolve, reject, timer });
-      try { entry.ws.send(JSON.stringify({ jsonrpc: '2.0', id, method, params: payload })); }
-      catch { entry.close(); }
-    });
+    const finish = this.#telemetry?.start(profile, 'native.rpc', { operation: method, runId: payload.admission_id });
+    try {
+      const entry = await this.#connection(profile);
+      if (this.#access(profile) !== entry.binding || !entry.canonical || entry.ws.readyState !== 1) { entry.close(); throw unavailable(); }
+      if (entry.pending.size >= 128) throw new HermesError(429, 'Too many pending session requests.', 'SESSION_BUSY');
+      const id = ++entry.sequence;
+      const result = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          entry.pending.delete(id); reject(unavailable()); // unknown outcome, never replay
+        }, this.#timeout);
+        entry.pending.set(id, { resolve, reject, timer });
+        try { entry.ws.send(JSON.stringify({ jsonrpc: '2.0', id, method, params: payload })); }
+        catch { entry.close(); }
+      });
+      finish?.('ok', { runId: result?.admission_id || payload.admission_id });
+      return result;
+    } catch (error) { finish?.(error.code === 'SESSION_UNAVAILABLE' ? 'unknown' : 'error'); throw error; }
   }
 
   close() {

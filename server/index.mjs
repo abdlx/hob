@@ -11,6 +11,7 @@ import { BrowserManager } from './browser-manager.mjs';
 import { cdpTransportMode } from './browser-launcher.mjs';
 import { botRelayUrl } from './hermes-bot-network.mjs';
 import { HermesBotIsolation, isolationMode } from './hermes-isolation.mjs';
+import { createHobTelemetry } from './hob-telemetry.mjs';
 
 Object.assign(process.env, hobEnv());
 
@@ -29,7 +30,9 @@ if (browserTransport === 'tcp') {
     + 'that any local process can drive without the lease. This is a development fallback; '
     + 'leave the variable unset (pipe) in production.');
 }
+const telemetry = createHobTelemetry({ stateDir: process.env.HOB_STATE_DIR });
 const clientOptions = {
+  telemetry,
   runtimeUrl: process.env.HERMES_API_URL || 'http://127.0.0.1:8642',
   dashboardUrl: process.env.HERMES_DASHBOARD_URL || 'http://127.0.0.1:8080',
   apiKey: process.env.API_SERVER_KEY,
@@ -49,7 +52,7 @@ const idleMs = Number(process.env.HOB_BROWSER_IDLE_MS);
 const browser = await BrowserManager.open({
   registry: browserRegistry,
   stateDir: process.env.HOB_STATE_DIR,
-  options: { ...(Number.isFinite(idleMs) && idleMs >= 0 ? { idleMs } : {}), ...(isolation ? { spawnBrowser: isolation.spawnBrowser.bind(isolation) } : {}) },
+  options: { telemetry, ...(Number.isFinite(idleMs) && idleMs >= 0 ? { idleMs } : {}), ...(isolation ? { spawnBrowser: isolation.spawnBrowser.bind(isolation) } : {}) },
 });
 const bots = new HermesBots({
   registry, isolation,
@@ -62,9 +65,9 @@ const bots = new HermesBots({
 });
 const gateway = new HermesClient({ ...clientOptions, profileAccess: profile => registry.token(profile) });
 const runJournal = await HermesRunJournal.open(process.env.HOB_STATE_DIR);
-const nativeSessions = new HermesSessionBridge({ profileAccess: profile => registry.token(profile) });
+const nativeSessions = new HermesSessionBridge({ telemetry, profileAccess: profile => registry.token(profile) });
 const exchanges = await HermesExchanges.open(process.env.HOB_STATE_DIR);
-const server = createApp({ gateway, bots, browser, runJournal, nativeSessions, exchanges, ...(process.env.HOB_STATIC_DIR ? { staticDir: process.env.HOB_STATIC_DIR } : {}) });
+const server = createApp({ gateway, bots, browser, runJournal, nativeSessions, exchanges, telemetry, ...(process.env.HOB_STATIC_DIR ? { staticDir: process.env.HOB_STATIC_DIR } : {}) });
 gateway.start();
 const port = Number(process.env.HOB_PORT || 3000);
 const build = `${process.env.HOB_GIT_COMMIT || 'unknown'} (${process.env.HOB_GIT_REF || 'unknown'})`;
@@ -111,6 +114,7 @@ const shutdown = async () => {
     browser.shutdown().catch(() => undefined),
     new Promise(resolve => { setTimeout(resolve, 25000); }),
   ]);
+  await Promise.race([telemetry.flush(), new Promise(resolve => setTimeout(resolve, 1000))]);
   process.exit(0);
 };
 process.on('SIGTERM', () => void shutdown());

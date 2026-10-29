@@ -89,7 +89,7 @@ async function readJson(response, maxBytes) {
 /** HTTP boundary around the upstream runtime and dashboard, never Python imports. */
 export class HermesClient extends EventEmitter {
   constructor({ runtimeUrl = 'http://127.0.0.1:8642', dashboardUrl = 'http://127.0.0.1:8080',
-    apiKey, dashboardToken, profileAccess, fetchImpl = globalThis.fetch, timeoutMs = 30000, maxResponseBytes = 4 * 1024 * 1024 } = {}) {
+    apiKey, dashboardToken, profileAccess, telemetry, fetchImpl = globalThis.fetch, timeoutMs = 30000, maxResponseBytes = 4 * 1024 * 1024 } = {}) {
     super();
     this.kind = 'hermes';
     this.runtimeUrl = localOrigin(runtimeUrl, 'Hermes runtime URL');
@@ -100,6 +100,7 @@ export class HermesClient extends EventEmitter {
     this.#dashboardToken = dashboardToken;
     this.#profileAccess = profileAccess;
     this.#fetch = fetchImpl;
+    this.#telemetry = telemetry;
     this.timeoutMs = timeoutMs;
     this.maxResponseBytes = maxResponseBytes;
     this.connected = false;
@@ -108,6 +109,7 @@ export class HermesClient extends EventEmitter {
   #dashboardToken;
   #profileAccess;
   #fetch;
+  #telemetry;
   #timer;
   #stopped = true;
 
@@ -168,14 +170,23 @@ export class HermesClient extends EventEmitter {
     }
   }
 
-  async runtime(pathname, options) {
-    const response = await this.#response('runtime', pathname, options);
-    if (response.status === 204) { await response.body?.cancel(); return null; }
-    return readJson(response, this.maxResponseBytes);
+  async #jsonRequest(surface, pathname, options = {}) {
+    const finish = this.#telemetry?.start(options.profile || 'default', 'native.http', { operation: options.method || 'GET' });
+    try {
+      const response = await this.#response(surface, pathname, options);
+      const value = surface === 'runtime' && response.status === 204
+        ? (await response.body?.cancel(), null) : await readJson(response, this.maxResponseBytes);
+      finish?.('ok'); return value;
+    } catch (error) {
+      finish?.(error.code === 'HERMES_REQUEST_FAILED' && error.status < 500 ? 'refused' : options.method && options.method !== 'GET' ? 'unknown' : 'error');
+      throw error;
+    }
   }
 
+  runtime(pathname, options) { return this.#jsonRequest('runtime', pathname, options); }
+
   async dashboard(pathname, options) {
-    return readJson(await this.#response('dashboard', pathname, options), this.maxResponseBytes);
+    return this.#jsonRequest('dashboard', pathname, options);
   }
 
   async mcpOAuthCallback(name, { profile, query }) {

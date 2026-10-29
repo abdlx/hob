@@ -291,8 +291,10 @@ class AgentProxy {
    */
   async #runPrecision(message) {
     const { id, method, params } = message;
+    let outcome = 'unknown';
     try {
       if (method === 'Hob.input.help') {
+        outcome = 'ok';
         this.#sendClient({ id, result: precisionHelp() });
         return;
       }
@@ -303,7 +305,9 @@ class AgentProxy {
         onTyping: () => this.#session.sampleFocusPoint(),
       });
       this.#sendClient({ id, result });
+      outcome = 'ok';
     } catch (error) {
+      outcome = 'error';
       const denial = error instanceof PrecisionError ? error : null;
       this.#sendClient({
         id,
@@ -314,16 +318,16 @@ class AgentProxy {
         },
       });
     } finally {
-      this.#settle(id);
+      this.#settle(id, outcome);
     }
   }
 
-  #settle(id) {
+  #settle(id, outcome = 'unknown') {
     const entry = this.#inFlight.get(id);
     if (!entry) return;
     this.#inFlight.delete(id);
     if (entry.timer) clearTimeout(entry.timer);
-    entry.release();
+    entry.release(outcome);
   }
 
   // Non-flattened session traffic hides the real command inside a JSON string
@@ -350,9 +354,11 @@ class AgentProxy {
   #track(id, release, holdMs = 0, command = null) {
     const existing = this.#inFlight.get(id);
     if (existing) existing.release();
-    const timer = holdMs > 0 ? setTimeout(() => { this.#inFlight.delete(id); release(); }, holdMs) : null;
+    const finish = this.#session.measureCommand();
+    const settle = (outcome = 'unknown') => { release(); finish?.(outcome); };
+    const timer = holdMs > 0 ? setTimeout(() => { this.#inFlight.delete(id); settle(); }, holdMs) : null;
     timer?.unref?.();
-    this.#inFlight.set(id, { release, timer, command });
+    this.#inFlight.set(id, { release: settle, timer, command });
   }
 
   #releaseAll() {
@@ -413,7 +419,9 @@ class AgentProxy {
               if (!reply.error && targetId) void this.#session.agentActivatedTarget(targetId).catch(() => undefined);
             } catch {}
           }
-          entry.release();
+          let outcome = 'unknown';
+          try { outcome = JSON.parse(data.toString('utf8')).error ? 'error' : 'ok'; } catch {}
+          entry.release(outcome);
         }
       }
     }
@@ -602,6 +610,7 @@ export class BrowserSession {
 
   constructor({ botId, record, options = {} }) {
     this.#botId = botId;
+    this.#telemetry = options.telemetry;
     this.#spawnChild = options.spawnBrowser ? (exe, args, settings) => options.spawnBrowser(botId, exe, args, settings) : undefined;
     this.#record = record;
     this.#token = record.gatewayToken;
@@ -627,6 +636,7 @@ export class BrowserSession {
 
   #agentWaitMs;
   #spawnChild;
+  #telemetry;
 
   get bot() { return this.#botId; }
   get cdpUrl() { return `http://127.0.0.1:${this.#port}/${this.#token}`; }
@@ -763,7 +773,8 @@ export class BrowserSession {
     if (this.#destroyed) return Promise.reject(new Error('The browser session has been removed.'));
     if (!this.#starting) {
       const epoch = this.#launchEpoch;
-      this.#starting = this.#start(epoch).finally(() => { this.#starting = null; });
+      const finish = this.#telemetry?.start(this.#botId, 'browser.start', { operation: this.running ? 'warm' : 'cold' });
+      this.#starting = this.#start(epoch).then(value => { finish?.('ok'); return value; }, error => { finish?.('error'); throw error; }).finally(() => { this.#starting = null; });
     }
     return this.#starting;
   }
@@ -1167,13 +1178,20 @@ export class BrowserSession {
    * refused immediately and the caller learns the host is the problem.
    */
   async admitAgentMutation(signal) {
-    if (['human', 'solve'].includes(this.#captchaMode) && this.#challengeActive) {
-      if (this.#challengeActive.kind === 'block-page') return { ok: false, reason: 'challenge_blocked' };
-      const gate = await this.#waitForChallenge(signal);
-      if (!gate.ok) return gate;
-    }
-    return this.#lease.enterAgentMutation({ waitMs: this.#agentWaitMs, signal });
+    const finish = this.#telemetry?.start(this.#botId, 'browser.wait', { operation: 'agent' });
+    try {
+      if (['human', 'solve'].includes(this.#captchaMode) && this.#challengeActive) {
+        if (this.#challengeActive.kind === 'block-page') { finish?.('refused'); return { ok: false, reason: 'challenge_blocked' }; }
+        const gate = await this.#waitForChallenge(signal);
+        if (!gate.ok) { finish?.(signal?.aborted ? 'cancelled' : 'refused'); return gate; }
+      }
+      const admission = await this.#lease.enterAgentMutation({ waitMs: this.#agentWaitMs, signal });
+      finish?.(admission.ok ? 'ok' : signal?.aborted ? 'cancelled' : 'refused');
+      return admission;
+    } catch (error) { finish?.('error'); throw error; }
   }
+
+  measureCommand() { return this.#telemetry?.start(this.#botId, 'browser.command', { operation: 'agent' }); }
 
   /** Feed a URL observation into challenge detection (frames, navigations). */
   noteChallengeUrl(targetId, url, { isMainFrame = false } = {}) {

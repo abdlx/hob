@@ -9,8 +9,9 @@ import { createApp } from '../app.mjs';
 import { HermesClient, HermesError, hermesSessionKey, hermesNativeSessionKey, parseHermesSessionKey } from '../hermes-client.mjs';
 import { HermesRunJournal } from '../hermes-run-journal.mjs';
 import { createHermesCanonicalChatRoutes } from '../hermes-canonical-chat.mjs';
+import { createHobTelemetry } from '../hob-telemetry.mjs';
 
-async function fixture(t) {
+async function fixture(t, { telemetry } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'hob-native-chat-'));
   const shared = { sessions: new Map(), admissions: new Map(), calls: [], mode: 'complete', sequence: 0, generation: 5 };
   const legacyCalls = [];
@@ -106,7 +107,7 @@ async function fixture(t) {
     const url = `http://127.0.0.1:${legacy.address().port}`;
     f.client = new HermesClient({ runtimeUrl: url, dashboardUrl: url, apiKey: 'synthetic-runtime', dashboardToken: 'synthetic-settings' });
     f.bridge = new Bridge(); f.journal = await HermesRunJournal.open(root);
-    f.app = createApp({ gateway: f.client, nativeSessions: f.bridge, runJournal: f.journal, password: 'synthetic-login' });
+    f.app = createApp({ gateway: f.client, nativeSessions: f.bridge, runJournal: f.journal, password: 'synthetic-login', telemetry });
     await new Promise(resolve => f.app.listen(0, '127.0.0.1', resolve));
     f.origin = `http://127.0.0.1:${f.app.address().port}`;
     const login = await fetch(f.origin + '/api/auth/login', { method: 'POST', headers: { Origin: f.origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'synthetic-login' }) });
@@ -130,6 +131,28 @@ async function fixture(t) {
   });
   return f;
 }
+
+test('performance diagnostics require login and enrolled scope, and correlate admission to native settlement', async t => {
+  const telemetry = createHobTelemetry();
+  const f = await fixture(t, { telemetry }), session = await f.create();
+  const binding = f.client.credentialBinding.bind(f.client);
+  f.client.credentialBinding = profile => {
+    if (!['default', 'coder'].includes(profile)) throw new HermesError(404, 'Bot not enrolled.', 'BOT_NOT_FOUND');
+    return binding(profile);
+  };
+  assert.match(await (await f.turn(session.id, 'DO_NOT_LOG_THIS_PROMPT')).text(), /event: done/);
+  telemetry.record('coder', 'browser.start', 25, 'ok', { operation: 'cold' });
+  const route = '/api/hermes/diagnostics/performance';
+  assert.equal((await fetch(f.origin + route)).status, 401);
+  const view = await (await f.call(route)).json();
+  assert.deepEqual(view.stages.map(item => item.stage).sort(), ['turn.admission', 'turn.first_token', 'turn.settlement']);
+  assert.equal(new Set(view.events.map(item => item.traceId)).size, 1);
+  assert.doesNotMatch(JSON.stringify(view), /DO_NOT_LOG_THIS_PROMPT|"coder"/);
+  assert.equal((await f.call(route + '?profile=outsider')).status, 404);
+  assert.equal((await f.call(route + '?profile=default&profile=coder')).status, 400);
+  const coder = await (await f.call(route + '?profile=coder')).json();
+  assert.equal(coder.samples, 1); assert.equal(coder.events[0].profile, 'coder');
+});
 
 test('restart recovers delivery from its retained terminal receipt without model replay or another conversation message', async t => {
   const f = await fixture(t), session = await f.create();

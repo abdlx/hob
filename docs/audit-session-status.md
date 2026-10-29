@@ -1,6 +1,6 @@
 # HOB audit implementation status
 
-29 October 2026. Starting commit: `8326bf6c`. This working-tree implementation follows the [audit plan](audit-remediation-plan.md). Work is ordered by dependencies and evidence, with no engineering-day estimates. Historical audit inputs and benchmark scores are preserved.
+29 October 2026. Starting commit: `8326bf6c`. This implementation follows the [audit plan](audit-remediation-plan.md). Work is ordered by dependencies and evidence, with no engineering-day estimates. Historical audit inputs and benchmark scores are preserved.
 
 ## Product coverage
 
@@ -47,17 +47,25 @@ Delivery recovery observes retained native terminal receipts in bounded batches;
 
 ## Verification record
 
-- Full server suite after delivery-recovery refinement: 455 passed, two platform-specific skips.
+- Full server suite after telemetry and ownership checks: 459 passed, two platform-specific skips.
 - Web unit suite: 55 passed. Production build and lint passed.
 - Browser suite: 34 passed in the full run. The subsequently added 320px touch-target/input-size test passed separately, for 35 passing cases. Its CSS refinement also passed build and lint.
-- Deployment unit suite: 28 passed, including source qualification and smoke fixtures. Native review helper: eight passed, including store-path and malformed-decision refusal.
+- Deployment unit suite: 32 passed, including live-check behavior, source qualification and smoke fixtures. Native review helper: eight passed, including store-path and malformed-decision refusal.
 - Mobile: TypeScript check and three tests passed. No physical Android/iOS build or microphone test is claimed.
 - Existing full server checks exercise real local Chromium human leases, raw CDP gating, persistent per-bot cookies, viewer load and crash recovery. These are local regressions, not production latency or Linux isolation certification.
 
 ## Open acceptance and implementation scope
 
-Docker is unavailable in this Windows session. The rebuilt Linux image, qualified native router integration, OS-user ACLs, deployment TLS/front-door authentication, and container crash/recreation checks have not been run here. CI smoke coverage now exercises native schedule previews, revision-bound skill decisions and artifact download, but those results remain pending until the workflow runs against this revision.
+Docker is unavailable locally, but [Linux image CI for `a6bd9441`](https://github.com/abdlx/hob/actions/runs/40916698066) passed both shared and OS-user-isolated smoke runs. Those runs exercise the real image, native preview/review extension, native image input, reviewed skill application, artifact publication/download, ACLs, proactive scheduling/relay/heartbeat, and container crash/recreation. Web and server CI passed too. The attachment fixture required both native routing and explicit vision capability because its synthetic model has no model-catalog entry; native configuration reads intentionally flatten model metadata to a model-name string.
 
-Native model-turn and wall-clock limits are configurable per bot. An aggregate hard currency cap across provider, tool, background and delegated calls is **not implemented**; the UI says so. Release scope requiring that cap remains open. Existing browser metrics/load evidence does not establish the audit's broader stage-level latency/cost instrumentation or optimization targets.
+The follow-up adds real native background-memory approve/reject/idempotency/restart checks to the disposable image fixture. This additional coverage remains pending CI until its commit's run finishes; it is not a live-provider speech or recall score.
+
+The operator's live domain initially returned proxy 404s after the Compose service rename. After its route was reassigned, `/api/version` reached Hermes and unauthenticated session/settings/workspace/diagnostic requests returned 401. The supplied application login was rejected, so authenticated live checks and cookie attributes remain untested. Preserve the old generated Coolify password/session-secret values under the new variable names before redeploying. No password, cookie or private response body is stored in this document or the live-check reports. The live instance currently reports build commit `unknown`; CI now requires the baked checkout SHA, and Compose accepts an explicit `HOB_GIT_COMMIT` fallback when `SOURCE_COMMIT` is unavailable.
+
+`deploy/live-acceptance.mjs` makes the live front-door checks reproducible using an in-memory/environment password. It never starts a conversation, model/tool call or valid job, changes configuration, or returns private payloads in its report. A proxy 404 stops the audit before login; a failed login leaves cookie/authenticated checks untested rather than fabricating security failures.
+
+Performance diagnostics now record native HTTP/RPC duration, native admission and settlement, time to the first streamed token, browser cold/warm start, lease/challenge wait, mutating-command acknowledgement, and artifact publication. Samples and disk retention are bounded; the authenticated `/api/hermes/diagnostics/performance?profile=...` endpoint checks enrollment and returns only that bot's samples. Traces hash native admission IDs and exclude prompts, credentials, URLs, page content, filenames, parameters and raw errors. p50/p95/max include recorded failure/unknown outcomes. Browser CDP spans remain bot-scoped because the CDP transport carries no native admission ID; no exact concurrent-run attribution is invented. These are HOB boundary timings, not provider-internal model/tool/cost spans or production latency commitments.
+
+Native model-turn and wall-clock limits are configurable per bot. An aggregate hard currency cap across provider, tool, background and delegated calls is **not implemented**; the UI says so. Release scope requiring that cap remains open. The pinned runtime's auxiliary-call hooks are observer-only, fail open and ignore return values; they cannot safely reserve or reject spending. See [the pinned contract](https://github.com/NousResearch/hermes-agent/blob/7e9eb8d9a30f4a9bb9f8ecaf816b4b0ffdf47357/agent/auxiliary_hooks.py). A complete cap needs an authoritative fail-closed reservation/accounting contract covering all billed call paths, not a dashboard estimate or an observer plugin. Repeated real-provider latency/cost and optimization targets remain unverified.
 
 The original 12-case benchmark is unchanged. No paid inference, expanded 100-task/300-attempt evaluation, live speech corpus, 40-case locale score, competitor run, or independent production review occurred. Those acceptance gates remain explicit in the plan rather than being marked passed from fixtures. The application remains a beta; this session does not certify production readiness.
