@@ -191,7 +191,11 @@ def phase_focused_tools(base, cookie, navigate, snapshot, fill, click, console, 
     succeeds("pinned Hermes navigates through HOB's broker", navigate(SITE, task_id="e2e"))
     assert status(base, cookie)["url"].rstrip("/") == SITE.rstrip("/")
     fixture = """(() => {
-      document.body.innerHTML = '<label>Fixture draft<input id="hob-fixture"></label><button id="hob-apply">Apply fixture</button><p id="hob-result"></p>';
+      const draft = document.createElement('input'); draft.id = 'hob-fixture';
+      const label = document.createElement('label'); label.textContent = 'Fixture draft'; label.append(draft);
+      const button = document.createElement('button'); button.id = 'hob-apply'; button.textContent = 'Apply fixture';
+      const output = document.createElement('p'); output.id = 'hob-result';
+      document.body.replaceChildren(label, button, output);
       window.hobFixtureClicks = 0;
       document.getElementById('hob-apply').onclick = () => {
         window.hobFixtureClicks++;
@@ -781,6 +785,12 @@ def main():
         phase_crash_recovery(base, cookie, browser_navigate, facts)
         phase_no_devtools_port(base, cookie, facts)
     finally:
+        if os.environ.get("HOB_E2E_FOCUSED") == "1" and "tools.browser_tool" in sys.modules:
+            try:
+                from tools.browser_tool_lifecycle import cleanup_browser
+                cleanup_browser("e2e")
+            except Exception as error:
+                info("Native fixture cleanup reported " + type(error).__name__)
         try:
             server.stdin.close()
         except Exception:  # pragma: no cover
