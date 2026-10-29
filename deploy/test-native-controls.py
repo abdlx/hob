@@ -6,6 +6,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -70,13 +71,65 @@ class NativeReviewTests(unittest.TestCase):
         self.assertTrue(filename.exists())
         self.assertFalse(self.applied)
 
-    def test_failed_native_precondition_restores_proposal(self):
+    def test_failed_native_apply_preserves_a_claim_instead_of_enabling_replay(self):
         _record, filename, body = self.seed()
         sys.modules["hermes_cli.write_approval_commands"]._apply_one = lambda *args: (False, "stale native preimage", {})
         with self.assertRaises(Refusal):
             controls.decide("memory", body)
-        self.assertTrue(filename.exists())
+        self.assertFalse(filename.exists())
+        self.assertEqual(len(list(filename.parent.glob(".hob-claimed-*.claim"))), 1)
         self.assertFalse(controls.audit_history())
+
+    def test_partial_native_failure_is_reconciled_without_applying_or_undoing(self):
+        record, filename, body = self.seed()
+        def uncertain(subsystem, proposal, store):
+            self.applied.append(proposal)
+            return False, "synthetic acknowledgement lost after a side effect", {}
+        sys.modules["hermes_cli.write_approval_commands"]._apply_one = uncertain
+        with self.assertRaises(Refusal):
+            controls.decide("memory", body)
+        with self.assertRaises(Refusal):
+            controls.decide("memory", body)
+        self.assertEqual(self.applied, [record])
+        self.assertEqual(controls.get_claim("memory", body["id"], body["revision"]), record)
+        observation = {**body, "action": "observed_applied", "requestId": "r" * 32}
+        for change in [{"confirm": False}, {"revision": "0" * 64}, {"action": "approve"}, {"action": []}]:
+            with self.assertRaises(Refusal):
+                controls.reconcile_claim("memory", {**observation, **change})
+        self.assertEqual(controls.reconcile_claim("memory", observation)["decision"]["status"], "operator_reconciled")
+        self.assertTrue(controls.reconcile_claim("memory", observation)["replayed"])
+        self.assertEqual(self.applied, [record])
+        self.assertFalse(filename.exists())
+        self.assertFalse(list(filename.parent.glob(".hob-claimed-*.claim")))
+
+    def test_abandoning_an_uncertain_claim_never_calls_native_apply(self):
+        _record, filename, body = self.seed()
+        original = controls.append_audit
+        controls.append_audit = lambda _record: (_ for _ in ()).throw(OSError("synthetic audit failure"))
+        try:
+            with self.assertRaises(OSError):
+                controls.decide("memory", {**body, "action": "reject"})
+        finally:
+            controls.append_audit = original
+        result = controls.reconcile_claim("memory", {**body, "action": "abandoned", "requestId": "r" * 32})
+        self.assertTrue(result["ok"]); self.assertFalse(self.applied)
+        self.assertFalse(filename.exists())
+
+    def test_persisted_observation_recovers_an_interrupted_claim_removal(self):
+        _record, filename, body = self.seed()
+        sys.modules["hermes_cli.write_approval_commands"]._apply_one = lambda *args: (False, "unconfirmed", {})
+        with self.assertRaises(Refusal):
+            controls.decide("memory", body)
+        observation = {**body, "action": "abandoned", "requestId": "r" * 32}
+        with patch.object(Path, "unlink", side_effect=OSError("synthetic interruption after audit persistence")):
+            with self.assertRaises(OSError):
+                controls.reconcile_claim("memory", observation)
+        self.assertEqual(len(controls.audit_history()), 1)
+        self.assertEqual(len(list(filename.parent.glob(".hob-claimed-*.claim"))), 1)
+        self.assertTrue(controls.reconcile_claim("memory", observation)["replayed"])
+        self.assertEqual(len(controls.audit_history()), 1)
+        self.assertFalse(list(filename.parent.glob(".hob-claimed-*.claim")))
+        self.assertFalse(self.applied)
 
     def test_uncertain_post_apply_failure_is_not_blindly_replayed(self):
         _record, filename, body = self.seed()

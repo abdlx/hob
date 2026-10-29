@@ -10,6 +10,12 @@ skills router for full revision-bound proposal decisions and scheduler previews.
 The native clock cache also follows changed bot timezones without requiring a
 process restart. Unknown source bytes fail the build. `hob-compat.json` records the changes;
 Hermes still owns scheduling, memory/skill application, admission, execution and persistence.
+An unconfirmed native approval retains its claimed proposal instead of becoming
+replayable. The review queue shows these claims for inspection. After comparing
+the complete proposal with current native state, an operator can record observed
+application or abandonment. Both append an `operator_reconciled` audit event and
+remove only the claim; neither applies, retries or undoes any native change.
+Preserve native state, claims and audit together when backing up or recovering.
 Local reference and archived runtime source trees are
 excluded from the app build context.
 
@@ -67,6 +73,14 @@ Optionally set `HOB_AUDIT_EXPECT_COMMIT` to require a particular build. The help
 checks HTTPS routing, auth/origin guards, scope denial and native preview/review
 availability without inference, valid jobs or configuration changes. Reports omit
 credentials and private response bodies. It signs out only its fresh audit session.
+
+For offline benchmark evidence, run
+`node deploy/benchmark-report.mjs protocol.json results.csv new-summary.json`.
+This hashes the supplied source files, preserves the original pass/clean-pass
+and rubric scores, counts unexecuted cases and failures, and reports descriptive
+sample timings. It performs no inference and never executes document prompts.
+Raw answers and notes are excluded from the summary. Keep evaluation evidence
+private unless its contents are explicitly suitable for publication.
 
 `/healthz` checks the application's private settings service. It can be healthy
 before model credentials are configured or while the agent runtime is restarting.

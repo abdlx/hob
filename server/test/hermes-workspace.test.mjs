@@ -122,6 +122,25 @@ test('personality uses the selected native SOUL owner without renaming a profile
   assert.equal((await request('soul', 'PUT', { content: 'Careful researcher.' })).status, 200);
   assert.deepEqual(calls.at(-1), { route: '/api/profiles/coder/soul', profile: 'coder', method: 'PUT', body: { content: 'Careful researcher.' } });
 });
+
+test('uncertain claim observations stay scoped, allowlisted and separate from native application', async () => {
+  const revision = 'a'.repeat(64);
+  const body = { id: 'proposal-one', revision, action: 'observed_applied', requestId: 'r'.repeat(32), confirm: true };
+  assert.equal((await request(`review-claims/memory/proposal-one/${revision}`)).status, 200);
+  assert.deepEqual(calls.at(-1), { route: `/api/hob/review-claims/memory/proposal-one/${revision}`, profile: 'coder' });
+  for (const action of ['observed_applied', 'abandoned']) {
+    assert.equal((await request('review-claims/memory', 'POST', { ...body, action })).status, 200);
+    assert.deepEqual(calls.at(-1), { route: '/api/hob/review-claims/memory', profile: 'coder', method: 'POST', body: { ...body, action } });
+  }
+  const before = calls.length;
+  for (const change of [{ confirm: false }, { action: 'approve' }, { action: 'reject' }, { revision: 'stale' }, { id: 'all' }, { requestId: '' }, { profile: 'default' }, { script: 'retry' }]) {
+    assert.equal((await request('review-claims/memory', 'POST', { ...body, ...change })).status, 400);
+  }
+  revoked.add('coder');
+  try { assert.equal((await request('review-claims/memory', 'POST', body)).status, 404); }
+  finally { revoked.delete('coder'); }
+  assert.equal(calls.length, before);
+});
 test('file library blocks traversal, credentials and other bot paths before any native read', async () => {
   const before = calls.length;
   for (const relative of ['../main/report.txt', '../../main/report.txt', '.env', 'credentials.json', 'sub/.env', 'secret-token.txt', 'C:/private.txt', 'nested%2f.env']) {

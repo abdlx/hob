@@ -267,6 +267,38 @@ test('skill reviews display the full diff, reject stale decisions and bind the u
   expect(state.errors).toEqual([]);
 });
 
+test('uncertain approvals require native-state inspection and record observations without another application', async ({ page }) => {
+  const state = await fixture(page);
+  const revision = 'c'.repeat(64), decisions: Record<string, unknown>[] = [];
+  let retained = true;
+  await page.route('**/api/hermes/workspace/reviews/skills**', route => route.fulfill({ json: {
+    items: [], nextOffset: null, unresolvedDecisions: retained ? 1 : 0,
+    claims: retained ? [{ id: 'uncertain-one', revision, summary: 'A retained lesson', origin: 'unconfirmed decision' }] : [],
+  } }));
+  await page.route('**/api/hermes/workspace/review-claims/skills**', async route => {
+    if (route.request().method() === 'POST') {
+      decisions.push(route.request().postDataJSON()); retained = false;
+      return route.fulfill({ json: { ok: true, decision: { status: 'operator_reconciled' } } });
+    }
+    return route.fulfill({ json: { id: 'uncertain-one', revision, diff: '{"payload":"retained complete proposal"}' } });
+  });
+  await page.goto('/idea');
+  const queue = page.getByRole('region', { name: 'Skill review queue' });
+  await queue.getByRole('button', { name: 'Inspect uncertain A retained lesson' }).click();
+  await expect(queue.getByLabel('Proposal diff')).toContainText('retained complete proposal');
+  await expect(queue.getByRole('button', { name: 'Approve reviewed revision' })).toHaveCount(0);
+  await expect(queue.getByRole('button', { name: 'Record observed application' })).toBeDisabled();
+  await expect(queue.getByRole('button', { name: 'Abandon unresolved proposal' })).toBeDisabled();
+  expect(decisions).toHaveLength(0);
+  await queue.getByRole('checkbox', { name: 'I compared this proposal with the current native state.' }).check();
+  await queue.getByRole('button', { name: 'Record observed application' }).click();
+  await expect(queue.getByText('Operator observation recorded. No changes were applied or undone.', { exact: true })).toBeVisible();
+  await expect(queue.getByRole('heading', { name: 'Unconfirmed decisions' })).toHaveCount(0);
+  expect(decisions).toHaveLength(1);
+  expect(decisions[0]).toEqual({ id: 'uncertain-one', revision, action: 'observed_applied', requestId: expect.any(String), confirm: true });
+  expect(state.errors).toEqual([]);
+});
+
 test('saved provider cards connect a bot privately while keeping model choice separate', async ({ page }) => {
   const state = await fixture(page, false, true);
   await page.goto('/settings');

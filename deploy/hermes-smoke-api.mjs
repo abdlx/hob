@@ -207,7 +207,7 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
     check('an explicit direct-write choice is preserved without changing other learning flags', directWrites.controls.skillApproval.value === false && directWrites.controls.memoryApproval.value === true && directWrites.controls.backgroundReview.value === false);
     await api(learningRoute + '?profile=smoke-bot', 'PUT', { changes: { skillApproval: true }, confirm: true }, 'smoke-bot');
     check('another bot retains its original learning policy', JSON.stringify((await api(learningRoute)).controls) === JSON.stringify(mainLearning.controls));
-    let stagedSkill = false;
+    let stagedSkill = false, retainedClaim = null;
     if (providerTier) {
       // Exercise the configured native gate through a real model/tool turn.
       // Nothing is written directly into Hermes' pending store by the harness.
@@ -226,6 +226,21 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       await workspace('reviews/skills', 'POST', { id: proposal, revision: detail.revision, action: 'approve', requestId: randomUUID(), confirm: true });
       check('explicit approval activates the validated native skill', (await workspace('skill', 'GET', undefined, 'default', { name: SMOKE_SKILL_NAME })).content === SMOKE_SKILL_CONTENT);
       check('the approved proposal leaves the native pending queue', !(await pending()).items.some(item => item.id === proposal));
+      // The gate stages before native create checks for an existing skill. A
+      // second create therefore exercises a real refused applier, not a harness
+      // edit to its pending store. Retain its claim across container recreation.
+      const duplicate = await api('/api/sessions', 'POST', { title: 'Isolated uncertain approval', agentId: 'default' });
+      const duplicateTurn = await request(session(duplicate.id, '/turns'), 'POST', { content: SMOKE_SKILL_PROMPT, idempotencyKey: randomUUID() });
+      const duplicateStream = await duplicateTurn.text();
+      const duplicateId = new RegExp(SMOKE_SKILL_REPLY + ':([a-f0-9]{8})').exec(duplicateStream)?.[1];
+      check('a separate real tool turn stages the conflicting create', duplicateTurn.ok && Boolean(duplicateId) && duplicateId !== proposal && !duplicateStream.includes('event: error'));
+      const duplicateDetail = await workspace('reviews/skills/' + duplicateId);
+      retainedClaim = { id: duplicateId, revision: duplicateDetail.revision, requestId: randomUUID(), action: 'abandoned', confirm: true };
+      const refused = await request('/api/hermes/workspace/reviews/skills?profile=default', 'POST', { ...retainedClaim, action: 'approve' });
+      check('a real native application refusal retains an unconfirmed claim', refused.status === 409
+        && (await pending()).claims.some(item => item.id === duplicateId && item.revision === duplicateDetail.revision)
+        && !(await pending()).items.some(item => item.id === duplicateId));
+      check('a retained claim cannot be submitted for another application', (await request('/api/hermes/workspace/reviews/skills?profile=default', 'POST', { ...retainedClaim, action: 'approve' })).status === 404);
       await api(learningRoute, 'PUT', { changes: { skillApproval: mainLearning.controls.skillApproval.value, backgroundReview: mainLearning.controls.backgroundReview.value }, confirm: true });
       stagedSkill = true;
     }
@@ -277,7 +292,7 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
     const memoryReview = providerTier ? await memoryReviewFirstBoot({ api, request, workspace, retry, check }) : false;
     const proactivity = proactive && providerTier ? await proactiveFirstBoot({ api, request, workspace, retry, check, modelUrl }) : null;
     if (isolation) for (const profile of ['default', 'proactive-worker']) await api('/api/hermes/browser/start?profile=' + profile, 'POST', {}, profile);
-    return { providerTier, sessionId, requestKey, jobId: created.id, soul: persistedSoul, mcpOAuth, memorySetup, expectedLearning, stagedSkill, memoryReview, proactivity };
+    return { providerTier, sessionId, requestKey, jobId: created.id, soul: persistedSoul, mcpOAuth, memorySetup, expectedLearning, stagedSkill, retainedClaim, memoryReview, proactivity };
   };
 
   const afterRestart = async saved => {
@@ -308,6 +323,18 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       check('independent native learning settings survive recreation', Object.entries(saved.expectedLearning).every(([id, value]) => result.controls[id]?.value === value));
     }
     if (saved.stagedSkill) check('an explicitly approved skill survives recreation', (await workspace('skill', 'GET', undefined, 'default', { name: SMOKE_SKILL_NAME })).content === SMOKE_SKILL_CONTENT);
+    if (saved.retainedClaim) {
+      const observation = { ...saved.retainedClaim, requestId: randomUUID() };
+      const resource = `review-claims/skills/${observation.id}/${observation.revision}`;
+      check('an unconfirmed native claim survives recreation with its complete payload', (await workspace(resource)).diff.includes(SMOKE_SKILL_NAME));
+      check('another bot cannot inspect a retained native claim', [403, 404].includes((await request(`/api/hermes/workspace/${resource}?profile=smoke-bot`, 'GET', undefined, 'smoke-bot')).status));
+      check('another bot cannot reconcile a retained native claim', [403, 404].includes((await request('/api/hermes/workspace/review-claims/skills?profile=smoke-bot', 'POST', observation, 'smoke-bot')).status));
+      const result = await workspace('review-claims/skills', 'POST', observation);
+      check('operator abandonment is recorded separately from native completion', result.ok === true && result.decision.status === 'operator_reconciled');
+      check('the same operator observation is idempotent', (await workspace('review-claims/skills', 'POST', observation)).replayed === true);
+      check('reconciliation clears only the claim and preserves the active skill', !(await workspace('reviews/skills')).claims.some(item => item.id === observation.id)
+        && (await workspace('skill', 'GET', undefined, 'default', { name: SMOKE_SKILL_NAME })).content === SMOKE_SKILL_CONTENT);
+    }
     if (saved.memoryReview) await memoryReviewAfterRestart({ workspace, check });
     if (saved.memorySetup) {
       const memory = await api('/api/hermes/setup/memory?profile=smoke-bot', 'GET', undefined, 'smoke-bot');

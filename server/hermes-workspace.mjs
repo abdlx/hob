@@ -64,6 +64,14 @@ export function createHermesWorkspaceRoutes({ client, bridge, workspaceRoot, bot
       }
     }
     if (route === 'review-history' && method === 'GET') return json(res, 200, await dashboard('/api/hob/review-history'));
+    const claim = /^review-claims\/(memory|skills)(?:\/([A-Za-z0-9_-]{1,128})\/([a-f0-9]{64}))?$/.exec(route);
+    if (claim && method === 'GET' && claim[2]) return json(res, 200, await dashboard(`/api/hob/review-claims/${claim[1]}/${claim[2]}/${claim[3]}`));
+    if (claim && method === 'POST' && !claim[2]) {
+      const value = await input(['id', 'revision', 'action', 'requestId', 'confirm']);
+      if (value.confirm !== true || !['observed_applied', 'abandoned'].includes(value.action) || !/^[A-Za-z0-9_-]{1,128}$/.test(value.id || '') || value.id === 'all'
+        || !/^[a-f0-9]{64}$/.test(value.revision || '') || !/^[A-Za-z0-9_-]{16,128}$/.test(value.requestId || '')) throw invalid('Confirm one inspected claim and an operator observation.');
+      return json(res, 200, await dashboard(`/api/hob/review-claims/${claim[1]}`, { method, body: value }));
+    }
 
     if (route === 'autonomy' && ['GET', 'POST'].includes(method)) {
       if (!bridge) throw new HermesError(503, 'The native session connection is unavailable.', 'SESSION_UNAVAILABLE');

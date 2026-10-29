@@ -100,6 +100,10 @@ def append_audit(record):
 
 def get_record(subsystem, pending_id):
     filename = pending_path(subsystem, proposal_id(pending_id))
+    return read_record(filename, pending_id)
+
+
+def read_record(filename, pending_id):
     try:
         fd = os.open(filename, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
     except FileNotFoundError:
@@ -122,8 +126,47 @@ def get_record(subsystem, pending_id):
     return record
 
 
+def claim_path(subsystem, pending_id, version):
+    proposal_id(pending_id)
+    if not isinstance(version, str) or not re.fullmatch(r"[a-f0-9]{64}", version):
+        raise HTTPException(400, "Choose an exact claimed revision")
+    original = pending_path(subsystem, pending_id)
+    return original.with_name(f".hob-claimed-{pending_id}-{version}.claim")
+
+
+def get_claim(subsystem, pending_id, version):
+    record = read_record(claim_path(subsystem, pending_id, version), pending_id)
+    if revision(record) != version:
+        raise HTTPException(409, "Claimed proposal changed; operator maintenance is required")
+    return record
+
+
+def reconcile_claim(subsystem, body):
+    subsystem_name(subsystem)
+    if not isinstance(body, dict) or set(body) != {"id", "revision", "action", "requestId", "confirm"} or body["confirm"] is not True:
+        raise HTTPException(400, "Confirm inspection of the current native state")
+    if any(not isinstance(body[key], str) for key in ["id", "revision", "action", "requestId"]):
+        raise HTTPException(400, "Invalid operator observation")
+    if body["action"] not in {"observed_applied", "abandoned"} or not isinstance(body["requestId"], str) or not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", body["requestId"]):
+        raise HTTPException(400, "Choose a supported operator observation")
+    filename = claim_path(subsystem, body["id"], body["revision"])
+    with _lock:
+        for previous in audit_history():
+            if previous.get("requestId") == body["requestId"]:
+                if previous.get("subsystem") != subsystem or any(previous.get(key) != body[key] for key in ["id", "revision", "action"]) or previous.get("status") != "operator_reconciled":
+                    raise HTTPException(409, "Decision identifier was already used")
+                if filename.exists():
+                    get_claim(subsystem, body["id"], body["revision"])
+                    filename.unlink()
+                return {"ok": True, "decision": previous, "replayed": True}
+        get_claim(subsystem, body["id"], body["revision"])
+        decision = {"id": body["id"], "revision": body["revision"], "action": body["action"], "requestId": body["requestId"], "subsystem": subsystem, "at": time.time(), "status": "operator_reconciled"}
+        append_audit(decision)
+        filename.unlink()
+        return {"ok": True, "decision": decision}
+
+
 def decide(subsystem, body):
-    from tools import write_approval as native
     from hermes_cli.write_approval_commands import _apply_one
     from tools.memory_tool import load_on_disk_store
     subsystem_name(subsystem)
@@ -172,13 +215,9 @@ def decide(subsystem, body):
             store = load_on_disk_store() if subsystem == "memory" else None
             ok, _error, _result = _apply_one(subsystem, record, store)
             if not ok:
-                # Restore only if no newer native record owns the original path.
-                try:
-                    os.link(claimed, original)
-                    claimed.unlink()
-                except FileExistsError:
-                    pass
-                raise HTTPException(409, "Native preconditions rejected this proposal; review the current state")
+                # Failure does not prove that the applier made no side effects.
+                # Preserve the claim; never make an uncertain write replayable.
+                raise HTTPException(409, "Native application was not confirmed; inspect current state and reconcile the claim")
         decision = {"id": pending_id, "revision": body["revision"], "action": body["action"], "requestId": body["requestId"], "subsystem": subsystem, "at": time.time(), "status": "completed"}
         append_audit(decision)
         claimed.unlink()
@@ -201,7 +240,13 @@ async def pending(subsystem: str, profile: Optional[str] = None, offset: int = 0
         rows = [get_record(subsystem, row["id"]) for row in native.list_pending(subsystem)]
         items = [{"id": row["id"], "summary": str(row.get("summary", ""))[:500], "origin": str(row.get("origin", "foreground"))[:100], "createdAt": row.get("created_at"), "revision": revision(row)} for row in rows[offset:offset + limit]]
         claimed = list(directory.glob(".hob-claimed-*.claim"))
-        return {"items": items, "nextOffset": offset + limit if len(rows) > offset + limit else None, "unresolvedDecisions": len(claimed)}
+        claims = []
+        for filename in sorted(claimed)[:50]:
+            match = re.fullmatch(r"\.hob-claimed-([A-Za-z0-9_-]{1,128})-([a-f0-9]{64})\.claim", filename.name)
+            if match:
+                record = get_claim(subsystem, *match.groups())
+                claims.append({"id": record["id"], "summary": str(record.get("summary", ""))[:500], "revision": match.group(2), "origin": "unconfirmed decision"})
+        return {"items": items, "nextOffset": offset + limit if len(rows) > offset + limit else None, "unresolvedDecisions": len(claimed), "claims": claims}
     return await scoped(profile, work)
 
 
@@ -221,6 +266,22 @@ async def detail(subsystem: str, pending_id: str, profile: Optional[str] = None)
 @router.post("/api/hob/reviews/{subsystem}")
 async def decision(subsystem: str, body: dict, profile: Optional[str] = None):
     return await scoped(profile, lambda: decide(subsystem, body))
+
+
+@router.get("/api/hob/review-claims/{subsystem}/{pending_id}/{version}")
+async def claimed_detail(subsystem: str, pending_id: str, version: str, profile: Optional[str] = None):
+    def work():
+        record = get_claim(subsystem, pending_id, version)
+        diff = json.dumps(record, ensure_ascii=False, indent=2)
+        if len(diff.encode("utf-8")) > 1024 * 1024:
+            raise HTTPException(413, "Proposal diff exceeds the review limit")
+        return {"id": pending_id, "revision": version, "summary": str(record.get("summary", ""))[:500], "diff": diff}
+    return await scoped(profile, work)
+
+
+@router.post("/api/hob/review-claims/{subsystem}")
+async def claimed_observation(subsystem: str, body: dict, profile: Optional[str] = None):
+    return await scoped(profile, lambda: reconcile_claim(subsystem, body))
 
 
 @router.get("/api/hob/review-history")
