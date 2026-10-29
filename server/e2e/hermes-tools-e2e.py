@@ -189,7 +189,10 @@ def phase_focused_tools(base, cookie, navigate, snapshot, fill, click, console, 
         return value
 
     succeeds("pinned Hermes navigates through HOB's broker", navigate(SITE, task_id="e2e"))
-    assert status(base, cookie)["url"].rstrip("/") == SITE.rstrip("/")
+    view = wait_for(lambda: (lambda value: value if value.get("url", "").rstrip("/") == SITE.rstrip("/") else None)(status(base, cookie)), timeout=15, interval=0.2)
+    assert view, "The broker did not observe the native navigation: " + json.dumps(status(base, cookie).get("tabs", []))[:700]
+    location = succeeds("native console identifies the same page as navigation", console(expression="location.href", task_id="e2e"))
+    assert str(location.get("result", "")).rstrip("/") == SITE.rstrip("/"), "Native console targeted another page: " + json.dumps(location)[:700]
     fixture = """(() => {
       const draft = document.createElement('input'); draft.id = 'hob-fixture';
       const label = document.createElement('label'); label.textContent = 'Fixture draft'; label.append(draft);
