@@ -11,6 +11,8 @@ async function fixture(page: Page, extraApps = false, savedProviderCards = false
   let saved = { model: 'test-model', memory: { enabled: true } }, failSave = false, installed = false;
   let heartbeat: { status: string; prompt: string; interval_seconds: number; fire_count: number } | null = null;
   let providerConnected = false, providerVerified = false;
+  let conversationTitle = 'Test conversation', titleRevision = 1;
+  const preferences: Record<string, { language: string; timezone: string; maxTurns: number | null; runBudgetSeconds: number | null }> = {};
   const models: Record<string, { provider: string; model: string }> = { default: { provider: 'openai', model: 'test-model' }, research: { provider: 'openrouter', model: 'research-model' } };
   await page.route('**/api/**', async route => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname;
@@ -26,7 +28,15 @@ async function fixture(page: Page, extraApps = false, savedProviderCards = false
       const selected = request.headers()['x-hob-profile'] || 'default';
       return json({ id: selected, name: selected === 'default' ? 'Main' : 'Research', status: 'connected', model: models[selected]?.model, avatarUrl: '' });
     }
-    if (path === '/api/sessions') return json([{ id: nativeSession, agentId: 'default', title: 'Test conversation', transport: 'canonical', createdAt: '2026-10-26T00:00:00Z' }]);
+    if (path === '/api/sessions') return json([{ id: nativeSession, agentId: 'default', title: conversationTitle, transport: 'canonical', createdAt: '2026-10-26T00:00:00Z' }]);
+    if (path === `/api/sessions/${nativeSession}/title`) {
+      if (request.method() === 'POST') {
+        const body = request.postDataJSON();
+        if (body.revision !== titleRevision) return json({ error: 'Stale title' }, 409);
+        conversationTitle = body.title; titleRevision++;
+      }
+      return json({ title: conversationTitle, revision: titleRevision });
+    }
     if (path === `/api/sessions/${nativeSession}/messages` || path === '/api/tasks' || path === '/api/security/approvals') return json([]);
     if (path === `/api/sessions/${nativeSession}/run`) return json({ run: null });
     if (path === '/api/stats') return json({ tokensUsed: 0, maxTokens: 128000 });
@@ -65,10 +75,16 @@ async function fixture(page: Page, extraApps = false, savedProviderCards = false
       return json({ ok: true });
     }
     if (path === '/api/hermes/setup/accounts') return json({ providers: [] });
+    if (path === '/api/hermes/setup/preferences') {
+      if (request.method() === 'PUT') preferences[profile] = request.postDataJSON();
+      return json(preferences[profile] || { language: 'auto', timezone: 'Asia/Karachi', maxTurns: 30, runBudgetSeconds: 300 });
+    }
     if (path === '/api/hermes/setup/mcp') return json({ servers: [] });
     if (path === '/api/hermes/workspace/toolsets') return json([{ name: 'browser', enabled: true, configured: false }]);
     if (path === '/api/hermes/workspace/jobs') return json([]);
+    if (path === '/api/hermes/workspace/schedule-preview') return json({ valid: true, nextRun: '2027-01-01T09:00:00+05:00', timezone: 'Asia/Karachi' });
     if (path === '/api/hermes/workspace/skills') return json([]);
+    if (/^\/api\/hermes\/workspace\/reviews\/(memory|skills)$/.test(path)) return json({ items: [], nextOffset: null });
     if (path === '/api/hermes/workspace/learning') return json({ nodes: [] });
     if (path === '/api/hermes/workspace/files') return json({ entries: [] });
     if (path === '/api/hermes/workspace/autonomy') {
@@ -104,6 +120,152 @@ async function fixture(page: Page, extraApps = false, savedProviderCards = false
   });
   return { errors, writes, failSaves: () => { failSave = true; } };
 }
+
+test('a narrow touch viewport keeps dock targets usable and settings inputs at 16px', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 320, height: 740 }, hasTouch: true, isMobile: true });
+  try {
+    const page = await context.newPage(), state = await fixture(page);
+    await page.goto('http://127.0.0.1:4187/chat');
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
+    const dock = page.getByRole('navigation', { name: 'Bottom dock navigation' }).filter({ visible: true });
+    for (const button of await dock.getByRole('button').all()) {
+      const rect = await button.boundingBox(); expect(rect!.height).toBeGreaterThanOrEqual(44); expect(rect!.width).toBeGreaterThanOrEqual(44);
+    }
+    await dock.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { name: 'General', exact: false }).click();
+    const timezone = page.getByRole('textbox', { name: /^Bot timezone/ });
+    await expect(timezone).toBeVisible();
+    expect(await timezone.evaluate(node => getComputedStyle(node).fontSize)).toBe('16px');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: 'test-results/touch-320-settings.png', fullPage: true });
+    expect(state.errors).toEqual([]);
+  } finally { await context.close(); }
+});
+
+test('language and native run limits persist for the selected bot and another bot retains its choices', async ({ page }) => {
+  const state = await fixture(page);
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'General', exact: false }).click();
+  const form = page.getByRole('region', { name: 'Bot language and limits' });
+  await form.getByRole('combobox', { name: 'Reply and title language' }).selectOption('ur-Latn');
+  await form.getByRole('spinbutton', { name: /^Maximum model turns/ }).fill('12');
+  await form.getByRole('spinbutton', { name: /^Run time budget/ }).fill('90');
+  await form.getByRole('button', { name: 'Save bot preferences' }).click();
+  await expect(form.getByRole('status').filter({ hasText: 'Preferences saved' })).toBeVisible();
+  await page.reload();
+  await expect(form.getByRole('combobox', { name: 'Reply and title language' })).toHaveValue('ur-Latn');
+  await expect(form.getByRole('spinbutton', { name: /^Maximum model turns/ })).toHaveValue('12');
+  await page.getByRole('combobox', { name: 'Bot', exact: true }).selectOption('research');
+  await expect(form.getByRole('combobox', { name: 'Reply and title language' })).toHaveValue('auto');
+  expect(state.writes.filter(row => row.path.endsWith('/preferences'))).toEqual([{ path: '/api/hermes/setup/preferences', profile: 'default', body: { language: 'ur-Latn', timezone: 'Asia/Karachi', maxTurns: 12, runBudgetSeconds: 90, confirm: true } }]);
+  expect(state.errors).toEqual([]);
+});
+
+test('a title correction saves the inspected revision and survives reload', async ({ page }) => {
+  const state = await fixture(page);
+  await page.goto('/chat');
+  await page.getByRole('button', { name: 'Conversations', exact: true }).filter({ visible: true }).click();
+  const drawer = page.getByRole('dialog', { name: 'Conversations', exact: true });
+  await drawer.getByRole('button', { name: 'Rename Test conversation' }).click();
+  await drawer.getByRole('textbox', { name: 'Conversation title', exact: true }).fill('Roman Urdu ki guftagu');
+  await drawer.getByRole('button', { name: 'Save title' }).click();
+  await expect(drawer.getByRole('button', { name: 'Rename Roman Urdu ki guftagu' })).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', { name: 'Conversations', exact: true }).filter({ visible: true }).click();
+  await expect(drawer.getByRole('button', { name: 'Rename Roman Urdu ki guftagu' })).toBeVisible();
+  const write = state.writes.find(row => row.path.endsWith('/title'))!;
+  expect(write.profile).toBe('default'); expect(write.body.revision).toBe(1); expect(write.body.title).toBe('Roman Urdu ki guftagu');
+  expect(state.errors).toEqual([]);
+});
+
+test('tablet chat starts unobstructed and the conversation drawer contains and restores keyboard focus', async ({ page }) => {
+  const state = await fixture(page);
+  for (const width of [768, 820, 1024]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto('/chat');
+    await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible();
+    await expect(page.getByRole('complementary', { name: 'Agent details', exact: true })).toBeHidden();
+  }
+  const opener = page.getByRole('button', { name: 'Conversations', exact: true }).filter({ visible: true });
+  await opener.click();
+  const drawer = page.getByRole('dialog', { name: 'Conversations', exact: true });
+  await expect(drawer.getByRole('textbox', { name: 'Search conversations' })).toBeFocused();
+  await expect(drawer.locator('time')).not.toHaveText(/T00:00/);
+  await drawer.getByRole('button', { name: 'Rename Test conversation', exact: true }).focus();
+  await page.keyboard.press('Tab');
+  await expect(drawer.getByRole('button', { name: 'Close conversations', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(drawer).toBeHidden(); await expect(opener).toBeFocused();
+  await page.screenshot({ path: 'test-results/tablet-1024-chat.png', fullPage: true });
+  expect(state.errors).toEqual([]);
+});
+
+test('phone dock opens Settings directly and follows browser navigation', async ({ page }) => {
+  const state = await fixture(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/chat');
+  const dock = page.getByRole('navigation', { name: 'Bottom dock navigation' }).filter({ visible: true });
+  await dock.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(dock.getByRole('button', { name: 'Settings', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.goBack();
+  await expect(dock.getByRole('button', { name: 'Bots', exact: true })).toHaveAttribute('aria-current', 'page');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(state.errors).toEqual([]);
+});
+
+test('goals require a current native schedule preview and reject malformed input', async ({ page }) => {
+  const state = await fixture(page);
+  await page.goto('/goals');
+  await page.getByRole('button', { name: 'New goal', exact: true }).click();
+  await page.getByLabel('Goal name', { exact: true }).fill('Daily research');
+  await page.getByLabel('Instructions', { exact: true }).fill('Review approved sources.');
+  const scheduleInput = page.getByRole('textbox', { name: /^Schedule/ });
+  await scheduleInput.fill('99 99 * * *');
+  await expect(page.getByRole('button', { name: 'Save goal', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Preview next run', exact: true })).toBeDisabled();
+  await scheduleInput.fill('0 9 * * *');
+  await expect(page.getByRole('button', { name: 'Save goal', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Preview next run', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Next run:' })).toContainText('Asia/Karachi');
+  await scheduleInput.fill('0 10 * * *');
+  await expect(page.getByRole('button', { name: 'Save goal', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Preview next run', exact: true }).click();
+  await page.getByRole('button', { name: 'Save goal', exact: true }).click();
+  expect(state.writes.filter(row => row.path.endsWith('/jobs'))).toEqual([{ path: '/api/hermes/workspace/jobs', profile: 'default', body: { name: 'Daily research', prompt: 'Review approved sources.', schedule: '0 10 * * *' } }]);
+  expect(state.errors).toEqual([]);
+});
+
+test('skill reviews display the full diff, reject stale decisions and bind the updated revision', async ({ page }) => {
+  const state = await fixture(page);
+  let revision = 'a'.repeat(64), pending = true;
+  const decisions: Record<string, unknown>[] = [];
+  await page.route('**/api/hermes/workspace/reviews/skills**', async route => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON(); decisions.push(body);
+      if (decisions.length === 1) { revision = 'b'.repeat(64); return route.fulfill({ status: 409, json: { error: 'Proposal changed; refresh and review again' } }); }
+      expect(body.revision).toBe(revision); pending = false;
+      return route.fulfill({ json: { ok: true } });
+    }
+    if (new URL(route.request().url()).pathname.endsWith('/proposal-one')) return route.fulfill({ json: { id: 'proposal-one', summary: 'Review a lesson', revision, diff: '+ first line\n' + 'complete diff\n'.repeat(400) + '+ last line' } });
+    return route.fulfill({ json: { items: pending ? [{ id: 'proposal-one', summary: 'Review a lesson', origin: 'foreground', revision }] : [], nextOffset: null } });
+  });
+  await page.goto('/idea');
+  const queue = page.getByRole('region', { name: 'Skill review queue' });
+  await queue.getByRole('button', { name: /Review a lesson/ }).click();
+  await expect(queue.getByLabel('Proposal diff')).toContainText('+ last line');
+  expect((await queue.getByLabel('Proposal diff').textContent())!.length).toBeGreaterThan(3000);
+  await queue.getByRole('button', { name: 'Approve reviewed revision' }).click();
+  await expect(queue.getByRole('alert')).toContainText('Proposal changed');
+  await queue.getByRole('button', { name: 'Refresh proposals' }).click();
+  await queue.getByRole('button', { name: /Review a lesson/ }).click();
+  await queue.getByRole('button', { name: 'Approve reviewed revision' }).click();
+  await expect(queue.getByText('No pending proposals for this bot.', { exact: true })).toBeVisible();
+  expect(decisions).toHaveLength(2);
+  expect(decisions[0].revision).toBe('a'.repeat(64)); expect(decisions[0].confirm).toBe(true);
+  expect(decisions[1].requestId).not.toBe(decisions[0].requestId);
+  expect(state.errors).toEqual([]);
+});
 
 test('saved provider cards connect a bot privately while keeping model choice separate', async ({ page }) => {
   const state = await fixture(page, false, true);

@@ -20,6 +20,7 @@ import { AppearanceSettings } from '../components/AppearanceSettings';
 import { HermesPluginsSettings } from '../components/HermesPluginsSettings';
 import { HermesAutonomySettings } from '../components/HermesAutonomySettings';
 import { HermesGoals, HermesWorkshop } from './HermesWorkspace';
+import { BotPreferences } from '../components/BotPreferences';
 
 interface Profile { name: string; display_name?: string; description?: string; model?: string; provider?: string; state?: string }
 
@@ -64,6 +65,7 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
   const [endpointSecret, setEndpointSecret] = useState('');
   const [modelConfirmation, setModelConfirmation] = useState('');
   const [newName, setNewName] = useState('');
+  const [newRole, setNewRole] = useState('');
   const [soul, setSoul] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -136,7 +138,7 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
     <Field label="Bot"><select className={inputClass} disabled={busy || loading} value={profile} onChange={event => { loadSequence.current++; setProfile(event.target.value); setSnapshot(null); setSecret(''); setProvider(''); setModel(''); setBaseUrl(''); setEndpointName(''); setEndpointSecret(''); setModelConfirmation(''); }}>
       <option value="default">Main</option>{profiles.filter(item => item.name !== 'default' && (!item.state || item.state === 'active')).map(item => <option key={item.name} value={item.name}>{item.display_name || item.name}</option>)}
     </select></Field>
-    {section === 'general' && <AppearanceSettings />}
+    {section === 'general' && <div className="space-y-5"><AppearanceSettings /><BotPreferences key={profile} profile={profile} /></div>}
     {visited.has('models') && <div hidden={section !== 'models'} className="space-y-5">
     <HermesSavedProviders key={profile} profile={profile} botName={profiles.find(item => item.name === profile)?.display_name || (profile === 'default' ? 'Main' : profile)} revision={configRevision} busy={busy || loading} onConnected={load} onChooseModel={value => {
       setProvider(value); setModel(''); setKey(providerCredentialName(credentials, value)); setSecret(''); setBaseUrl(''); setEndpointName(''); setEndpointSecret(''); setModelConfirmation('');
@@ -169,8 +171,9 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
     <section hidden={section !== 'agents'} className={`${cardClass} space-y-3`}><h2 className="text-sm text-ink">Create a bot</h2>
       <Field label="Name" hint="Use lowercase letters, digits, underscores or hyphens; start with a letter."><input className={inputClass} value={newName} disabled={busy} onChange={event => setNewName(event.target.value)} /></Field>
       <Field label="Personality and instructions"><textarea className={inputClass} rows={4} value={soul} disabled={busy} onChange={event => setSoul(event.target.value)} /></Field>
+      <Field label="Bot role" hint="Shown in About and shared with the bot roster. Optional; leave blank if this bot has no specific role."><textarea className={inputClass} rows={2} maxLength={2000} value={newRole} disabled={busy} onChange={event => setNewRole(event.target.value)} /></Field>
       <Notice>New bots have their own state. Creating one does not copy another bot’s private memories or channel credentials.</Notice>
-      <button className={buttonClass} disabled={busy || !/^[a-z][a-z0-9_-]{0,63}$/.test(newName) || newName === 'default'} onClick={() => runAction(async () => { await request('/api/hermes/profiles', { method: 'POST', body: JSON.stringify({ name: newName, soul }) }); setNewName(''); setSoul(''); }, 'Bot created. Select it above to connect its model and credentials.')}>Create bot</button>
+      <button className={buttonClass} disabled={busy || !/^[a-z][a-z0-9_-]{0,63}$/.test(newName) || newName === 'default'} onClick={() => runAction(async () => { await request('/api/hermes/profiles', { method: 'POST', body: JSON.stringify({ name: newName, soul, description: newRole.trim() }) }); setNewName(''); setNewRole(''); setSoul(''); }, 'Bot created. Select it above to connect its model and credentials.')}>Create bot</button>
       {profiles.filter(item => item.state === 'setup_required').map(item => <div key={item.name} className="space-y-2">
         <Notice>Setup for {item.name} did not finish. Confirm that its existing Hermes profile should be used as your bot; this assigns its working directory and private listener credential. No model key or memory is copied from another bot.</Notice>
         <button className={buttonClass} disabled={busy} onClick={() => runAction(() => request(`/api/hermes/profiles/${encodeURIComponent(item.name)}/finish-setup`, { method: 'POST', body: JSON.stringify({ confirmExisting: true }) }), `Setup finished for ${item.name}.`)}>Confirm profile and finish setup: {item.name}</button>

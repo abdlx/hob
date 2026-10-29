@@ -55,7 +55,7 @@ export function SettingsActions({ section }: { section: string }) {
   };
   const signOut = async () => {
     setBusy(true);
-    try { await apiFetch('/api/auth/logout', { method: 'POST' }); window.dispatchEvent(new Event('muse:unauthorized')); }
+    try { await apiFetch('/api/auth/logout', { method: 'POST' }); window.dispatchEvent(new Event('hob:unauthorized')); }
     catch (error) { setError(errorText(error)); }
     finally { setBusy(false); }
   };

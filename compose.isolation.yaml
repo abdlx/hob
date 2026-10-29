@@ -1,6 +1,6 @@
 # Opt-in per-bot Linux users. Include after compose.yaml; preserve both volumes.
 services:
-  muse:
+  hob:
     environment:
       HOB_ISOLATION: users
       HOB_WORKSPACE_ROOT: /var/lib/hob-isolation/workspaces

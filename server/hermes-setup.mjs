@@ -4,6 +4,7 @@ import { containsStoredSecret } from './hermes-settings.mjs';
 import { hermesMemorySetup } from './hermes-memory-setup.mjs';
 import { hermesLearningSetup } from './hermes-learning-setup.mjs';
 import { createHermesPluginsRoutes } from './hermes-plugins.mjs';
+import { hermesPreferences } from './hermes-preferences.mjs';
 
 const invalid = message => new HermesError(400, message, 'INVALID_REQUEST');
 const valueText = (value, max = 64000) => typeof value === 'string' && value.length <= max;
@@ -40,6 +41,18 @@ export function createHermesSetupRoutes(client, { mcpOAuth } = {}) {
       return result;
     };
     if (route === 'plugins' || route.startsWith('plugins/')) return plugins(route, method, { profile, dashboard, input, json, res });
+    if (route === 'preferences') return hermesPreferences(method, { dashboard, input, json, res, profile });
+    if (route === 'audio/transcribe' && method === 'POST') {
+      const value = await input(['dataUrl', 'confirm']);
+      if (value.confirm !== true || typeof value.dataUrl !== 'string' || value.dataUrl.length > 1_500_000) throw invalid('Confirm uploading an audio recording of at most 1 MB.');
+      const match = /^data:(audio\/(?:webm|ogg|wav|mp4|mpeg|aac|flac))(?:;codecs=[a-z0-9.,-]+)?;base64,([A-Za-z0-9+/]+={0,2})$/i.exec(value.dataUrl);
+      if (!match || match[2].length % 4 !== 0) throw invalid('Choose a supported, base64-encoded audio recording.');
+      const bytes = Buffer.from(match[2], 'base64');
+      if (!bytes.length || bytes.length > 1024 * 1024 || bytes.toString('base64') !== match[2]) throw invalid('Choose an audio recording of at most 1 MB.');
+      const result = await dashboard('/api/audio/transcribe', { method, body: { data_url: value.dataUrl, mime_type: match[1].toLowerCase() }, timeoutMs: 120000 });
+      if (result?.ok !== true || typeof result.transcript !== 'string' || result.transcript.length > 64000) throw new HermesError(502, 'Hermes did not return a valid transcript. Check this bot’s speech provider in Settings.', 'TRANSCRIPTION_FAILED');
+      return json(res, 200, { transcript: result.transcript });
+    }
     if (route === 'memory' || route.startsWith('memory/')) return hermesMemorySetup(route, method, { dashboard, input, json, res });
     if (route === 'learning') return hermesLearningSetup(method, { dashboard, input, json, res, profile });
     if (route === 'mcp/oauth/flows' && method === 'GET' && mcpOAuth) return json(res, 200, await mcpOAuth.list(profile));

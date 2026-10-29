@@ -12,12 +12,12 @@ import { createHermesSmokeApi } from './hermes-smoke-api.mjs';
 import { SMOKE_FILE } from './smoke-model.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const image = process.env.MUSE_SMOKE_IMAGE || 'openmuse:smoke';
+const image = process.env.HOB_SMOKE_IMAGE || 'hob:smoke';
 // The provider tier runs a synthetic OpenAI-compatible fixture on the project's
 // private network. It never publishes a port and never reaches a real provider.
-const providerTier = process.env.MUSE_SMOKE_PROVIDER !== '0';
-const usersIsolation = process.env.MUSE_SMOKE_ISOLATION === 'users';
-const project = 'openmuse-smoke-' + randomBytes(8).toString('hex');
+const providerTier = process.env.HOB_SMOKE_PROVIDER !== '0';
+const usersIsolation = process.env.HOB_SMOKE_ISOLATION === 'users';
+const project = 'hob-smoke-' + randomBytes(8).toString('hex');
 const password = randomBytes(32).toString('hex');
 const sessionSecret = randomBytes(64).toString('base64');
 const portReservation = createServer();
@@ -28,14 +28,14 @@ const origin = 'http://127.0.0.1:' + port;
 const modelUrl = 'http://smoke-model:18793/v1';
 // Health check for the fixture service, using only the image's own Node.
 const modelProbe = "fetch('http://127.0.0.1:18793/healthz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))";
-const scratch = await mkdtemp(join(tmpdir(), 'openmuse-container-smoke-'));
+const scratch = await mkdtemp(join(tmpdir(), 'hob-container-smoke-'));
 const override = join(scratch, 'smoke-compose.json');
 const environment = {
   ...process.env,
-  SERVICE_PASSWORD_64_MUSE: password,
-  SERVICE_REALBASE64_64_MUSE: sessionSecret,
-  SERVICE_URL_MUSE_3000: origin,
-  MUSE_SECURE_COOKIES: 'false',
+  SERVICE_PASSWORD_64_HOB: password,
+  SERVICE_REALBASE64_64_HOB: sessionSecret,
+  SERVICE_URL_HOB_3000: origin,
+  HOB_SECURE_COOKIES: 'false',
 };
 const composeArgs = ['compose', '--project-name', project, '--project-directory', root,
   '-f', resolve(root, 'compose.yaml'), ...(usersIsolation ? ['-f', resolve(root, 'compose.isolation.yaml')] : []), '-f', override];
@@ -129,7 +129,7 @@ function probeRuntimeState(container) {
 
 function reportContainerState() {
   try {
-    const container = compose('ps', '--all', '--quiet', 'muse');
+    const container = compose('ps', '--all', '--quiet', 'hob');
     if (!container || container.includes('\n')) {
       console.error('Container diagnostic: no single app container was available for inspection.');
       return;
@@ -208,7 +208,7 @@ function verifyRuntimeUsers(container) {
 try {
   // Override only the image, host port, and the synthetic provider service. All
   // hardening and the real seccomp profile are inherited from compose.yaml.
-  const services = { muse: { image, pull_policy: 'never',
+  const services = { hob: { image, pull_policy: 'never',
     ports: [{ target: 3000, published: String(port), host_ip: '127.0.0.1', protocol: 'tcp' }] } };
   if (providerTier) {
     // The fixture reuses the application image, so the inherited healthcheck
@@ -239,7 +239,7 @@ try {
   }
   compose('up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '300');
   await ready();
-  const container = compose('ps', '--quiet', 'muse');
+  const container = compose('ps', '--quiet', 'hob');
   appContainer = container;
   assert.ok(container && !container.includes('\n'), 'Exactly one app container must be running.');
   const hardening = JSON.parse(docker(['inspect', '--format', '{{json .HostConfig}}', container]));
@@ -272,11 +272,11 @@ try {
   console.log('Actual image first boot passed ' + smoke.checks.length + ' authenticated native checks.');
   compose('up', '-d', '--no-build', '--pull', 'never', '--force-recreate', '--wait', '--wait-timeout', '300');
   await ready();
-  appContainer = compose('ps', '--quiet', 'muse');
+  appContainer = compose('ps', '--quiet', 'hob');
   assert.notEqual(appContainer, container, 'Recreation must replace the container.');
   await smoke.afterRestart(saved);
-  verifyRuntimeUsers(compose('ps', '--quiet', 'muse'));
-  if (usersIsolation) console.log('OS isolation after recreation: ' + docker(['exec', compose('ps', '--quiet', 'muse'), '/usr/bin/python3', '/app/deploy/isolation-proof.py'], 120000));
+  verifyRuntimeUsers(compose('ps', '--quiet', 'hob'));
+  if (usersIsolation) console.log('OS isolation after recreation: ' + docker(['exec', compose('ps', '--quiet', 'hob'), '/usr/bin/python3', '/app/deploy/isolation-proof.py'], 120000));
   if (saved.providerTier) await smoke.activeCrashRecovery({
     leaseSeconds: JSON.parse(docker(['exec', '--user', '10000:10000', appContainer, '/usr/bin/python3',
       '/app/deploy/recovery-diagnostic.py', '--lease-policy'], 10000)).LEASE_TTL_SECONDS,
@@ -289,17 +289,17 @@ try {
     diagnose: () => console.log('Native preparation diagnostic: ' + docker(['exec', '--user', '10000:10000', appContainer,
       '/usr/bin/python3', '/app/deploy/recovery-diagnostic.py'], 15000)),
     crash: async () => {
-      const previous = compose('ps', '--quiet', 'muse');
+      const previous = compose('ps', '--quiet', 'hob');
       docker(['kill', '--signal', 'KILL', previous], 30000);
-      compose('up', '-d', '--no-build', '--pull', 'never', '--force-recreate', '--wait', '--wait-timeout', '300', 'muse');
-      appContainer = compose('ps', '--quiet', 'muse');
+      compose('up', '-d', '--no-build', '--pull', 'never', '--force-recreate', '--wait', '--wait-timeout', '300', 'hob');
+      appContainer = compose('ps', '--quiet', 'hob');
       assert.notEqual(appContainer, previous, 'The active-crash check must replace the container.');
       await ready();
     },
   });
   console.log('All ' + smoke.checks.length + ' checks passed across container recreation.');
   if (saved.providerTier) console.log('A real Hermes tool turn used only the isolated local fixture provider.');
-  else console.log('The synthetic provider tier was disabled (MUSE_SMOKE_PROVIDER=0); no model turn was claimed.');
+  else console.log('The synthetic provider tier was disabled (HOB_SMOKE_PROVIDER=0); no model turn was claimed.');
 } catch (error) {
   runError = error;
   if (started) { reportContainerState(); if (appContainer) { probeRuntimeState(appContainer); probeIsolationAccess(appContainer); } }
@@ -316,7 +316,7 @@ try {
   } finally {
     if (!cleanupError) {
       assert.equal(relative(tmpdir(), scratch), basename(scratch));
-      assert.ok(basename(scratch).startsWith('openmuse-container-smoke-'));
+      assert.ok(basename(scratch).startsWith('hob-container-smoke-'));
       await rm(scratch, { recursive: true, force: true });
     }
   }

@@ -48,6 +48,7 @@ async function fixture(page: Page, { long = false, question = false, brokenImage
     if (path === '/api/hermes/exchanges') return json({ exchanges: [], nextBefore: null });
     if (path === '/api/tasks' || path === '/api/security/approvals') return json([]);
     if (path === '/api/stats') return json({ tokensUsed: 0 });
+    if (path === '/api/hermes/setup/audio/transcribe') return json({ transcript: 'Roman Urdu mein ek naya khayal.' });
     errors.push(`Unexpected API ${request.method()} ${path}`);
     return route.fulfill({ status: 404, json: { error: path } });
   });
@@ -98,6 +99,59 @@ test('native media appears in removable cards above the text field and attachmen
   await expect(page.getByRole('button', { name: 'Remove attachment photo.png', exact: true })).toBeHidden();
   state.release();
   await expect(page.getByRole('region', { name: 'Conversation messages' }).getByText('The new reply is ready.', { exact: true })).toBeVisible();
+  expect(state.errors).toEqual([]);
+});
+
+test('voice requires recording and upload actions, inserts an editable draft, and releases the microphone', async ({ page }) => {
+  const state = await fixture(page);
+  await page.addInitScript(() => {
+    Object.assign(window, { microphoneStarts: 0, microphoneStops: 0 });
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => {
+      Object.assign(window, { microphoneStarts: (window as unknown as { microphoneStarts: number }).microphoneStarts + 1 });
+      return { getTracks: () => [{ stop: () => Object.assign(window, { microphoneStops: (window as unknown as { microphoneStops: number }).microphoneStops + 1 }) }] };
+    } } });
+    Object.defineProperty(window, 'MediaRecorder', { configurable: true, value: class {
+      static isTypeSupported() { return true; }
+      mimeType = 'audio/webm'; state = 'inactive';
+      ondataavailable: ((event: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      start() { this.state = 'recording'; }
+      stop() { this.state = 'inactive'; this.ondataavailable?.({ data: new Blob(['synthetic audio bytes'], { type: this.mimeType }) }); this.onstop?.(); }
+    } });
+  });
+  await openChat(page);
+  await page.getByRole('button', { name: 'Voice input', exact: true }).click();
+  expect(await page.evaluate(() => (window as unknown as { microphoneStarts: number }).microphoneStarts)).toBe(0);
+  await page.getByRole('button', { name: 'Start recording' }).click();
+  await expect(page.getByText('Microphone is recording.', { exact: true })).toBeVisible();
+  expect(state.writes).toEqual([]);
+  await page.getByRole('button', { name: 'Stop recording' }).click();
+  await expect(page.getByRole('button', { name: 'Transcribe recording' })).toBeVisible();
+  expect(state.writes).toEqual([]);
+  await page.getByRole('button', { name: 'Transcribe recording' }).click();
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Roman Urdu mein ek naya khayal.');
+  expect(state.writes).toHaveLength(1);
+  expect(state.writes[0].path).toBe('/api/hermes/setup/audio/transcribe');
+  expect(state.writes[0].body.confirm).toBe(true);
+  await page.getByRole('button', { name: 'Voice input', exact: true }).click();
+  await page.getByRole('button', { name: 'Start recording' }).click();
+  await page.getByRole('button', { name: 'Cancel voice input' }).click();
+  expect(await page.evaluate(() => (window as unknown as { microphoneStops: number }).microphoneStops)).toBe(2);
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Roman Urdu mein ek naya khayal.');
+  expect(state.writes).toHaveLength(1);
+  await page.getByRole('button', { name: 'Voice input', exact: true }).click();
+  await page.evaluate(() => { navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Microphone denied', 'NotAllowedError'); }; });
+  await page.getByRole('button', { name: 'Start recording' }).click();
+  await expect(page.getByRole('alert')).toContainText('Microphone denied');
+  expect(state.errors).toEqual([]);
+});
+
+test('repeated image directives render once while distinct result images remain available', async ({ page }) => {
+  const state = await fixture(page);
+  await page.route('**/api/sessions/ux-session/messages', route => route.fulfill({ json: [{ id: 'images', role: 'assistant', timestamp: stamp, content: 'MEDIA: /tmp/launch.png\n\n![Repeated](/tmp/launch.png)\n\n@image: /tmp/launch.png\n\n![Another](/tmp/other.png)' }] }));
+  await openChat(page);
+  const messages = page.getByRole('region', { name: 'Conversation messages' });
+  await expect(messages.getByRole('img')).toHaveCount(2);
   expect(state.errors).toEqual([]);
 });
 

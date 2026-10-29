@@ -15,7 +15,9 @@ p0a-evidence/
 !.env.example
 .tmp-ui/
 .tmp-runtime/
+.hob-data/
 .muse-data/
+.hob-dev/
 .openmuse-dev/
 web/.env
 web/.env.*
@@ -27,6 +29,8 @@ stale-harnesses/
 browser_integration/
 docs/*
 !docs/platform-transformation.md
+!docs/audit-remediation-plan.md
+!docs/audit-session-status.md
 !docs/assets/
 !docs/assets/**
 server/*.out

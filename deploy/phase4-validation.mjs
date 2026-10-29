@@ -20,20 +20,20 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const image = process.env.PHASE4_IMAGE || 'openmuse:phase4';
-const project = 'openmuse-phase4-' + randomBytes(6).toString('hex');
+const image = process.env.PHASE4_IMAGE || 'hob:phase4';
+const project = 'hob-phase4-' + randomBytes(6).toString('hex');
 const password = randomBytes(32).toString('hex');
 const sessionSecret = randomBytes(64).toString('base64');
 const port = await reservePort();
 const origin = `http://127.0.0.1:${port}`;
-const scratch = await mkdtemp(join(tmpdir(), 'openmuse-phase4-'));
+const scratch = await mkdtemp(join(tmpdir(), 'hob-phase4-'));
 const override = join(scratch, 'compose.json');
 const environment = {
   ...process.env,
-  SERVICE_PASSWORD_64_MUSE: password,
-  SERVICE_REALBASE64_64_MUSE: sessionSecret,
-  SERVICE_URL_MUSE_3000: origin,
-  MUSE_SECURE_COOKIES: 'false',
+  SERVICE_PASSWORD_64_HOB: password,
+  SERVICE_REALBASE64_64_HOB: sessionSecret,
+  SERVICE_URL_HOB_3000: origin,
+  HOB_SECURE_COOKIES: 'false',
 };
 const composeArgs = ['compose', '--project-name', project, '--project-directory', root,
   '-f', resolve(root, 'compose.yaml'), '-f', override];
@@ -171,7 +171,7 @@ function stopAndCheckOrphans() {
   assert.equal(survivors, '', 'Chromium must not survive the container stop: ' + survivors);
   console.log('No Chromium process survived the stop.');
   const running = docker(['ps', '--format', '{{.Names}}'], { timeout: 30000 }).stdout;
-  assert.ok(!running.split('\n').includes(project + '-muse-1'), 'the application container must not be running');
+  assert.ok(!running.split('\n').includes(project + '-hob-1'), 'the application container must not be running');
 }
 
 const results = [];
@@ -183,7 +183,7 @@ try {
   }
   await writeFile(override, JSON.stringify({
     services: {
-      muse: {
+      hob: {
         image, pull_policy: 'never',
         ports: [{ target: 3000, published: String(port), host_ip: '127.0.0.1', protocol: 'tcp' }],
       },
@@ -192,7 +192,7 @@ try {
   started = true;
   compose(['up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '300'], { timeout: 420000 });
   await ready();
-  container = compose(['ps', '--quiet', 'muse'], { timeout: 30000 }).stdout;
+  container = compose(['ps', '--quiet', 'hob'], { timeout: 30000 }).stdout;
   assert.ok(container && !container.includes('\n'), 'exactly one application container must be running');
   console.log('Isolated project ' + project + ' is healthy on ' + origin + '.');
 
@@ -239,8 +239,8 @@ try {
     { user: 'hermes', env: { HOME: '/opt/data' }, timeout: 180000 });
   assert.match(write.stdout, /^PROFILE_WRITTEN /m, 'the profile write phase must report its profile');
   console.log('Profile written: ' + write.stdout);
-  compose(['restart', 'muse', '--timeout', '40'], { timeout: 180000 });
-  container = compose(['ps', '--quiet', 'muse'], { timeout: 30000 }).stdout;
+  compose(['restart', 'hob', '--timeout', '40'], { timeout: 180000 });
+  container = compose(['ps', '--quiet', 'hob'], { timeout: 30000 }).stdout;
   await ready();
   const read = exec(['/usr/local/bin/node', '/app/server/e2e/phase4-profile.mjs', 'read', '/opt/data/.phase4-profile'],
     { user: 'hermes', env: { HOME: '/opt/data' }, timeout: 180000 });

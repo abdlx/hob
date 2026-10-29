@@ -1,7 +1,21 @@
 # Coolify deployment
 
+## Upgrade to the hob namespace
+
+For an existing resource, preserve its current secrets and storage before deploying:
+
+1. Copy the existing `SERVICE_PASSWORD_64_MUSE` value into `SERVICE_PASSWORD_64_HOB`, and `SERVICE_REALBASE64_64_MUSE` into `SERVICE_REALBASE64_64_HOB`. Do this privately in Coolify; never paste the values into logs or Git. The new references can otherwise generate different secrets.
+2. Move the existing domain/proxy assignment from service `muse` to `hob`. Use `SERVICE_URL_HOB_3000` / `HOB_PUBLIC_URL` for the same public origin. Keep the same resource/project and existing `hermes-data` volume; do not create an empty replacement volume.
+3. Rename operator-supplied `MUSE_*` application settings to `HOB_*`. The source-launch configuration adapter accepts old names only when the corresponding canonical setting is absent. Compose interpolation uses the variables shown in the current files.
+4. Build the whole image. The new native review and schedule-preview endpoints are installed by `apply-hermes-compat.py`; replacing only the frontend bundle is insufficient. Both upstream source checksums must match the pinned runtime, or the build stops.
+5. Sign in again, because the browser cookie is now `hob_session`. Verify the retained bot roster, a known conversation, provider metadata, and a Library file before allowing new work. Install the updated mobile client to use the canonical authentication event.
+
+Back up the Hermes volume, any external isolated workspace root, and HOB state as one stopped snapshot. For rollback, restore that matching snapshot and the previous image/Compose configuration. Keep the original historical volume names in backups; this rename does not rename Docker volumes or import the old OpenClaw database.
+
+An interrupted native review leaves a `.hob-claimed-*.claim` file and a visible unresolved-decision notice. Preserve the claim, native state, and review audit before operator reconciliation. Compare the proposed change with current memory/skills through their native owners. Do not blindly put a claim back into the queue or call its applier again: the change may already have succeeded. Automatic rollback and reconciliation of uncertain native writes are not provided.
+
 The runtime base is a public, digest-pinned upstream Hermes image. The app adds
-a checksum-guarded native heartbeat fix and the custom hob application. It currently supports
+checksum-guarded native heartbeat and review/preview extensions and the custom hob application. It currently supports
 **Linux amd64 only**. The imported Hermes reference source is not compiled or
 modified by this deployment.
 
@@ -18,27 +32,27 @@ modified by this deployment.
    | Base Directory | `/` |
    | Docker Compose Location | `/compose.yaml` (or `compose.yaml` when the field is relative) |
    | Preserve Repository During Deployment | Enabled |
-   | Public service | `muse` |
+   | Public service | `hob` |
    | Internal service port | `3000` |
 
    The Compose `build` block selects the root `Dockerfile` automatically. Do not
    choose Dockerfile-only, Docker Compose Empty, or `compose.standalone.yaml`.
    Keeping the repository allows Compose to resolve `deploy/chromium-seccomp.json`
    when recreating the service.
-3. Point your domain's DNS to the Coolify server. In the `muse` service's Domains
+3. Point your domain's DNS to the Coolify server. In the `hob` service's Domains
    field, enter `https://hob.example.com:3000`, replacing the hostname with yours.
    The suffix selects the container port for Coolify's proxy. Your browser URL
    is `https://hob.example.com`, without that suffix.
 4. Add these runtime environment variables, substituting the same hostname:
 
    ```text
-   MUSE_PUBLIC_URL=https://hob.example.com
-   MUSE_SECURE_COOKIES=true
+   HOB_PUBLIC_URL=https://hob.example.com
+   HOB_SECURE_COOKIES=true
    ```
 
-   `MUSE_PUBLIC_URL` must be the browser origin; do not append the internal port.
-5. Save and **Deploy**. Coolify generates `SERVICE_PASSWORD_64_MUSE` and
-   `SERVICE_REALBASE64_64_MUSE` from the Compose references. Retrieve the generated
+   `HOB_PUBLIC_URL` must be the browser origin; do not append the internal port.
+5. Save and **Deploy**. Coolify generates `SERVICE_PASSWORD_64_HOB` and
+   `SERVICE_REALBASE64_64_HOB` from the Compose references. Retrieve the generated
    password from Environment Variables and sign in at your domain. Keep both
    generated values stable on redeploy; do not publish their values.
 6. Open **Settings → Main**, save a provider credential, select its provider/model,
@@ -60,8 +74,10 @@ modified by this deployment.
 9. Review **Settings → Learning & write approvals** for each bot. Require native
    skill approval to stage agent skill changes, then use Workshop for pending
    proposals, diffs and explicit decisions. Built-in memory approval separately
-   prompts foreground writes and stages background writes. Its pending decisions
-   are not available in this UI yet. Turning off background review does not block
+   prompts foreground writes and stages background writes. Review complete pending
+   memory proposals in Learning & write approvals and skill proposals in Workshop.
+   Decisions require the displayed revision; interrupted claims require native-state
+   reconciliation and are never automatically applied again. Turning off background review does not block
    foreground skill/memory tools; built-in gates do not cover external-provider
    writes. Changes preserve existing data and do not cancel in-flight work.
 
@@ -72,12 +88,12 @@ includes the frontend build and the supervised runtime.
 See [Coolify's Git-based Docker Compose instructions](https://coolify.io/docs/applications/builds/docker-compose).
 
 Coolify supplies the app session signing secret through
-`SERVICE_REALBASE64_64_MUSE`. These generated login values remain stable on
+`SERVICE_REALBASE64_64_HOB`. These generated login values remain stable on
 redeployment. Private Hermes listener credentials are managed by the supervisor
 and persisted on the data volume; do not enter model keys in the Compose file.
 
 If the browser origin differs from Coolify's generated URL, set
-`MUSE_PUBLIC_URL=https://your-domain` explicitly. HTTPS access should use secure
+`HOB_PUBLIC_URL=https://your-domain` explicitly. HTTPS access should use secure
 cookies. There is no public Hermes dashboard/API port and no host Docker socket.
 
 ## Manual deploys and commit verification
@@ -124,7 +140,7 @@ When the reported commit is wrong:
    checkout, but a stale queue entry can still redeploy the previous image.
 4. Confirm the new container actually started: a failed health check or a
    start-loop leaves the previous container serving traffic while the new
-   deployment is marked failed. Inspect the deployment logs and the `muse`
+   deployment is marked failed. Inspect the deployment logs and the `hob`
    service logs.
 5. Re-check `/api/version`. If the commit matches but the UI is stale, hard
    refresh the browser once; the frontend bundle is served from the new image.
@@ -212,7 +228,7 @@ dependency installation or the rendered memory settings UI.
 
 Upgrading repairs relay credentials on boot. Hermes deliberately filters its listener key from terminal commands; the generated helper now uses a distinct relay-only key in each bot's private `.hob/relay.json`. The registry migrates to version 3 without changing native listener keys. Back up the data volume before upgrading; older application versions cannot read this registry version. A failed bot synchronization participates in boot retries and is reported in the server log.
 
-Co-located bots call the private loopback app listener, independently of `MUSE_PUBLIC_URL`, the TLS proxy and host-published ports. An operator configuring a genuinely remote execution backend may explicitly set the complete `HOB_BOT_RELAY_URL`; normal Coolify deployments need no override.
+Co-located bots call the private loopback app listener, independently of `HOB_PUBLIC_URL`, the TLS proxy and host-published ports. An operator configuring a genuinely remote execution backend may explicitly set the complete `HOB_BOT_RELAY_URL`; normal Coolify deployments need no override.
 
 Exchange database version 2 adds a durable result outbox. Newly completed handoffs wake their caller and Main through the pinned runtime's native Bot Chat ingress. Delivery acknowledgements are distinct from completed model turns, and retries reuse the same native delivery ID. Inspect **Automatic follow-up** inside an exchange for its delivery status. Existing historical exchanges are not replayed on upgrade. Heartbeats are configured per native conversation in **Settings → Automation** and require the gateway to remain online. Scheduled jobs remain native Hermes jobs.
 

@@ -12,10 +12,10 @@ const ENDPOINT = 'https://hob.example.com/api/hermes/bot-relay';
 const credential = name => (name === 'default' ? 'a' : 'b').repeat(64);
 
 test('native relay uses the container listener independently of public proxy and host-published ports', () => {
-  assert.equal(botRelayUrl({ MUSE_PUBLIC_URL: 'https://bots.example.com' }), 'http://127.0.0.1:3000/api/hermes/bot-relay');
-  assert.equal(botRelayUrl({ MUSE_PUBLIC_URL: 'http://127.0.0.1:49153', MUSE_PORT: '4567' }), 'http://127.0.0.1:4567/api/hermes/bot-relay');
+  assert.equal(botRelayUrl({ HOB_PUBLIC_URL: 'https://bots.example.com' }), 'http://127.0.0.1:3000/api/hermes/bot-relay');
+  assert.equal(botRelayUrl({ HOB_PUBLIC_URL: 'http://127.0.0.1:49153', HOB_PORT: '4567' }), 'http://127.0.0.1:4567/api/hermes/bot-relay');
   assert.equal(botRelayUrl({ HOB_BOT_RELAY_URL: ENDPOINT }), ENDPOINT);
-  for (const env of [{ MUSE_PORT: 'invalid' }, { HOB_BOT_RELAY_URL: 'file:///private' }, { HOB_BOT_RELAY_URL: 'https://name:password@example.com/' }]) assert.throws(() => botRelayUrl(env));
+  for (const env of [{ HOB_PORT: 'invalid' }, { HOB_BOT_RELAY_URL: 'file:///private' }, { HOB_BOT_RELAY_URL: 'https://name:password@example.com/' }]) assert.throws(() => botRelayUrl(env));
 });
 
 async function fixture(run) {

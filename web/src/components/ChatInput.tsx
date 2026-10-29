@@ -5,12 +5,15 @@ import { attachmentDraft, attachmentsUploading, pickBrowserFiles, pickNativeMedi
 import { chatApi } from '../services/api';
 import { ComposerAttachments } from './ComposerAttachments';
 import { errorText } from './workspaceUtils';
+import { VoiceInput } from './VoiceInput';
+import { useRuntime } from '../context/RuntimeContext';
 
 interface ChatInputProps {
   onNavigateBots?: () => void;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
+  const runtime = useRuntime();
   const {
     sendMessage,
     isLoading,
@@ -67,6 +70,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
       }}
       onSubmit={submit}
       disabled={disabled}
+      voiceInput={runtime === 'hermes' && agent && activeSessionId ? <VoiceInput key={`${agent.id}:${activeSessionId}`} profile={agent.id} disabled={Boolean(disabled)} onTranscript={value => setComposerDraft(activeSessionId, [getComposerDraft(activeSessionId), value].filter(Boolean).join('\n'))} /> : undefined}
       canSend={!isLoading && !uploading}
       onAttach={!disabled && activeSessionId ? attach : undefined}
       hasAttachments={files.length > 0}

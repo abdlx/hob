@@ -7,6 +7,7 @@ import type { ChatAttachment } from '../services/attachments';
 import { requestId } from '../services/id';
 import { displayGatewayNotice } from '../services/errors';
 import { ConversationWork } from '../services/conversation-work';
+import { preference, savePreference } from '../services/settings-navigation';
 
 interface ChatContextValue {
   messages: ChatMessage[]; sessions: ChatSession[]; activeSessionId: string;
@@ -58,23 +59,23 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const result = await apiFetch<{ groups: GroupSummary[] }>('/api/hermes/groups', { headers: { 'X-Hob-Profile': 'default' } });
     setGroups(Array.isArray(result.groups) ? result.groups : []);
   }, []);
-  const [isRightPanelOpen, setIsRightPanelOpen] = useState(window.innerWidth >= 1024);
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(window.innerWidth >= 1280);
   const [isLeftDrawerOpen, setIsLeftDrawerOpen] = useState(false);
   const [isBotsSidebarOpen, setIsBotsSidebarOpen] = useState(() => {
-    const saved = localStorage.getItem('mused-bots-sidebar-open');
-    if (saved !== null) return saved === 'true';
+    const saved = preference('hob-bots-sidebar-open', '');
+    if (saved !== '') return saved === 'true';
     return window.innerWidth >= 1024;
   });
   const toggleBotsSidebar = useCallback(() => {
     setIsBotsSidebarOpen(prev => {
       const next = !prev;
-      localStorage.setItem('mused-bots-sidebar-open', String(next));
+      savePreference('hob-bots-sidebar-open', String(next));
       return next;
     });
   }, []);
   const setBotsSidebarOpen = useCallback((open: boolean) => {
     setIsBotsSidebarOpen(open);
-    localStorage.setItem('mused-bots-sidebar-open', String(open));
+    savePreference('hob-bots-sidebar-open', String(open));
   }, []);
   const pathNav = location.pathname.split('/')[1];
   const activeNav = pathNav === 'ideas' ? 'idea' : ['activity', 'idea', 'goals', 'library', 'settings', 'search', 'groups'].includes(pathNav) ? pathNav : 'chat';
@@ -205,7 +206,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (frame.event === 'chat' && (frame.payload as { state?: string } | undefined)?.state === 'delta') return;
-      if (document.visibilityState !== 'visible' && localStorage.getItem('mused-notifications') === 'enabled' && 'Notification' in window && Notification.permission === 'granted') {
+      if (document.visibilityState !== 'visible' && preference('hob-notifications', '') === 'enabled' && 'Notification' in window && Notification.permission === 'granted') {
         const approval = frame.event.endsWith('approval.requested');
         const payload = frame.payload as { action?: string; presentation?: { title?: string }; id?: string; jobId?: string } | undefined;
         const goalFinished = frame.event === 'cron' && payload?.action === 'finished';

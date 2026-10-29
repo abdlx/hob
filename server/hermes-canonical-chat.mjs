@@ -26,12 +26,15 @@ const failureReason = receipt => {
 };
 
 /** Translate custom chat UX into the one native session/FIFO owner, without exposing raw RPC. */
-export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpChat, attachmentSecret = randomUUID(), onCompleted }) {
+export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpChat, attachmentSecret = randomUUID(), onCompleted, recoverCompleted = false }) {
   const attachments = createHermesAttachments({ bridge, client, secret: attachmentSecret });
   const observed = new Set();
   const prompts = new Map();
   const refreshes = new Map();
   const canonicalRuns = profile => journal.list(profile).filter(run => parseHermesSessionKey(run.key).transport === 'canonical');
+  // Observe retained terminal receipts after restart to recover file delivery.
+  // These reads never resubmit a model turn or replay tool side effects.
+  const deliveryRecovery = new Set(recoverCompleted ? canonicalRuns().filter(run => run.status === 'completed').map(run => run.key) : []);
   const rpc = (owner, method, params = {}) => bridge.rpc(owner.profile, method, { session_id: owner.sessionId, ...params });
   const promptId = (key, prompt) => 'native-' + runFingerprint({ key, id: prompt.prompt_id, generation: prompt.execution_generation });
   const revision = (owner, admissionId, generation, epoch) => runFingerprint({ ...owner, admissionId, generation, epoch });
@@ -66,7 +69,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
         try { receipt = await rpc(owner, 'prompt.receipt', { admission_id: record.runId, include_result: true }); }
         catch (error) {
           if (error.code !== 'not_found') throw error;
-          record = await journal.update(key, record.requestKey, { status: 'unavailable' });
+          if (!TERMINAL_RUNS.has(record.status)) record = await journal.update(key, record.requestKey, { status: 'unavailable' });
         }
         if (receipt) {
           if (receipt.admission_id !== record.runId || receipt.ref?.session_id !== owner.sessionId) {
@@ -74,7 +77,8 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
           }
           record = await journal.update(key, record.requestKey, { status: nativeStatus(receipt),
             ...(Number.isSafeInteger(receipt.execution_generation) ? { generation: receipt.execution_generation } : {}) });
-          if (record.status === 'completed') onCompleted?.({ profile: owner.profile, sessionId: owner.sessionId, admissionId: record.runId, createdAt: record.submittedAt });
+          if (record.status === 'completed') onCompleted?.({ profile: owner.profile, sessionId: owner.sessionId, admissionId: record.runId, createdAt: record.submittedAt,
+            output: messageContentText(receipt.result?.final_response) });
         }
       }
       // Native work from another attached viewer also fences new UI submissions.
@@ -101,7 +105,15 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
   const reconcile = async profile => {
     const keys = new Set([...observed].filter(key => !profile || parseHermesSessionKey(key).profile === profile));
     for (const record of canonicalRuns(profile)) if (!TERMINAL_RUNS.has(record.status)) keys.add(record.key);
-    return Promise.allSettled([...keys].map(refresh));
+    const recovery = [...deliveryRecovery].filter(key => !profile || parseHermesSessionKey(key).profile === profile).slice(0, 10);
+    recovery.forEach(key => keys.add(key));
+    return Promise.allSettled([...keys].map(async key => {
+      try { const result = await refresh(key); deliveryRecovery.delete(key); return result; }
+      catch (error) {
+        if (deliveryRecovery.delete(key)) deliveryRecovery.add(key);
+        throw error;
+      }
+    }));
   };
   const admit = async (owner, key, run, content) => {
     try {
@@ -210,7 +222,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
         execution_generation: item.prompt.execution_generation, choice }));
       await refresh(item.key); return true;
     }
-    const match = /^\/api\/sessions\/([^/]+)\/(messages|turns|attachments|abort|run|recover|resolve-unknown|clarify)$/.exec(url.pathname);
+    const match = /^\/api\/sessions\/([^/]+)\/(messages|turns|attachments|abort|run|recover|resolve-unknown|clarify|title)$/.exec(url.pathname);
     if (!match) return false;
     const key = decodeURIComponent(match[1]);
     const owner = parseHermesSessionKey(key);
@@ -218,6 +230,20 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
       if (match[2] === 'turns' && method === 'POST') throw new HermesError(409,
         'This older API conversation is read-only. Start a new conversation for interactive Hermes chat.', 'LEGACY_SESSION_READ_ONLY');
       return false;
+    }
+    if (match[2] === 'title' && ['GET', 'POST'].includes(method)) {
+      if (owner.profile !== profile) throw new HermesError(400, 'Choose a conversation belonging to the selected bot.', 'INVALID_PROFILE');
+      if (method === 'GET') {
+        const { snapshot } = await refresh(key);
+        json(res, 200, { title: snapshot.title || '', revision: snapshot.revision }); return true;
+      }
+      const value = await body(req);
+      if (Object.keys(value).some(field => !['title', 'revision', 'requestId'].includes(field)) || typeof value.title !== 'string' || !value.title.trim() || value.title.length > 500
+        || !Number.isSafeInteger(value.revision) || value.revision < 1 || !/^[a-zA-Z0-9_-]{16,128}$/.test(value.requestId || '')) throw new HermesError(400, 'Review the current title before renaming this conversation.', 'INVALID_REQUEST');
+      await rpc(owner, 'session.mutate', { request_id: value.requestId, expected_revision: value.revision, operation: 'rename', payload: { title: value.title.trim() } });
+      const { snapshot } = await refresh(key);
+      if (snapshot.title !== value.title.trim()) throw new HermesError(409, 'Hermes did not confirm the new title. Refresh before retrying.', 'TITLE_NOT_CONFIRMED');
+      json(res, 200, { title: snapshot.title, revision: snapshot.revision }); return true;
     }
     if (match[2] === 'messages' && method === 'GET') {
       const { snapshot } = await refresh(key);

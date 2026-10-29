@@ -5,6 +5,7 @@ import type { LearningDraft, LearningStatus } from '../services/hermes-learning'
 import { useToast } from '../context/ToastContext';
 import { buttonClass, cardClass, Field, inputClass, Notice, Skeleton } from './WorkspaceUI';
 import { errorText } from './workspaceUtils';
+import { HermesReviewQueue } from './HermesReviewQueue';
 
 export function HermesLearningSettings({ profile }: { profile: string }) {
   const { toast } = useToast();
@@ -36,13 +37,13 @@ export function HermesLearningSettings({ profile }: { profile: string }) {
   };
   return <section className={`${cardClass} space-y-3`}><div className="flex justify-between gap-2"><h2 className="text-sm text-ink">Learning & write approvals</h2>
     <button className={buttonClass} disabled={busy} onClick={() => { setError(''); void load().catch(error => { if (mounted.current) setError(errorText(error)); }); }}>Refresh learning settings</button></div>
-    <Notice>These are independent Hermes controls. Turning off background review does not block all memory or skill changes. Built-in memory approval does not govern external-provider writes. Existing saved memories and pending proposals are preserved.</Notice>
-    <Notice>Review skill proposals in Workshop. Built-in memory decisions are not available here yet; pending memory writes need a supported native Hermes review surface.</Notice>
+    <Notice>These are independent controls for this bot. Values below are resolved by Hermes, including inherited defaults. Built-in memory approval does not govern external-provider writes. Saved changes may require a new conversation; existing work keeps its native execution policy.</Notice>
+    <Notice>Review skill proposals in Workshop. Review built-in memory writes in the versioned queue below. External memory providers retain their own write controls.</Notice>
     {error && <Notice error>{error}</Notice>}{!data && !error && <div className="space-y-3"><Skeleton className="h-9 w-full" /><Skeleton className="h-9 w-full" /></div>}
     <fieldset disabled={busy || !data} className="space-y-3">{learningControls.map(control => {
       const current = data?.controls[control.id];
       const value = Object.hasOwn(draft, control.id) ? draft[control.id] : current?.value;
-      return <Field key={control.id} label={control.label} hint={`${control.hint} ${current?.source === 'default' ? 'Hermes default.' : current?.source === 'invalid' ? 'Native value is not a boolean; choose an explicit value to repair it.' : ''}`}>
+      return <Field key={control.id} label={control.label} hint={`${control.hint} Effective: ${typeof current?.value === 'boolean' ? current.value ? 'On' : 'Off' : 'unknown'}. Source: ${current?.source === 'default' ? 'inherited native default' : current?.source === 'saved' ? 'saved bot configuration' : 'invalid native value; choose an explicit value to repair it'}. Scope: this bot.`}>
         <select className={inputClass} value={typeof value === 'boolean' ? String(value) : ''} onChange={event => { revision.current++; setConfirm(false); setDraft(previous => ({ ...previous, [control.id]: event.target.value === 'true' })); }}>
           <option value="" disabled>Choose an explicit value</option><option value="true">On</option><option value="false">Off</option>
         </select></Field>;
@@ -53,5 +54,6 @@ export function HermesLearningSettings({ profile }: { profile: string }) {
       {changes.backgroundReview === true && <p>Background review can use additional model calls and propose or apply changes according to the native write gates.</p>}
       <button className={buttonClass} disabled={busy} onClick={apply}>Confirm learning changes</button>{' '}<button className={buttonClass} disabled={busy} onClick={() => setConfirm(false)}>Cancel</button>
     </div>}
+    <HermesReviewQueue key={profile} profile={profile} subsystem="memory" />
   </section>;
 }

@@ -14,9 +14,9 @@ let handler;
 gateway.request = async (method, params = {}) => { calls.push({ method, params }); return handler(method, params); };
 let directory, server, origin, cookie;
 before(async () => {
-  directory = await mkdtemp(path.join(os.tmpdir(), 'muse-boundary-'));
+  directory = await mkdtemp(path.join(os.tmpdir(), 'hob-boundary-'));
   await mkdir(path.join(directory, 'web'));
-  await writeFile(path.join(directory, 'web/index.html'), '<html>Muse</html>');
+  await writeFile(path.join(directory, 'web/index.html'), '<html>hob</html>');
   await mkdir(path.join(directory, 'media/browser'), { recursive: true });
   await writeFile(path.join(directory, 'media/browser/screen.png'), Buffer.from([137, 80, 78, 71]));
   server = createApp({ gateway, password: 'synthetic-password', staticDir: path.join(directory, 'web'), stateDir: directory });
@@ -220,7 +220,7 @@ test('static SPA fallback works and API typo never returns HTML', async () => {
   const result = await request('/settings');
   assert.match(result.headers.get('content-security-policy'), /img-src 'self' data: blob: https: http:;/);
   assert.equal(result.headers.get('referrer-policy'), 'same-origin');
-  assert.match(await result.text(), /Muse/);
+  assert.match(await result.text(), /hob/);
   const typo = await request('/api/no-such-endpoint');
   assert.equal(typo.status, 404);
   assert.match(typo.headers.get('content-type'), /application\/json/);

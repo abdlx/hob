@@ -13,6 +13,7 @@ import { MobileDock } from '../components/MobileDock';
 
 export const ChatScreen: React.FC = () => {
   const {
+    agent,
     activeNav,
     setActiveNav,
     error,
@@ -53,7 +54,7 @@ export const ChatScreen: React.FC = () => {
       </aside>
 
       {/* Slide-over Conversations Drawer */}
-      <ChatsDrawer />
+      <ChatsDrawer key={agent?.id} />
 
       {/* Panel 2: Center Primary Panel (Conversation or Mobile Views) */}
       <main
@@ -179,7 +180,7 @@ export const ChatScreen: React.FC = () => {
       {/* Panel 3: Right Agent & Activity Inspector Panel */}
       {activeNav !== 'groups' && !libraryWorkspace && isRightPanelOpen && (
           <aside
-            className="hob-panel-right fixed inset-0 z-50 flex flex-col w-full h-[100dvh] max-h-[100dvh] bg-canvas overflow-hidden lg:relative lg:inset-auto lg:z-auto lg:rounded-[34px] lg:shadow-[0_8px_30px_rgba(0,0,0,0.045)] lg:border lg:border-hair lg:shrink-0 lg:w-[22%] lg:min-w-[300px] lg:max-w-[350px] lg:h-full"
+            className="hob-panel-right fixed inset-0 z-50 flex flex-col w-full h-[100dvh] max-h-[100dvh] bg-canvas overflow-hidden xl:relative xl:inset-auto xl:z-auto xl:rounded-[34px] xl:shadow-[0_8px_30px_rgba(0,0,0,0.045)] xl:border xl:border-hair xl:shrink-0 xl:w-[22%] xl:min-w-[300px] xl:max-w-[350px] xl:h-full"
             aria-label="Agent details"
           >
             <RightPanel onNavigateBots={() => setMobileView('bots')} />

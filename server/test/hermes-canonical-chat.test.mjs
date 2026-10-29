@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import { createApp } from '../app.mjs';
 import { HermesClient, HermesError, hermesSessionKey, hermesNativeSessionKey, parseHermesSessionKey } from '../hermes-client.mjs';
 import { HermesRunJournal } from '../hermes-run-journal.mjs';
+import { createHermesCanonicalChatRoutes } from '../hermes-canonical-chat.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(tmpdir(), 'hob-native-chat-'));
@@ -40,7 +41,11 @@ async function fixture(t) {
         .filter(([key]) => key.startsWith(profile + ':')).map(([, item]) => ({ id: item.session_id, session_id: item.session_id, title: item.title })) };
       const session = shared.sessions.get(profile + ':' + params.session_id);
       if (!session) throw new HermesError(409, 'Missing session.', 'not_found');
-      if (method === 'session.mutate') { session.title = params.payload.title; return { title: session.title }; }
+      if (method === 'session.mutate') {
+        if (params.expected_revision !== session.revision) throw new HermesError(409, 'Stale revision.', 'STALE_REVISION');
+        session.title = params.payload.title; session.revision++;
+        return { title: session.title, revision: session.revision };
+      }
       if (method === 'session.resume') return { ...structuredClone(session), authority_epoch: 11, execution_generation: shared.generation,
         info: { private_policy: 'do-not-expose-inventory' }, running: session.pending.some(item => item.status === 'started') };
       if (method === 'image.attach_bytes') return { attached: true, path: `/native/${profile}/cache/images/upload.png`, mime: 'image/png' };
@@ -125,6 +130,23 @@ async function fixture(t) {
   });
   return f;
 }
+
+test('restart recovers delivery from its retained terminal receipt without model replay or another conversation message', async t => {
+  const f = await fixture(t), session = await f.create();
+  assert.match(await (await f.turn(session.id)).text(), /event: done/);
+  f.shared.sessions.values().next().value.messages.push({ role: 'assistant', content: 'MEDIA: unrelated-newer-message.png' });
+  const completions = [], before = f.shared.calls.filter(row => row.method === 'prompt.submit').length;
+  const route = createHermesCanonicalChatRoutes({ bridge: f.bridge, client: f.client, journal: f.journal, httpChat: {}, recoverCompleted: true, onCompleted: value => completions.push(value) });
+  t.after(() => route.close());
+  await route.reconcile(); await route.reconcile();
+  assert.equal(completions.length, 1); assert.equal(completions[0].output, 'Native final response');
+  assert.equal(f.shared.calls.filter(row => row.method === 'prompt.submit').length, before);
+  const native = f.bridge.rpc.bind(f.bridge);
+  f.bridge.rpc = (profile, method, params) => { if (method === 'prompt.receipt') throw new HermesError(404, 'Receipt expired.', 'not_found'); return native(profile, method, params); };
+  const expired = createHermesCanonicalChatRoutes({ bridge: f.bridge, client: f.client, journal: f.journal, httpChat: {}, recoverCompleted: true, onCompleted: () => assert.fail('Expired receipts must not manufacture delivery') });
+  t.after(() => expired.close()); await expired.reconcile();
+  assert.equal(f.journal.get(session.id).status, 'completed');
+});
 
 test('HTTP attachment staging preserves native ownership and signed uploads become image inputs and literal file references', async t => {
   const f = await fixture(t), conversation = await f.create('coder'), other = await f.create('coder');
@@ -319,4 +341,19 @@ test('unavailable native creation cannot silently create a limited HTTP conversa
   const before = f.legacyCalls.length;
   assert.equal((await f.call('/api/sessions', 'POST', { title: 'New Conversation' })).status, 503);
   assert.equal(f.legacyCalls.length, before);
+});
+
+test('title corrections use the selected native session and its displayed revision', async t => {
+  const f = await fixture(t);
+  const session = await (await f.call('/api/sessions', 'POST', { title: 'New Conversation' })).json();
+  const current = await (await f.call(`/api/sessions/${session.id}/title`)).json();
+  assert.equal(current.revision, 1);
+  const response = await f.call(`/api/sessions/${session.id}/title`, 'POST', { title: 'Roman Urdu ki guftagu', revision: current.revision, requestId: 'a'.repeat(32) });
+  assert.equal(response.status, 200); assert.equal((await response.json()).title, 'Roman Urdu ki guftagu');
+  assert.equal((await f.call(`/api/sessions/${session.id}/title`, 'POST', { title: 'Wrong bot', revision: 1, requestId: 'b'.repeat(32) }, 'coder')).status, 400);
+  assert.equal((await f.call(`/api/sessions/${session.id}/title`, 'POST', { title: 'Missing precondition' })).status, 400);
+  const mutation = f.shared.calls.find(row => row.method === 'session.mutate');
+  assert.equal(mutation.params.expected_revision, 1);
+  assert.equal(mutation.profile, 'default');
+  assert.equal((await f.call(`/api/sessions/${session.id}/title`, 'POST', { title: 'Stale edit', revision: 1, requestId: 'c'.repeat(32) })).status, 409);
 });

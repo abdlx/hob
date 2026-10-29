@@ -62,7 +62,7 @@ async function signIn(origin) {
   });
   assert.equal(response.status, 200);
   const cookie = response.headers.getSetCookie().map(value => value.split(';')[0]).join('; ');
-  assert.match(cookie, /^muse_session=/);
+  assert.match(cookie, /^hob_session=/);
   return cookie;
 }
 

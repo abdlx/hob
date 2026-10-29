@@ -68,6 +68,7 @@ jobs:
       - run: npm ci --prefix server
       - run: node --test --test-concurrency=2 server/test/*.test.mjs
       - run: node --test deploy/*.test.mjs
+      - run: python3 deploy/test-native-controls.py
   first-run:
     name: first-run (${{ matrix.isolation }})
     strategy:
@@ -88,11 +89,11 @@ jobs:
         with:
           node-version: '24.21.0'
       - name: Build the single image from this checkout
-        run: docker build --tag openmuse:ci .
+        run: docker build --tag hob:ci .
       - name: Verify first boot, sandboxed browser, and persistence
         env:
-          MUSE_SMOKE_IMAGE: openmuse:ci
-          MUSE_SMOKE_ISOLATION: ${{ matrix.isolation }}
+          HOB_SMOKE_IMAGE: hob:ci
+          HOB_SMOKE_ISOLATION: ${{ matrix.isolation }}
         shell: bash
         run: |
           set +e

@@ -20,6 +20,7 @@ WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./
 RUN --mount=type=cache,id=hob-npm,target=/root/.npm npm ci
 COPY web/ ./
+COPY server/schedule-input.mjs server/schedule-input.d.mts /app/server/
 RUN npm run build
 
 # The application's own server deps are installed from the lockfile rather than
@@ -67,8 +68,8 @@ RUN test -f /etc/cont-init.d/02-reconcile-profiles && \
 RUN mkdir -p /etc/cont-init.d && \
     printf '#!/command/with-contenv sh\nexec /usr/local/bin/node /app/deploy/seed-hermes-config.mjs\n' > /etc/cont-init.d/00-hob-config && \
     chmod 755 /etc/cont-init.d/00-hob-config
-ENV MUSE_HOST=0.0.0.0 \
-    MUSE_PORT=3000 \
+ENV HOB_HOST=0.0.0.0 \
+    HOB_PORT=3000 \
     HERMES_DIR=/opt/hermes \
     HERMES_HOME=/opt/data \
     HERMES_EXECUTABLE=/opt/hermes/bin/hermes \

@@ -96,6 +96,13 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       persistedSoul.match(/<!-- HOB:BOT-IDENTITY:START -->/g)?.length === 1
         && persistedSoul.includes('Name: Main\n') && persistedSoul.includes('Stable profile id: default\n'));
     // A schedule created paused must stay paused and, above all, must never run.
+    const schedulePreview = await workspace('schedule-preview', 'POST', { schedule: '0 9 * * *' });
+    check('native schedule preview returns the effective timezone and a next run', schedulePreview.valid === true && Number.isFinite(Date.parse(schedulePreview.nextRun)) && typeof schedulePreview.timezone === 'string');
+    check('invalid schedules fail before creation', (await request('/api/hermes/workspace/jobs?profile=default', 'POST', { name: 'Invalid smoke schedule', prompt: 'Never run.', schedule: '99 99 * * *' })).status === 400);
+    for (const subsystem of ['memory', 'skills']) {
+      const queue = await workspace('reviews/' + subsystem);
+      check('native ' + subsystem + ' review queue exposes revision metadata', Array.isArray(queue.items) && queue.items.every(item => /^[a-f0-9]{64}$/.test(item.revision)));
+    }
     const created = await workspace('jobs', 'POST', { name: 'Isolated disabled smoke task',
       prompt: 'Never execute this synthetic smoke task.', schedule: '2099-01-01T00:00:00', paused: true });
     check('a paused native schedule is created', typeof created.id === 'string');
@@ -126,6 +133,12 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       check('the model tool wrote the artifact into the bot workspace', Boolean(entry));
       const file = await workspace('file', 'GET', undefined, 'default', { path: entry.path });
       check('the written artifact has the expected content', Buffer.from(String(file.dataUrl).split(',')[1], 'base64').toString('utf8') === SMOKE_CONTENT);
+      const delivery = await retry('artifact publication', async () => {
+        const item = (await workspace('files')).deliveries?.find(item => item.status === 'published' && item.name === SMOKE_FILE);
+        assert.ok(item); return item;
+      }, 30000);
+      const download = await request('/api/hermes/workspace/download?' + new URLSearchParams({ profile: 'default', path: delivery.path }));
+      check('the published artifact downloads with exact contents', download.ok && await download.text() === SMOKE_CONTENT);
       const history = await api(session(sessionId, '/messages'));
       check('native history includes the assistant reply', history.some(item => item.role === 'assistant' && item.content.includes(SMOKE_REPLY)));
       // This owned fixture accepts image parts but has no public model-catalog
@@ -196,13 +209,14 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       const stream = await turn.text();
       const proposal = new RegExp(SMOKE_SKILL_REPLY + ':([a-f0-9]{8})').exec(stream)?.[1];
       check('the native skill tool returns an actual staged proposal', Boolean(proposal) && stream.includes('event: done') && !stream.includes('event: error'), stream.slice(-1600));
-      const review = (action, confirm) => workspace('skill-review', 'POST', { sessionKey: conversation.id, action, ...(action === 'pending' ? {} : { id: proposal }), ...(confirm ? { confirm: true } : {}) });
-      check('agent skill creation stays pending and is not active', (await review('pending')).output.includes(proposal)
+      const pending = () => workspace('reviews/skills');
+      check('agent skill creation stays pending and is not active', (await pending()).items.some(item => item.id === proposal)
         && !(await workspace('skills')).some(item => item.name === SMOKE_SKILL_NAME));
-      check('the native proposal diff contains the generated lesson', (await review('diff')).output.includes('Require explicit review'));
-      await review('approve', true);
+      const detail = await workspace('reviews/skills/' + proposal);
+      check('the native proposal diff contains the generated lesson', detail.diff.includes('Require explicit review') && /^[a-f0-9]{64}$/.test(detail.revision));
+      await workspace('reviews/skills', 'POST', { id: proposal, revision: detail.revision, action: 'approve', requestId: randomUUID(), confirm: true });
       check('explicit approval activates the validated native skill', (await workspace('skill', 'GET', undefined, 'default', { name: SMOKE_SKILL_NAME })).content === SMOKE_SKILL_CONTENT);
-      check('the approved proposal leaves the native pending queue', !(await review('pending')).output.includes(proposal));
+      check('the approved proposal leaves the native pending queue', !(await pending()).items.some(item => item.id === proposal));
       await api(learningRoute, 'PUT', { changes: { skillApproval: mainLearning.controls.skillApproval.value, backgroundReview: mainLearning.controls.backgroundReview.value }, confirm: true });
       stagedSkill = true;
     }

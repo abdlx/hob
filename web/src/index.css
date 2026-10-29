@@ -322,3 +322,10 @@ textarea:focus-visible {
     scroll-behavior: auto !important;
   }
 }
+@media (pointer: coarse) {
+  button, [role="button"], a[download], input:not([type="checkbox"]):not([type="radio"]), select {
+    min-height: 44px;
+  }
+  button, [role="button"], a[download] { min-width: 44px; }
+  input, textarea, select { font-size: 16px; }
+}

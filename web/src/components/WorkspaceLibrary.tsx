@@ -49,7 +49,7 @@ function FileArtwork({ file, read }: { file: LibraryEntry; read: Reader }) {
   </div>;
 }
 
-function FileDialog({ file, read, close }: { file: LibraryEntry; read: Reader; close: () => void }) {
+function FileDialog({ file, read, close, downloadUrl }: { file: LibraryEntry; read: Reader; close: () => void; downloadUrl: string }) {
   const dialog = useRef<HTMLDialogElement>(null), title = useId();
   const [preview, setPreview] = useState<LibraryPreview | null>(null), [error, setError] = useState('');
   useEffect(() => {
@@ -89,7 +89,7 @@ function FileDialog({ file, read, close }: { file: LibraryEntry; read: Reader; c
     </div>
     <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-line p-4 sm:px-5">
       <span className="min-w-0 flex-1 truncate text-xs text-muted" title={file.path}>{file.path}</span>
-      {preview && <a className={buttonClass} href={preview.dataUrl} download={preview.name}><Download size={15} />Download</a>}
+      <a className={buttonClass} href={downloadUrl} download={file.name}><Download size={15} />Download</a>
     </footer>
   </dialog>, document.body);
 }
@@ -99,14 +99,15 @@ export function WorkspaceLibrary({ profile, scope }: { profile: string; scope?: 
   const [directory, setDirectory] = useState(''), [entries, setEntries] = useState<LibraryEntry[]>([]);
   const [search, setSearch] = useState(''), [filter, setFilter] = useState<LibraryKind>('all');
   const [selected, setSelected] = useState<LibraryEntry | null>(null), [error, setError] = useState('');
+  const [deliveryFailures, setDeliveryFailures] = useState(0);
   const [loading, setLoading] = useState(true), [limit, setLimit] = useState(12), [revision, setRevision] = useState(0);
   const sequence = useRef(0);
   const load = useCallback(async () => {
     const current = ++sequence.current;
     setLoading(true); setError('');
     try {
-      const result = await api<{ entries: LibraryEntry[] }>('files', {}, { path: directory });
-      if (current === sequence.current) { setEntries(result.entries); setRevision(value => value + 1); }
+      const result = await api<{ entries: LibraryEntry[]; deliveries?: { status: string }[] }>('files', {}, { path: directory });
+      if (current === sequence.current) { setEntries(result.entries); setDeliveryFailures(result.deliveries?.filter(item => item.status === 'failed').length || 0); setRevision(value => value + 1); }
     } catch (reason) { if (current === sequence.current) setError(errorText(reason)); }
     finally { if (current === sequence.current) setLoading(false); }
   }, [api, directory]);
@@ -125,6 +126,7 @@ export function WorkspaceLibrary({ profile, scope }: { profile: string; scope?: 
     </div>
     <div className="flex min-w-0 items-center justify-between gap-3"><nav aria-label="Library folders" className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs"><button type="button" className="rounded-lg px-1 py-1 text-muted hover:text-ink cursor-pointer" onClick={() => navigate('')}>Workspace</button>{crumbs.map((crumb, index) => <span key={index} className="flex min-w-0 items-center gap-1.5"><ChevronRight size={13} className="shrink-0 text-faint" /><button type="button" className="max-w-36 truncate rounded-lg px-1 py-1 text-muted hover:text-ink cursor-pointer" onClick={() => navigate(crumbs.slice(0, index + 1).join('/'))}>{crumb}</button></span>)}</nav><p className="shrink-0 text-[11px] text-faint">{loading ? 'Loading…' : search || filter !== 'all' ? `${matches.length} results` : `${files.length} file${files.length === 1 ? '' : 's'}${folders.length ? ` · ${folders.length} folder${folders.length === 1 ? '' : 's'}` : ''}`}</p></div>
     {error && <Notice error>{error}</Notice>}
+    {deliveryFailures > 0 && <Notice error>{deliveryFailures} result publication{deliveryFailures === 1 ? '' : 's'} failed. Original files were preserved. Ask the bot to save completed outputs in its workspace artifacts folder, then refresh.</Notice>}
     {loading ? <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">{Array.from({ length: 8 }, (_, index) => <div key={index} className="space-y-3"><Skeleton className="aspect-[4/3] rounded-2xl" /><Skeleton className="h-3 w-3/4" /></div>)}</div>
       : !matches.length ? <EmptyState icon={<Folder size={32} strokeWidth={1.3} />} title={search || filter !== 'all' ? 'No matching files' : 'Your next creation belongs here'} description={search || filter !== 'all' ? 'Try another name or choose a different file type.' : 'Images, documents, and other files your bot creates in this folder will appear here.'} action={search || filter !== 'all' ? <button className={buttonClass} onClick={() => { setSearch(''); setFilter('all'); }}>Clear filters</button> : undefined} />
         : <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-4" aria-label="Library gallery">{matches.slice(0, limit).map(file => <button key={`${revision}:${file.path}`} type="button" aria-label={`${file.directory ? 'Open folder' : 'Preview'} ${file.name}`} onClick={() => file.directory ? navigate(file.path) : setSelected(file)} className="group min-w-0 rounded-2xl text-left outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-4 focus-visible:ring-offset-canvas cursor-pointer">
@@ -132,8 +134,8 @@ export function WorkspaceLibrary({ profile, scope }: { profile: string; scope?: 
           <p className="mt-3 truncate px-0.5 text-[13px] font-medium text-ink" title={file.name}>{file.name}</p><p className="mt-1 px-0.5 text-[11px] text-faint">{file.directory ? 'Folder' : types[libraryKind(file.name)].label}</p>
         </button>)}</div>}
     {!loading && matches.length > limit && <div className="flex justify-center"><button className={buttonClass} onClick={() => setLimit(value => value + 12)}>Show more · {matches.length - limit} remaining</button></div>}
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4 text-[11px] text-faint"><span>Files stay in this bot’s workspace.</span><span>Previews and downloads up to 2 MB</span></div>
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4 text-[11px] text-faint"><span>Files stay in this bot’s workspace.</span><span>Previews up to 2 MB · Downloads up to 25 MB</span></div>
     {directory && <button className="inline-flex items-center gap-2 text-xs text-muted hover:text-ink cursor-pointer" onClick={() => navigate(crumbs.slice(0, -1).join('/'))}><ArrowLeft size={14} />Parent folder</button>}
-    {selected && <FileDialog key={selected.path} file={selected} read={read} close={() => setSelected(null)} />}
+    {selected && <FileDialog key={selected.path} file={selected} read={read} close={() => setSelected(null)} downloadUrl={`/api/hermes/workspace/download?${new URLSearchParams({ profile, path: selected.path })}`} />}
   </section>;
 }

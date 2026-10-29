@@ -5,8 +5,10 @@ upstream-source Hermes runtime (`7e9eb8d9`, built with upstream's Dockerfile and
 published to public GHCR). This runtime image supports Linux amd64 only.
 The app image applies a checksum-guarded fix to `gateway/run_goals.py`: native
 LOCAL heartbeats reach Hermes's admission queue before the legacy adapter-handler
-check. Unknown source bytes fail the build. `hob-compat.json` records the fix;
-Hermes still owns scheduling, admission, execution and persistence.
+check. It also mounts `deploy/hob-native-controls.py` on the qualified native
+skills router for full revision-bound proposal decisions and scheduler previews.
+Unknown source bytes fail the build. `hob-compat.json` records both changes;
+Hermes still owns scheduling, memory/skill application, admission, execution and persistence.
 Local reference and archived runtime source trees are
 excluded from the app build context.
 
@@ -103,7 +105,7 @@ to loopback. Supply the app password/session secret through a private environmen
 file or your platform's secret manager. Model/tool credentials belong in Settings.
 
 An HTTPS proxy should forward to port 3000 and preserve streaming connections.
-Set `MUSE_PUBLIC_URL` to the exact browser origin and secure cookies for HTTPS.
+Set `HOB_PUBLIC_URL` to the exact browser origin and secure cookies for HTTPS.
 Hermes' two loopback APIs must not be published as host ports.
 
 ## Container security and browser

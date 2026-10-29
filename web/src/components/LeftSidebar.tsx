@@ -19,7 +19,7 @@ export interface NavItemConfig {
 
 const sidebarNavItems: NavItemConfig[] = [
   { key: 'chat', icon: MessageSquare, label: 'Chat' },
-  { key: 'search', icon: Search, label: 'Search' },
+  { key: 'search', icon: Search, label: 'Search chats' },
   { key: 'activity', icon: Compass, label: 'Activity' },
   { key: 'idea', icon: BookOpen, label: 'Workshop' },
   { key: 'goals', icon: SquareCheck, label: 'Goals' },

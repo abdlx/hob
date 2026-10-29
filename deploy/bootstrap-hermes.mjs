@@ -7,6 +7,7 @@ import { seedHermesConfig } from './seed-hermes-config.mjs';
 import { prepareHermesRuntime } from './prepare-hermes-runtime.mjs';
 import { HermesBotIsolation, isolationMode, prepareBotIsolation } from '../server/hermes-isolation.mjs';
 import { mcpOAuthOrigin } from '../server/hermes-mcp-oauth.mjs';
+import { hobEnv, hobLocalHome } from '../server/hob-config.mjs';
 
 async function listenerCredentials(filename) {
   const candidate = { version: 1, apiKey: randomBytes(32).toString('hex'), dashboardToken: randomBytes(32).toString('hex') };
@@ -39,10 +40,11 @@ async function listenerCredentials(filename) {
 const without = (env, pattern) => Object.fromEntries(Object.entries(env).filter(([key]) => !pattern.test(key)));
 
 export async function bootstrapHermes(env = process.env) {
-  if (!env.MUSE_PASSWORD?.trim() && !env.MUSE_ACCESS_TOKEN?.trim()) throw new Error('Set MUSE_PASSWORD before starting hob.');
+  env = hobEnv(env);
+  if (!env.HOB_PASSWORD?.trim() && !env.HOB_ACCESS_TOKEN?.trim()) throw new Error('Set HOB_PASSWORD before starting hob.');
   const projectDir = fileURLToPath(new URL('..', import.meta.url));
   const hermesDir = resolve(env.HERMES_DIR || join(projectDir, 'hermes-agent'));
-  const home = resolve(env.HERMES_HOME || join(projectDir, '.muse-data', 'hermes'));
+  const home = resolve(env.HERMES_HOME || await hobLocalHome(projectDir));
   const stateDir = resolve(env.HOB_STATE_DIR || join(home, '.hob'));
   const mode = isolationMode(env);
   const executionRoot = mode === 'users' ? '/var/lib/hob-isolation/workspaces' : (env.HOB_WORKSPACE_ROOT || join(home, 'workspaces'));
@@ -73,16 +75,16 @@ export async function bootstrapHermes(env = process.env) {
     API_SERVER_KEY: credentials.apiKey, API_SERVER_HOST: '127.0.0.1', API_SERVER_PORT: '8642',
     GATEWAY_MULTIPLEX_PROFILES: 'true', HERMES_DASHBOARD: '0' };
   // Environment separation does not replace an execution sandbox.
-  const runtimeEnv = without(shared, /^(?:MUSE_|HOB_|HERMES_DASHBOARD_)/);
+  const runtimeEnv = without(shared, /^(?:HOB_|HERMES_DASHBOARD_)/);
   // Keep native write policy while including the separately protected workspace.
   if (mode === 'users') runtimeEnv.HERMES_WRITE_SAFE_ROOT = home + ':' + executionRoot;
   // Keep foreground ownership with our supervisor, including in an s6 image.
   // The explicit profile also prevents a sticky CLI selection redirecting Main.
   runtimeEnv.HERMES_GATEWAY_EXTERNAL_SUPERVISOR = '1';
-  const dashboardEnv = { ...without(shared, /^(?:MUSE_|HOB_|HERMES_DASHBOARD_)/),
+  const dashboardEnv = { ...without(shared, /^(?:HOB_|HERMES_DASHBOARD_)/),
     HERMES_DASHBOARD_SESSION_TOKEN: credentials.dashboardToken };
   if (mode === 'users') dashboardEnv.HERMES_DASHBOARD_FILES_ROOT = executionRoot;
-  const publicOrigin = mcpOAuthOrigin(env.MUSE_PUBLIC_URL);
+  const publicOrigin = mcpOAuthOrigin(env.HOB_PUBLIC_URL);
   if (publicOrigin) {
     dashboardEnv.HERMES_DASHBOARD_PUBLIC_URL = publicOrigin;
     // Declaring dashboard.public_url makes Hermes refuse the loopback bind unless a dashboard
@@ -103,7 +105,7 @@ export async function bootstrapHermes(env = process.env) {
         prepare: ({ signal }) => prepareHermesRuntime({ dashboardUrl: appEnv.HERMES_DASHBOARD_URL,
           dashboardToken: credentials.dashboardToken, apiKey: credentials.apiKey, signal,
           prepareIsolation: mode === 'users' ? (client, signal) => prepareBotIsolation(new HermesBotIsolation(), client, stateDir, signal) : undefined }) },
-      { name: 'hob web server', executable: process.execPath, args: [resolve(env.MUSE_SERVER_ENTRY || join(projectDir, 'server', 'index.mjs'))], cwd: projectDir, env: appEnv },
+      { name: 'hob web server', executable: process.execPath, args: [resolve(env.HOB_SERVER_ENTRY || join(projectDir, 'server', 'index.mjs'))], cwd: projectDir, env: appEnv },
     ],
     home, stateDir, workspace,
   };

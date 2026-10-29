@@ -11,8 +11,8 @@ async function fixture(run) {
   const root = await mkdtemp(join(tmpdir(), 'hob-hermes-deploy-'));
   try {
     await run({
-      MUSE_PASSWORD: 'synthetic-test-password',
-      MUSE_SESSION_SECRET: 'synthetic-session-secret',
+      HOB_PASSWORD: 'synthetic-test-password',
+      HOB_SESSION_SECRET: 'synthetic-session-secret',
       HOB_EXPO_ACCESS_TOKEN: 'synthetic-private-push-token',
       HERMES_DIR: join(root, 'backend'),
       HERMES_HOME: join(root, 'hermes'),
@@ -60,11 +60,11 @@ test('runtime environment excludes dashboard authority and application login/ses
     const { processes: [dashboard, runtime, app] } = await bootstrap({
       ...env, HERMES_DASHBOARD_SESSION_TOKEN: 'do-not-inherit', HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: 'do-not-inherit',
     });
-    for (const key of ['MUSE_PASSWORD', 'MUSE_SESSION_SECRET', 'HERMES_DASHBOARD_SESSION_TOKEN', 'HERMES_DASHBOARD_BASIC_AUTH_PASSWORD', 'HOB_STATE_DIR', 'HOB_EXPO_ACCESS_TOKEN']) {
+    for (const key of ['HOB_PASSWORD', 'HOB_SESSION_SECRET', 'HERMES_DASHBOARD_SESSION_TOKEN', 'HERMES_DASHBOARD_BASIC_AUTH_PASSWORD', 'HOB_STATE_DIR', 'HOB_EXPO_ACCESS_TOKEN']) {
       assert.equal(runtime.env[key], undefined, key);
     }
-    assert.equal(dashboard.env.MUSE_PASSWORD, undefined);
-    assert.equal(app.env.MUSE_PASSWORD, env.MUSE_PASSWORD);
+    assert.equal(dashboard.env.HOB_PASSWORD, undefined);
+    assert.equal(app.env.HOB_PASSWORD, env.HOB_PASSWORD);
   });
 });
 
@@ -83,7 +83,7 @@ test('restart preserves exact user configuration bytes and listener credentials'
 test('MCP callback origin is provisioned only to settings from the explicit application origin', async () => {
   await fixture(async env => {
     const { processes: [settings, runtime, app] } = await bootstrap({ ...env,
-      MUSE_PUBLIC_URL: 'https://dashboard.example/', HERMES_DASHBOARD_PUBLIC_URL: 'https://other.invalid' });
+      HOB_PUBLIC_URL: 'https://dashboard.example/', HERMES_DASHBOARD_PUBLIC_URL: 'https://other.invalid' });
     assert.equal(settings.env.HERMES_DASHBOARD_PUBLIC_URL, 'https://dashboard.example');
     // A declared public URL engages Hermes' dashboard auth gate, which would replace the
     // operator-minted session token on the private loopback listener. Only settings is marked
@@ -91,9 +91,9 @@ test('MCP callback origin is provisioned only to settings from the explicit appl
     assert.equal(settings.env.HERMES_DESKTOP, '1');
     assert.equal(runtime.env.HERMES_DASHBOARD_PUBLIC_URL, undefined);
     assert.equal(runtime.env.HERMES_DESKTOP, undefined);
-    assert.equal(app.env.MUSE_PUBLIC_URL, 'https://dashboard.example/');
+    assert.equal(app.env.HOB_PUBLIC_URL, 'https://dashboard.example/');
     assert.equal(app.env.HERMES_DESKTOP, undefined);
-    const malformed = await bootstrap({ ...env, MUSE_PUBLIC_URL: 'https://dashboard.example/other' });
+    const malformed = await bootstrap({ ...env, HOB_PUBLIC_URL: 'https://dashboard.example/other' });
     assert.equal(malformed.processes[0].env.HERMES_DASHBOARD_PUBLIC_URL, undefined);
     assert.equal(malformed.processes[0].env.HERMES_DESKTOP, undefined);
   });
@@ -110,7 +110,7 @@ test('corrupt listener state fails closed without rotating or overwriting existi
 });
 
 test('startup requires an app credential before creating any runtime state', async () => {
-  await assert.rejects(bootstrap({}), /Set MUSE_PASSWORD/);
+  await assert.rejects(bootstrap({}), /Set HOB_PASSWORD/);
 });
 
 test('oversized listener state is rejected without replacing it', async () => {

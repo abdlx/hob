@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, Compass, BookOpen, SquareCheck, Shapes } from 'lucide-react';
+import { Bot, Compass, BookOpen, SquareCheck, Shapes, Settings } from 'lucide-react';
 import { useChat } from '../context/ChatContext';
 import { BottomDock } from './BottomDock/BottomDock';
 import type { DockItemConfig } from './BottomDock/types';
@@ -17,6 +17,7 @@ const items: DockItemConfig[] = [
   { id: 'idea', label: 'Workshop', icon: <BookOpen size={20} strokeWidth={2} /> },
   { id: 'goals', label: 'Goals', icon: <SquareCheck size={20} strokeWidth={2} /> },
   { id: 'library', label: 'Library', icon: <Shapes size={20} strokeWidth={2} /> },
+  { id: 'settings', label: 'Settings', icon: <Settings size={20} strokeWidth={2} /> },
 ];
 
 export const MobileDock: React.FC<MobileDockProps> = ({

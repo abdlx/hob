@@ -1,3 +1,4 @@
+import { hobEnv } from './hob-config.mjs';
 import { randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, realpath, rename, unlink, writeFile } from 'node:fs/promises';
@@ -23,7 +24,8 @@ const label = bot => blockText(bot.displayName || bot.display_name || bot.bot_ti
  * execution backends may explicitly provision their own reachable relay URL.
  */
 export function botRelayUrl(env = process.env) {
-  const port = Number(env.MUSE_PORT || 3000);
+  env = hobEnv(env);
+  const port = Number(env.HOB_PORT || 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid app listener port for bot relay.');
   const url = new URL(env.HOB_BOT_RELAY_URL || `http://127.0.0.1:${port}/api/hermes/bot-relay`);
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('Invalid bot relay URL.');
@@ -128,6 +130,7 @@ const managedBlock = (self, roster) => {
       : 'You may contact any active teammate directly when its role fits the work. Keep the main coordinator (`default`) informed of blockers and results. Return results to the calling bot through your normal reply; never start a circular exchange.',
     'Each send creates a separate, inspectable exchange and native conversation. The recipient receives only the context you send. For further delegation from an exchange, include --parent <exchange-id> from its request. Never delegate back to an ancestor. Do not claim a timed-out exchange failed; use node .hob/talk.mjs status <exchange-id> to check it. Use independent tasks for parallel delegation. For recurring work, use Hermes native scheduled jobs; no schedule exists until Hermes confirms it.',
     'The relay is a real message to another bot, which acts with its own tools, workspace, memory and approvals. Never claim another bot completed work without its reply. Do not send secrets, credentials, or tokens through bot messages.',
+    'Save final deliverables under artifacts/ in your assigned workspace. Copy completed scratch outputs there before reporting delivery, and link the actual saved file. Keep intermediate files separate. Match the user’s requested language in replies and conversation titles; use the conversation language for Roman Urdu and mixed-language chats, and do not import another bot or project’s language preference.',
     END,
   ];
   return lines.join('\n');

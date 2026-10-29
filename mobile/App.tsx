@@ -17,7 +17,7 @@ const STORAGE = 'hob.connection.v1';
 const errorMessage = (error: unknown) => error instanceof Error ? error.message.slice(0, 400) : 'Unable to connect. Try again.';
 const injected = `(() => {
   document.documentElement.dataset.hobNative = '1';
-  window.addEventListener('muse:unauthorized', () => window.ReactNativeWebView?.postMessage(JSON.stringify({type:'auth-expired'})));
+  window.addEventListener('hob:unauthorized', () => window.ReactNativeWebView?.postMessage(JSON.stringify({type:'auth-expired'})));
   document.addEventListener('click', event => {
     const link = event.target instanceof Element ? event.target.closest('a[download]') : null;
     if (!link || !window.ReactNativeWebView) return;

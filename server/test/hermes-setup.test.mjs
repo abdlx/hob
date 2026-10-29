@@ -42,6 +42,43 @@ const request = (route, method = 'GET', value) => fetch(`${origin}/api/hermes/se
   method, ...(value ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) } : {}),
 });
 
+test('voice transcription validates consent and bytes, stays scoped, and exposes only the transcript', async () => {
+  const dataUrl = 'data:audio/webm;base64,' + Buffer.from('synthetic-audio-fixture').toString('base64');
+  const before = calls.length;
+  for (const change of [{ confirm: false }, { dataUrl: 'data:text/plain;base64,aGVsbG8=' }, { dataUrl: 'data:audio/webm;base64,abc' }, { profile: 'default' }]) {
+    assert.equal((await request('audio/transcribe', 'POST', { dataUrl, confirm: true, ...change })).status, 400);
+  }
+  assert.equal(calls.length, before);
+  respond = () => ({ ok: true, transcript: 'A test transcript', provider: 'private-provider-metadata', secret: 'must-not-leave-native' });
+  try {
+    for (let index = 0; index < 20; index++) {
+      const response = await request('audio/transcribe', 'POST', { dataUrl, confirm: true });
+      assert.deepEqual(await response.json(), { transcript: 'A test transcript' });
+      assert.equal(calls.at(-1).profile, 'coder');
+      assert.equal(calls.at(-1).path, '/api/audio/transcribe');
+    }
+  } finally { respond = undefined; }
+});
+
+test('bot preferences preserve existing prompt hints and write native language, timezone and limits explicitly', async () => {
+  let saved = { agent: { environment_hint: 'Keep the operator mount instructions.' }, auxiliary: {}, timezone: '' };
+  respond = (_path, options) => {
+    if (options.method === 'PUT') { saved = { ...saved, ...options.body.config }; return { ok: true }; }
+    return saved;
+  };
+  try {
+    const body = { language: 'ur-Latn', timezone: 'Asia/Karachi', maxTurns: 20, runBudgetSeconds: 600, confirm: true };
+    assert.equal((await request('preferences', 'PUT', body)).status, 200);
+    assert.match(saved.agent.environment_hint, /Keep the operator mount instructions/);
+    assert.match(saved.agent.environment_hint, /Roman Urdu/);
+    assert.equal(saved.agent.max_turns, 20); assert.equal(saved.agent.run_budget_seconds, 600);
+    assert.equal(saved.auxiliary.title_generation.language, 'Roman Urdu (Urdu written in Latin script)');
+    assert.equal((await request('preferences', 'PUT', { ...body, timezone: 'not/a/timezone' })).status, 400);
+    assert.equal((await request('preferences', 'PUT', { ...body, maxTurns: -1 })).status, 400);
+    assert.equal((await request('preferences', 'PUT', { ...body, confirm: false })).status, 400);
+  } finally { respond = undefined; }
+});
+
 test('native model catalog includes setup skeletons and excludes ambient account adoption without a write', async () => {
   assert.equal((await request('models')).status, 200);
   assert.deepEqual(calls.at(-1), { path: '/api/model/options', profile: 'coder', query: { include_unconfigured: true, explicit_only: true, refresh: false } });

@@ -34,4 +34,4 @@ jobs:
       - name: Build the image and run the deployment checklist
         run: node deploy/phase4-validation.mjs
         env:
-          PHASE4_IMAGE: openmuse:phase4
+          PHASE4_IMAGE: hob:phase4

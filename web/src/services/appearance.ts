@@ -19,5 +19,5 @@ export function initializeAppearance() {
   const media = window.matchMedia('(prefers-color-scheme: dark)');
   media.addEventListener('change', () => applyTheme(readTheme()));
   window.addEventListener('storage', event => { if (event.key === 'hob:theme' || event.key === null) applyTheme(readTheme()); });
-  if (preference('mused-contrast', '') === 'high') document.documentElement.style.filter = 'contrast(1.15)';
+  if (preference('hob-contrast', '') === 'high') document.documentElement.style.filter = 'contrast(1.15)';
 }

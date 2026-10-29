@@ -261,7 +261,7 @@ export function createBrowserRoutes({
    */
   function upgrade(req, socket, head) {
     let url;
-    try { url = new URL(req.url, 'http://muse.local'); } catch { socket.destroy(); return false; }
+    try { url = new URL(req.url, 'http://hob.local'); } catch { socket.destroy(); return false; }
     if (url.pathname !== STREAM) return false;
     if (req.method !== 'GET') { socket.destroy(); return true; }
     if (url.searchParams.getAll('profile').length !== 1) { socket.destroy(); return true; }

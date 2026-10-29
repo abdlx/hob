@@ -17,7 +17,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     const error = new ApiError(body?.error?.message || body?.error || body?.message || `Request failed (${response.status})`, response.status);
-    if (response.status === 401) window.dispatchEvent(new Event('muse:unauthorized'));
+    if (response.status === 401) window.dispatchEvent(new Event('hob:unauthorized'));
     throw error;
   }
   if (response.status === 204) return undefined as T;
@@ -59,7 +59,7 @@ class ChatApiClient {
     });
     if (!response.ok) {
       const body = await response.json().catch(() => null);
-      if (response.status === 401) window.dispatchEvent(new Event('muse:unauthorized'));
+      if (response.status === 401) window.dispatchEvent(new Event('hob:unauthorized'));
       throw new ApiError(body?.error?.message || body?.error || body?.message || `Agent request failed (${response.status})`, response.status);
     }
     if (!response.body) throw new Error('The server did not return an agent response.');

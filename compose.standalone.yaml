@@ -1,10 +1,10 @@
 # Optional local/standalone overlay; do not select this file in Coolify.
 # docker compose -f compose.yaml -f compose.standalone.yaml up -d --build
 services:
-  muse:
+  hob:
     environment:
-      MUSE_PASSWORD: ${MUSE_PASSWORD:?Set MUSE_PASSWORD in .env before starting hob}
-      MUSE_SESSION_SECRET: ${MUSE_SESSION_SECRET:?Set MUSE_SESSION_SECRET in .env}
-      MUSE_PUBLIC_URL: ${MUSE_PUBLIC_URL:-}
+      HOB_PASSWORD: ${HOB_PASSWORD:?Set HOB_PASSWORD in .env before starting hob}
+      HOB_SESSION_SECRET: ${HOB_SESSION_SECRET:?Set HOB_SESSION_SECRET in .env}
+      HOB_PUBLIC_URL: ${HOB_PUBLIC_URL:-}
     ports:
-      - "${MUSE_BIND_ADDRESS:-127.0.0.1}:${MUSE_PORT:-3000}:3000"
+      - "${HOB_BIND_ADDRESS:-127.0.0.1}:${HOB_PORT:-3000}:3000"

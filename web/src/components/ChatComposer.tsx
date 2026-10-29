@@ -13,6 +13,7 @@ export interface ChatComposerProps {
   canSend?: boolean;
   working?: boolean;
   attachments?: ReactNode;
+  voiceInput?: ReactNode;
   hasAttachments?: boolean;
   onAttach?: () => void;
   placeholder?: string;
@@ -30,6 +31,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   canSend = true,
   working = false,
   attachments,
+  voiceInput,
   hasAttachments = false,
   onAttach,
   placeholder = 'Message...',
@@ -62,6 +64,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
 
   return (
     <div className="hob-composer w-full px-3 sm:px-4 md:px-6 pt-2 bg-canvas shrink-0 flex flex-col items-center gap-1 md:gap-2 select-none" style={{ paddingBottom: showMobileDock && !focused ? 10 : 'max(10px, env(safe-area-inset-bottom))' }}>
+      {voiceInput}
       <form aria-label="Message composer" onSubmit={submit} className="w-full max-w-[840px]">
         <div className="rounded-[26px] border border-edge bg-surface shadow-[0_3px_14px_rgba(0,0,0,0.04)] transition-colors focus-within:border-accent-line focus-within:shadow-[0_0_0_3px_var(--color-accent-soft)]">
         {attachments}

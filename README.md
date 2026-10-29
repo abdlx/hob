@@ -42,7 +42,7 @@ Hermes Agent is a capable personal agent runtime, but its native surfaces are op
 - **Native Hermes underneath.** Sessions, tools, approvals, questions, memory, skills, and scheduling stay owned by upstream Hermes. hob owns the interface, authentication, routing, and browser gateway.
 - **Deployable as one container.** The Docker image combines the dashboard, Node server, and a digest-pinned Hermes runtime. Only the app port is exposed.
 
-Hermes source is vendored only as a reference. The image applies one checksum-guarded compatibility fix to the pinned runtime so local dashboard heartbeats reach Hermes's native admission queue; it retains the upstream scheduler and execution owner.
+Hermes source is vendored only as a reference. The image applies checksum-guarded compatibility extensions to the pinned runtime: native dashboard heartbeat admission and profile-scoped JSON controls for complete proposal reviews and schedule previews. Hermes retains scheduling, memory/skill application, and execution ownership. Rebuild the application image when upgrading these controls.
 
 In **Settings → Plugins & integrations**, browse app tiles and open a tile for its full details and install controls. In **Settings → Automation**, select a bot's native conversation to start a goal or configure a heartbeat, including pause, resume and clear. Scheduled tasks use Hermes's own scheduler; `0 9 * * *` runs daily at 9 AM in the bot's configured timezone. Background handoff results are delivered to the caller and Main through Hermes's **Bot Chat**, while each exchange keeps its own transcript.
 
@@ -75,6 +75,8 @@ In **Settings → Plugins & integrations**, browse app tiles and open a tile for
 | **Tools and MCP** | Native toolset controls, dependency setup, messaging channels, MCP servers, OAuth sign-in, connection probes, and per-bot enable/disable. |
 | **Memory and learning** | Built-in or external memory providers, personality/identity editing, task-memory and user-profile switches, and approval-gated skill/memory writes. |
 | **Workspace** | Goals and scheduled tasks, workspace files, skill review in Workshop, activity, approvals, and a live browser side panel. |
+| **Review and delivery** | Complete, revision-bound memory/skill proposals, explicit approve/reject decisions and decision history; supported result files copied into workspace `artifacts/`, with scoped downloads up to 25 MB. |
+| **Input and preferences** | Consent-based voice transcription into an editable draft, per-bot reply/title language, timezone, native turn/time limits, and conversation title correction. |
 | **Operations** | Login rate limiting, SameSite cookies, origin checks, loopback-only Hermes APIs, health/readiness endpoints, build provenance, graceful browser shutdown, and persisted state. |
 
 ## Architecture
@@ -96,7 +98,7 @@ In **Settings → Plugins & integrations**, browse app tiles and open a tile for
 └───────────┬──────────┘   └───────────────────┘
             │
 ┌───────────▼──────────────────────────────────┐
-│        Hermes Agent (unchanged upstream)     │
+│      Hermes Agent (qualified extensions)    │
 │  profiles · tools · memory · skills · models │
 └──────────────────────────────────────────────┘
 ```
@@ -124,8 +126,8 @@ cp .env.example .env
 Edit `.env` and set a strong password and an independent session secret:
 
 ```dotenv
-MUSE_PASSWORD=replace-with-a-long-random-password
-MUSE_SESSION_SECRET=replace-with-at-least-32-random-bytes
+HOB_PASSWORD=replace-with-a-long-random-password
+HOB_SESSION_SECRET=replace-with-at-least-32-random-bytes
 ```
 
 Build and start the standalone stack:
@@ -133,7 +135,7 @@ Build and start the standalone stack:
 ```sh
 docker compose -f compose.yaml -f compose.standalone.yaml build
 docker compose -f compose.yaml -f compose.standalone.yaml up -d
-docker compose -f compose.yaml -f compose.standalone.yaml logs --tail=100 muse
+docker compose -f compose.yaml -f compose.standalone.yaml logs --tail=100 hob
 ```
 
 The standalone overlay binds to `127.0.0.1:3000`. Open <http://localhost:3000>.
@@ -147,13 +149,13 @@ ssh -L 3000:127.0.0.1:3000 user@your-vps
 For public access, put an HTTPS reverse proxy in front of port 3000 and set:
 
 ```dotenv
-MUSE_PUBLIC_URL=https://hob.example.com
-MUSE_SECURE_COOKIES=true
+HOB_PUBLIC_URL=https://hob.example.com
+HOB_SECURE_COOKIES=true
 ```
 
 ### Coolify
 
-Create a **Docker Compose** application from this repository using `compose.yaml`, enable **Preserve Repository During Deployment**, and assign a domain to the `muse` service on port **3000**. Coolify generates the app password and session secret automatically.
+Create a **Docker Compose** application from this repository using `compose.yaml`, enable **Preserve Repository During Deployment**, and assign a domain to the `hob` service on port **3000**. Coolify generates the app password and session secret automatically.
 
 See [Coolify deployment](deploy/COOLIFY.md) for the exact settings, environment variables, and commit verification steps.
 
@@ -167,7 +169,7 @@ A healthy settings service does not prove that a provider or tool is configured.
 
 ## First-run setup
 
-1. **Sign in** with `MUSE_PASSWORD` (or the password Coolify generated).
+1. **Sign in** with `HOB_PASSWORD` (or the password Coolify generated).
 2. Open **Settings → Main**.
 3. Choose a provider from the native catalog and save its API key under the suggested credential name. Supported providers may also offer device sign-in.
 4. Choose or enter a model and select it. For a custom endpoint, choose **Custom compatible endpoint**, enter its URL, a distinct endpoint name, and a key if required.
@@ -189,14 +191,14 @@ Saving a channel's fields does not connect it. Connecting is a separate confirme
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `MUSE_PASSWORD` | Yes | Dashboard login password. Keep it private. |
-| `MUSE_SESSION_SECRET` | Yes | Independent secret used to sign session cookies. Use at least 32 random bytes. |
-| `MUSE_PUBLIC_URL` | Recommended | Exact browser origin, e.g. `https://hob.example.com`. Required for hosted MCP OAuth callbacks and secure origin checks. |
-| `MUSE_SECURE_COOKIES` | For HTTPS | Set to `true` when the browser reaches hob over HTTPS. |
-| `MUSE_BIND_ADDRESS` | Standalone | Host interface for the standalone overlay. Defaults to `127.0.0.1`. |
-| `MUSE_PORT` | Optional | Host port for the standalone overlay. Defaults to `3000`. |
+| `HOB_PASSWORD` | Yes | Dashboard login password. Keep it private. |
+| `HOB_SESSION_SECRET` | Yes | Independent secret used to sign session cookies. Use at least 32 random bytes. |
+| `HOB_PUBLIC_URL` | Recommended | Exact browser origin, e.g. `https://hob.example.com`. Required for hosted MCP OAuth callbacks and secure origin checks. |
+| `HOB_SECURE_COOKIES` | For HTTPS | Set to `true` when the browser reaches hob over HTTPS. |
+| `HOB_BIND_ADDRESS` | Standalone | Host interface for the standalone overlay. Defaults to `127.0.0.1`. |
+| `HOB_PORT` | Optional | Host port for the standalone overlay. Defaults to `3000`. |
 
-Coolify supplies `SERVICE_PASSWORD_64_MUSE` and `SERVICE_REALBASE64_64_MUSE` through `compose.yaml`. Keep those values stable across redeploys.
+Coolify supplies `SERVICE_PASSWORD_64_HOB` and `SERVICE_REALBASE64_64_HOB` through `compose.yaml`. Keep those values stable across redeploys.
 
 **Do not put model or tool credentials in Compose.** Enter them in Settings so they stay out of the repository and deployment configuration.
 
@@ -290,7 +292,7 @@ hob is designed for a trusted operator, not for mutually hostile tenants.
 - **Local MCP executables.** Local-executable MCP servers run on the Hermes host. Profile separation is not an execution sandbox there either.
 - **No encryption at rest.** The data volume contains credentials and conversation state. Protect the volume, restrict access, and keep backups private.
 
-For a public deployment, terminate TLS at a reverse proxy, set `MUSE_PUBLIC_URL` and `MUSE_SECURE_COOKIES=true`, and do not publish the Hermes ports.
+For a public deployment, terminate TLS at a reverse proxy, set `HOB_PUBLIC_URL` and `HOB_SECURE_COOKIES=true`, and do not publish the Hermes ports.
 
 ## Data and upgrades
 
@@ -305,7 +307,17 @@ Upgrades are deliberate:
 
 Do not run an in-container source updater. An older runtime may not read state written by a newer one, so keep a matching backup for rollback.
 
-The older OpenClaw `muse-data` volume is preserved by Docker but is **not** mounted or automatically migrated. Keep it if it contains history you still need.
+The older OpenClaw `muse-data` volume is preserved by Docker but is **not** mounted or automatically migrated. Keep it if it contains history you still need. This historical volume name remains only in upgrade documentation.
+
+The canonical application namespace is now `hob` / `HOB_*`, including the Compose service and browser preferences. Existing `MUSE_*` runtime settings are accepted at the configuration boundary when their `HOB_*` equivalent is unset. On a local source launch, a single real `.muse-data` directory is renamed to `.hob-data`; if both exist, startup stops and requires an explicit `HERMES_HOME`. Explicit homes and the container's `hermes-data` volume remain in place. Browser preferences migrate once, preserving an existing canonical value. The renamed `hob_session` cookie requires signing in again.
+
+For an existing Coolify resource, copy its current password and session-secret values into `SERVICE_PASSWORD_64_HOB` and `SERVICE_REALBASE64_64_HOB` before redeploying, and assign its domain to service `hob`. Keep the same Compose project and `hermes-data` volume. See [the upgrade steps](deploy/COOLIFY.md#upgrade-to-the-hob-namespace).
+
+Back up the complete Hermes home, workspace root (including `artifacts/`), and private HOB state together while work is stopped. In OS-user isolation mode the workspace root is outside the Hermes home. A workspace-only backup omits the delivery receipts and native session/review state. Restore ownership and the same configured paths before starting the pinned image. Result publication preserves source files, never imports another bot's files, and reports a failed delivery rather than treating a scratch link as durable. Files outside the bot's assigned roots must first be copied by that bot into its workspace.
+
+Voice recording requires HTTPS (or localhost) and browser microphone support. Starting a recording and uploading it for transcription are separate actions. Transcription uses the selected bot's configured speech provider; it never sends the resulting message automatically. Mobile WebView permissions and actual speech quality still require device/provider testing. Native turn/time limits are available under Settings → General; they do not implement a currency spending cap across delegated or background work.
+
+The [audit plan](docs/audit-remediation-plan.md) covers all 22 findings without engineering-day estimates. The [session status](docs/audit-session-status.md) separates implemented changes, local regression evidence, and remaining deployment/device acceptance checks.
 
 ## Development
 
@@ -329,8 +341,8 @@ For local runtime work, use an isolated Hermes home and a supported Hermes Pytho
 
 ```sh
 export HERMES_HOME=/path/to/isolated/hermes-home
-export MUSE_PASSWORD=local-password
-export MUSE_SESSION_SECRET=local-session-secret
+export HOB_PASSWORD=local-password
+export HOB_SESSION_SECRET=local-session-secret
 node deploy/start.mjs
 ```
 

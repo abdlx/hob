@@ -97,7 +97,7 @@ test('bootstrap failure never exposes ticket, path or subprocess diagnostics', a
 
 test('bootstrap passes only the selected home and no web or listener authority to the child', async () => {
   const bootstrap = createSessionBootstrap({ env: { HERMES_DIR: '/synthetic-hermes', HERMES_HOME: '/synthetic-home',
-    MUSE_PASSWORD: 'private', HOB_STATE_DIR: 'private', API_SERVER_KEY: 'private', HERMES_DASHBOARD_SESSION_TOKEN: 'private', HERMES_TUI_GATEWAY_URL: 'ws://untrusted' },
+    HOB_PASSWORD: 'private', HOB_STATE_DIR: 'private', API_SERVER_KEY: 'private', HERMES_DASHBOARD_SESSION_TOKEN: 'private', HERMES_TUI_GATEWAY_URL: 'ws://untrusted' },
     execute: async (_exe, args, options) => {
       assert.equal(args.length, 1); assert.match(options.env.HERMES_HOME, /profiles[\\/]research$/);
       // The multiplexing gateway's single socket lives at the launch home, so the child

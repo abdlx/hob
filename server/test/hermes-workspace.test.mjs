@@ -16,6 +16,7 @@ const client = {
   async dashboard(route, options) {
     calls.push({ route, ...options });
     if (reply) return reply(route, options);
+    if (route === '/api/hob/schedule-preview') return { valid: true, nextRun: '2026-12-01T09:00:00+05:00', timezone: 'Asia/Karachi' };
     if (route === '/api/cron/jobs' && !options.method) return jobs[options.profile] || [];
     return { ok: true };
   },
@@ -100,7 +101,7 @@ test('memory editing requires fingerprinted native entry IDs and preserves exact
   for (const stale of ['memory:profile:0', 'memory:profile:0:invalid', 'skill-name']) assert.equal((await request('learning/node?id=' + stale)).status, 400);
   assert.equal(calls.length, before);
 });
-test('pending reviews use only native skills commands and require exact conversation ownership and explicit decisions', async () => {
+test('legacy review reads retain ownership but decisions require the versioned queue', async () => {
   const sessionKey = hermesNativeSessionKey('coder', 'session-one');
   assert.equal((await request('skill-review', 'POST', { sessionKey, action: 'pending' })).status, 200);
   assert.deepEqual(controls.at(-1), { profile: 'coder', method: 'command.dispatch', params: { session_id: 'session-one', name: 'skills', arg: 'pending' } });
@@ -109,12 +110,12 @@ test('pending reviews use only native skills commands and require exact conversa
   for (const value of [
     { sessionKey: hermesNativeSessionKey('default', 'session-one'), action: 'pending' },
     { sessionKey: hermesSessionKey('coder', 'session-one'), action: 'pending' },
-    { sessionKey, action: 'approve', id: 'proposal-1' }, { sessionKey, action: 'approve', id: 'all', confirm: true },
+    { sessionKey, action: 'approve', id: 'all', confirm: true },
     { sessionKey, action: 'approve', id: 'proposal-1; shell', confirm: true }, { sessionKey, action: 'approval', id: 'off' },
   ]) assert.equal((await request('skill-review', 'POST', value)).status, 400);
   assert.equal(controls.length, before);
-  for (const action of ['approve', 'reject']) assert.equal((await request('skill-review', 'POST', { sessionKey, action, id: 'proposal-1', confirm: true })).status, 200);
-  assert.equal(controls.at(-1).params.arg, 'reject proposal-1');
+  for (const action of ['approve', 'reject']) for (const confirm of [true, false]) assert.equal((await request('skill-review', 'POST', { sessionKey, action, id: 'proposal-1', confirm })).status, 409);
+  assert.equal(controls.length, before);
 });
 test('personality uses the selected native SOUL owner without renaming a profile or its directories', async () => {
   assert.equal((await request('soul')).status, 200);
@@ -160,4 +161,43 @@ test('native failure never causes retry or fallback to another operation', async
   try { assert.equal((await request('skill', 'POST', { name: 'notes', content: '# Notes' })).status, 503); }
   finally { reply = undefined; }
   assert.equal(calls.length, before + 1);
+});
+
+test('invalid schedules never reach native writes, and preview uses the native owner', async () => {
+  for (const schedule of ['not a schedule', '99 88 * * *', 'every 0h', '2020-01-01T00:00:00Z']) {
+    const before = calls.length;
+    assert.equal((await request('jobs', 'POST', { name: 'Invalid', prompt: 'Do work', schedule })).status, 400);
+    assert.equal(calls.length, before);
+  }
+  const result = await request('schedule-preview', 'POST', { schedule: '0 9 * * *' });
+  assert.equal((await result.json()).timezone, 'Asia/Karachi');
+  assert.equal(calls.at(-1).profile, 'coder');
+  reply = route => { if (route === '/api/hob/schedule-preview') return { valid: false }; throw new Error('Invalid preview must not create a job'); };
+  try { assert.equal((await request('jobs', 'POST', { name: 'Refused', prompt: 'Do work', schedule: '0 9 * * *' })).status, 400); }
+  finally { reply = undefined; }
+});
+
+test('versioned review requests bind exact revisions to a single bot and refuse forged decisions', async () => {
+  reply = () => ({ items: [], nextOffset: null });
+  try {
+    assert.equal((await request('reviews/memory')).status, 200);
+    assert.equal(calls.at(-1).route, '/api/hob/reviews/memory');
+    assert.equal(calls.at(-1).profile, 'coder');
+    const body = { id: 'abc12345', revision: 'a'.repeat(64), action: 'approve', requestId: 'b'.repeat(32), confirm: true };
+    for (const change of [{ revision: '' }, { id: 'all' }, { id: '../other' }, { confirm: false }, { profile: 'default' }]) {
+      const before = calls.length;
+      assert.equal((await request('reviews/memory', 'POST', { ...body, ...change })).status, 400);
+      assert.equal(calls.length, before);
+    }
+    assert.equal((await request('reviews/memory', 'POST', body)).status, 200);
+    assert.deepEqual(calls.at(-1), { route: '/api/hob/reviews/memory', profile: 'coder', method: 'POST', body });
+  } finally { reply = undefined; }
+});
+
+test('downloads preserve workspace scope and serve independent binary files without native content execution', async () => {
+  const result = await request('download?path=report.txt', 'GET', undefined, 'default');
+  assert.equal(result.status, 200); assert.equal(await result.text(), 'synthetic report');
+  assert.match(result.headers.get('content-disposition'), /^attachment/);
+  assert.equal(result.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal((await request('download?path=../main/report.txt')).status, 400);
 });

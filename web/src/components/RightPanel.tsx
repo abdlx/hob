@@ -534,7 +534,7 @@ export function RightPanel({ onNavigateBots }: { onNavigateBots?: () => void }) 
   return (
     <div className="hob-agent-panel w-full h-full min-h-0 bg-canvas flex flex-col select-none overflow-hidden relative">
       {/* Mobile top bar with back button */}
-      <div className="lg:hidden flex items-center justify-between px-4 py-3 border-b border-line shrink-0 bg-canvas">
+      <div className="xl:hidden flex items-center justify-between px-4 py-3 border-b border-line shrink-0 bg-canvas">
         <button
           onClick={toggleRightPanel}
           className="flex items-center gap-1 text-[14px] font-medium text-accent hover:text-accent-strong p-1 -ml-1 cursor-pointer transition-colors"
@@ -559,13 +559,13 @@ export function RightPanel({ onNavigateBots }: { onNavigateBots?: () => void }) 
       <button
         onClick={toggleRightPanel}
         title="Close panel"
-        className="hidden lg:block absolute top-4 right-4 p-2 rounded-full text-muted hover:text-ink hover:bg-black/5 transition-colors cursor-pointer z-10"
+        className="hidden xl:block absolute top-4 right-4 p-2 rounded-full text-muted hover:text-ink hover:bg-black/5 transition-colors cursor-pointer z-10"
       >
         <X size={18} strokeWidth={2} />
       </button>
 
       {/* Middle scrollable content */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 sm:px-5 sm:py-4 lg:px-5 lg:py-5">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 sm:px-5 sm:py-4 xl:px-5 xl:py-5">
 
       {/* Profile Header */}
       <div className="flex flex-col items-center text-center">
@@ -765,7 +765,7 @@ export function RightPanel({ onNavigateBots }: { onNavigateBots?: () => void }) 
       </div>
 
       {/* Mobile floating bottom dock navigation */}
-      <div className="shrink-0 pt-1 pb-2 bg-transparent flex justify-center lg:hidden">
+      <div className="shrink-0 pt-1 pb-2 bg-transparent flex justify-center xl:hidden">
         <MobileDock
           currentMobileView="chat"
           onNavigateBots={onNavigateBots}

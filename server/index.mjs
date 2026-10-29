@@ -1,3 +1,4 @@
+import { hobEnv } from './hob-config.mjs';
 import { HermesClient } from './hermes-client.mjs';
 import { createApp } from './app.mjs';
 import path from 'node:path';
@@ -11,8 +12,10 @@ import { cdpTransportMode } from './browser-launcher.mjs';
 import { botRelayUrl } from './hermes-bot-network.mjs';
 import { HermesBotIsolation, isolationMode } from './hermes-isolation.mjs';
 
-if (!process.env.MUSE_PASSWORD && !process.env.MUSE_ACCESS_TOKEN) {
-  console.error('Set MUSE_PASSWORD or MUSE_ACCESS_TOKEN before starting hob.');
+Object.assign(process.env, hobEnv());
+
+if (!process.env.HOB_PASSWORD && !process.env.HOB_ACCESS_TOKEN) {
+  console.error('Set HOB_PASSWORD or HOB_ACCESS_TOKEN before starting hob.');
   process.exit(1);
 }
 
@@ -61,11 +64,11 @@ const gateway = new HermesClient({ ...clientOptions, profileAccess: profile => r
 const runJournal = await HermesRunJournal.open(process.env.HOB_STATE_DIR);
 const nativeSessions = new HermesSessionBridge({ profileAccess: profile => registry.token(profile) });
 const exchanges = await HermesExchanges.open(process.env.HOB_STATE_DIR);
-const server = createApp({ gateway, bots, browser, runJournal, nativeSessions, exchanges, ...(process.env.MUSE_STATIC_DIR ? { staticDir: process.env.MUSE_STATIC_DIR } : {}) });
+const server = createApp({ gateway, bots, browser, runJournal, nativeSessions, exchanges, ...(process.env.HOB_STATIC_DIR ? { staticDir: process.env.HOB_STATIC_DIR } : {}) });
 gateway.start();
-const port = Number(process.env.MUSE_PORT || 3000);
+const port = Number(process.env.HOB_PORT || 3000);
 const build = `${process.env.HOB_GIT_COMMIT || 'unknown'} (${process.env.HOB_GIT_REF || 'unknown'})`;
-server.listen(port, process.env.MUSE_HOST || '127.0.0.1', () => console.log(`hob ${build} listening on port ${port}.`));
+server.listen(port, process.env.HOB_HOST || '127.0.0.1', () => console.log(`hob ${build} listening on port ${port}.`));
 // Bind every active bot on boot, not just the ones this process created. Bots
 // that predate the managed browser (and bots whose setup-time binding failed)
 // otherwise drive a throwaway Hermes browser while the dashboard watches an idle

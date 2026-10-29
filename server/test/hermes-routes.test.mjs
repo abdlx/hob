@@ -148,7 +148,7 @@ test('provider credentials can be configured without changing managed transport 
   assert.equal((await request('credentials?profile=coder', 'PUT', { key: 'ANTHROPIC_API_KEY', value: 'new-provider-secret' })).status, 200);
   assert.deepEqual(calls.at(-1).body, { key: 'ANTHROPIC_API_KEY', value: 'new-provider-secret', profile: 'coder' });
   const count = calls.length;
-  for (const key of ['TERMINAL_ENV', 'TERMINAL_SSH_KEY', 'TERMINAL_CWD', 'API_SERVER_KEY', 'HERMES_DASHBOARD_SESSION_TOKEN', 'HERMES_HOME', 'MUSE_PASSWORD', 'PATH', 'NODE_OPTIONS',
+  for (const key of ['TERMINAL_ENV', 'TERMINAL_SSH_KEY', 'TERMINAL_CWD', 'API_SERVER_KEY', 'HERMES_DASHBOARD_SESSION_TOKEN', 'HERMES_HOME', 'HOB_PASSWORD', 'PATH', 'NODE_OPTIONS',
     'GATEWAY_MULTIPLEX_PROFILES', 'HERMES_EXECUTABLE', 'HERMES_INSTALL_ROOT', 'HERMES_PYTHON',
     'HERMES_GATEWAY_EXTERNAL_SUPERVISOR', 'HERMES_GATEWAY_NO_SUPERVISE']) {
     assert.equal((await request('credentials', 'PUT', { key, value: 'do-not-write' })).status, 400);

@@ -1,6 +1,9 @@
 import path from 'node:path';
-import { lstat, realpath } from 'node:fs/promises';
+import { lstat, open, realpath } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { HermesError, hermesProfile, hermesResource, parseHermesSessionKey } from './hermes-client.mjs';
+import { scheduleProblem } from './schedule-input.mjs';
+import { readObservedFile } from './bounded-file.mjs';
 
 const invalid = message => new HermesError(400, message, 'INVALID_REQUEST');
 const text = (value, label, max = 64000) => {
@@ -18,7 +21,7 @@ const within = (root, target) => {
 const sensitive = /(?:^|[\\/])(?:\.[^\\/]*|node_modules|credentials?|secrets?)(?:[\\/]|$)|(?:token|credential|secret|\.pem$|\.key$)/i;
 
 /** Custom dashboard operations use native Hermes owners, never OpenClaw RPC. */
-export function createHermesWorkspaceRoutes({ client, bridge, workspaceRoot, bots, submitAutomation }) {
+export function createHermesWorkspaceRoutes({ client, bridge, workspaceRoot, bots, submitAutomation, artifacts }) {
   return async (req, res, url, { json, body }) => {
     const route = url.pathname.slice('/api/hermes/workspace/'.length);
     const method = req.method;
@@ -35,6 +38,31 @@ export function createHermesWorkspaceRoutes({ client, bridge, workspaceRoot, bot
       const { profile: _profile, ...result } = value;
       return result;
     };
+    const validateSchedule = async schedule => {
+      const problem = scheduleProblem(schedule); if (problem) throw invalid(problem);
+      const result = await dashboard('/api/hob/schedule-preview', { method: 'POST', body: { schedule } });
+      if (result?.valid !== true || typeof result.nextRun !== 'string' || !result.nextRun) throw invalid('Hermes could not validate a future run for this schedule.');
+      return result;
+    };
+    if (route === 'schedule-preview' && method === 'POST') {
+      const value = await input(['schedule']);
+      return json(res, 200, await validateSchedule(value.schedule));
+    }
+    const review = /^reviews\/(memory|skills)(?:\/([a-zA-Z0-9_-]{1,128}))?$/.exec(route);
+    if (review) {
+      if (method === 'GET') {
+        const offset = url.searchParams.get('offset') || '0';
+        if (!/^\d{1,5}$/.test(offset) || Number(offset) > 10000) throw invalid('Invalid proposal page.');
+        return json(res, 200, await dashboard(`/api/hob/reviews/${review[1]}${review[2] ? `/${review[2]}` : ''}`, { query: { offset } }));
+      }
+      if (method === 'POST' && !review[2]) {
+        const value = await input(['id', 'revision', 'action', 'requestId', 'confirm']);
+        if (value.confirm !== true || !['approve', 'reject'].includes(value.action) || !/^[a-zA-Z0-9_-]{1,128}$/.test(value.id || '') || value.id === 'all'
+          || !/^[a-f0-9]{64}$/.test(value.revision || '') || !/^[a-zA-Z0-9_-]{16,128}$/.test(value.requestId || '')) throw invalid('Confirm one exact proposal revision.');
+        return json(res, 200, await dashboard(`/api/hob/reviews/${review[1]}`, { method, body: value }));
+      }
+    }
+    if (route === 'review-history' && method === 'GET') return json(res, 200, await dashboard('/api/hob/review-history'));
 
     if (route === 'autonomy' && ['GET', 'POST'].includes(method)) {
       if (!bridge) throw new HermesError(503, 'The native session connection is unavailable.', 'SESSION_UNAVAILABLE');
@@ -83,6 +111,7 @@ export function createHermesWorkspaceRoutes({ client, bridge, workspaceRoot, bot
     if (route === 'jobs' && method === 'POST') {
       const value = await input(['name', 'prompt', 'schedule', 'paused']);
       text(value.name, 'task name', 200); text(value.prompt, 'task instructions'); text(value.schedule, 'schedule', 200);
+      await validateSchedule(value.schedule);
       if ('paused' in value && typeof value.paused !== 'boolean') throw invalid('Paused must be a boolean.');
       return json(res, 201, await dashboard('/api/cron/jobs', { method, body: { ...value, deliver: 'local' } }));
     }
@@ -97,6 +126,7 @@ export function createHermesWorkspaceRoutes({ client, bridge, workspaceRoot, bot
       if (!jobs.some(item => item.id === id)) throw new HermesError(404, 'This task does not belong to the selected bot.', 'NOT_FOUND');
       const value = method === 'PUT' ? await input(['name', 'prompt', 'schedule']) : undefined;
       if (value) for (const [key, entry] of Object.entries(value)) text(entry, key, key === 'prompt' ? 64000 : 200);
+      if (value?.schedule) await validateSchedule(value.schedule);
       return json(res, 200, await dashboard(`/api/cron/jobs/${hermesResource(id)}${job[2] ? `/${job[2]}` : ''}`,
         { method, ...(value ? { body: { updates: value } } : {}) }));
     }
@@ -134,14 +164,14 @@ export function createHermesWorkspaceRoutes({ client, bridge, workspaceRoot, bot
       if (owner.profile !== profile || owner.transport !== 'canonical') throw invalid('Select a native Hermes conversation for this bot.');
       if (!['pending', 'diff', 'approve', 'reject'].includes(value.action)) throw invalid('Unsupported skill review operation.');
       if (value.action !== 'pending' && (typeof value.id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(value.id) || value.id === 'all')) throw invalid('Select one pending proposal identifier.');
-      if (['approve', 'reject'].includes(value.action) && value.confirm !== true) throw invalid('Confirm the proposal decision.');
+      if (['approve', 'reject'].includes(value.action)) throw new HermesError(409, 'Inspect the complete proposal in the versioned review queue before deciding.', 'VERSIONED_REVIEW_REQUIRED');
       if (!bridge) throw new HermesError(503, 'Hermes native sessions are unavailable.', 'SESSION_UNAVAILABLE');
       const result = await bridge.rpc(profile, 'command.dispatch', { session_id: owner.sessionId, name: 'skills', arg: value.action + (value.action === 'pending' ? '' : ` ${value.id}`) });
       if (result?.type !== 'exec' || typeof result.output !== 'string') throw new HermesError(502, 'Hermes did not return a skill review result. Refresh before retrying.', 'HERMES_PROTOCOL_ERROR');
       return json(res, 200, { output: result.output });
     }
 
-    if (['files', 'file'].includes(route) && method === 'GET') {
+    if (['files', 'file', 'download'].includes(route) && method === 'GET') {
       if (!workspaceRoot) throw new HermesError(503, 'The dashboard workspace has not been configured.', 'WORKSPACE_UNAVAILABLE');
       // Canonicalize the trusted deployment root first. Windows packaged apps
       // may present the same LocalAppData directory under a redirected spelling.
@@ -164,9 +194,24 @@ export function createHermesWorkspaceRoutes({ client, bridge, workspaceRoot, bot
         const entries = listing.entries.filter(item => typeof item.path === 'string' && path.isAbsolute(item.path) && within(root, item.path)
           && !sensitive.test(path.relative(root, item.path)) && !item.broken_link)
           .map(item => ({ name: item.name, path: path.relative(root, item.path).split(path.sep).join('/'), directory: item.is_directory === true, size: item.size }));
-        return json(res, 200, { path: path.relative(root, target).split(path.sep).join('/'), entries });
+        return json(res, 200, { path: path.relative(root, target).split(path.sep).join('/'), entries, ...(artifacts ? { deliveries: await artifacts.list(profile) } : {}) });
       }
       const info = await lstat(target);
+      if (route === 'download') {
+        if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size > 25 * 1024 * 1024) throw invalid('Downloads support independent files up to 25 MB.');
+        const handle = await open(target, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
+        try {
+          const current = await handle.stat();
+          if (!current.isFile() || current.nlink !== 1 || current.ino !== info.ino || current.dev !== info.dev || current.size !== info.size) throw invalid('File changed before download. Refresh and try again.');
+          await client.credentialBinding(profile);
+          const bytes = await readObservedFile(handle, info.size);
+          const after = await handle.stat();
+          if (bytes.length !== info.size || after.mtimeMs !== current.mtimeMs || after.size !== current.size) throw invalid('File changed during download. Refresh and try again.');
+          res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="${path.basename(target).replace(/[^a-zA-Z0-9._-]/g, '_')}"`,
+            'Content-Length': String(bytes.length), 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox" });
+          res.end(bytes); return;
+        } finally { await handle.close(); }
+      }
       if (!info.isFile() || info.isSymbolicLink() || info.size > 2 * 1024 * 1024) throw invalid('Preview supports regular files up to 2 MB.');
       const result = await dashboard('/api/files/read', { query: { path: target } });
       return json(res, 200, { name: result.name, path: relative, mimeType: result.mime_type, dataUrl: result.data_url, size: result.size });

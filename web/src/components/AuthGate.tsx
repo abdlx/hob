@@ -25,8 +25,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
       setState((previous) => (previous ? { ...previous, authenticated: false } : null));
       setError('Your session expired. Sign in again.');
     };
-    window.addEventListener('muse:unauthorized', expired);
-    return () => window.removeEventListener('muse:unauthorized', expired);
+    window.addEventListener('hob:unauthorized', expired);
+    return () => window.removeEventListener('hob:unauthorized', expired);
   }, [check]);
 
   const login = async (event: FormEvent) => {
@@ -86,7 +86,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         )}
         {state && !state.configured && (
           <p className="text-xs leading-relaxed text-muted">
-            Set MUSE_PASSWORD on your server and restart hob to finish securing this installation.
+            Set HOB_PASSWORD on your server and restart hob to finish securing this installation.
           </p>
         )}
         {error && <p role="alert" className="text-xs leading-relaxed text-red-600">{error}</p>}

@@ -72,7 +72,7 @@ export function createHermesMcpOAuth(client, { publicUrl, now = Date.now } = {})
     return project(flow);
   };
   const start = async (name, profile) => {
-    if (!origin) throw new HermesError(503, 'Set MUSE_PUBLIC_URL to this dashboard’s HTTP(S) origin before starting MCP sign-in.', 'MCP_OAUTH_PUBLIC_URL_REQUIRED');
+    if (!origin) throw new HermesError(503, 'Set HOB_PUBLIC_URL to this dashboard’s HTTP(S) origin before starting MCP sign-in.', 'MCP_OAUTH_PUBLIC_URL_REQUIRED');
     const currentBinding = await client.credentialBinding(profile);
     const encoded = hermesResource(name);
     const inventory = await client.dashboard('/api/mcp/servers', { profile });
