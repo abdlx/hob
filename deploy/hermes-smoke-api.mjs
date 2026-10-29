@@ -146,9 +146,11 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       // pinned runtime. Declare BOTH for this owned vision-capable fixture;
       // production keeps Hermes's capability-aware defaults for real models.
       const beforeVision = await api('/api/hermes/config');
-      await api('/api/hermes/config', 'PUT', { config: { model: { supports_vision: true }, agent: { image_input_mode: 'native' } } });
+      const visionWrite = await api('/api/hermes/config', 'PUT', { config: { model: { supports_vision: true }, agent: { image_input_mode: 'native' } } });
       const visionConfig = await api('/api/hermes/config');
-      check('the owned vision probe declares native routing and model capability', visionConfig.agent?.image_input_mode === 'native' && visionConfig.model?.supports_vision === true);
+      // Native GET /api/config flattens model metadata to the model name.
+      // The actual image-part assertion below verifies the capability write.
+      check('the owned vision probe declares native routing without changing its model', visionWrite.ok === true && visionConfig.agent?.image_input_mode === 'native' && visionConfig.model === beforeVision.model);
       const mediaConversation = await api('/api/sessions', 'POST', { title: 'Native attachment proof', agentId: 'default' });
       const upload = (name, mime, base64) => api(session(mediaConversation.id, '/attachments'), 'POST', { name, mime, base64 });
       const photo = await upload('proof.png', 'image/png', 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jq1sAAAAASUVORK5CYII=');
