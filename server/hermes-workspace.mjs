@@ -38,15 +38,16 @@ export function createHermesWorkspaceRoutes({ client, bridge, workspaceRoot, bot
       const { profile: _profile, ...result } = value;
       return result;
     };
-    const validateSchedule = async schedule => {
+    const validateSchedule = async (schedule, after) => {
       const problem = scheduleProblem(schedule); if (problem) throw invalid(problem);
-      const result = await dashboard('/api/hob/schedule-preview', { method: 'POST', body: { schedule } });
-      if (result?.valid !== true || typeof result.nextRun !== 'string' || !result.nextRun) throw invalid('Hermes could not validate a future run for this schedule.');
+      if (after !== undefined && (typeof after !== 'string' || after.length > 40 || !/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(after) || !Number.isFinite(Date.parse(after)))) throw invalid('Use an ISO preview reference with an explicit UTC offset.');
+      const result = await dashboard('/api/hob/schedule-preview', { method: 'POST', body: { schedule, ...(after !== undefined ? { after } : {}) } });
+      if (result?.valid !== true || typeof result.nextRun !== 'string' || !Number.isFinite(Date.parse(result.nextRun)) || (after !== undefined && Date.parse(result.nextRun) <= Date.parse(after))) throw invalid('Hermes could not validate a future run for this schedule.');
       return result;
     };
     if (route === 'schedule-preview' && method === 'POST') {
-      const value = await input(['schedule']);
-      return json(res, 200, await validateSchedule(value.schedule));
+      const value = await input(['schedule', 'after']);
+      return json(res, 200, await validateSchedule(value.schedule, value.after));
     }
     const review = /^reviews\/(memory|skills)(?:\/([a-zA-Z0-9_-]{1,128}))?$/.exec(route);
     if (review) {

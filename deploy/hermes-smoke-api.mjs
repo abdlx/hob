@@ -5,6 +5,7 @@ import { SMOKE_MODEL, SMOKE_PROMPT, SMOKE_REPLY, SMOKE_FILE, SMOKE_CONTENT, SMOK
 import { proactiveFirstBoot, proactiveAfterRestart } from './proactive-smoke.mjs';
 import { verifyActiveCrashRecovery } from './recovery-smoke.mjs';
 import { memoryReviewFirstBoot, memoryReviewAfterRestart } from './memory-review-smoke.mjs';
+import { scheduleClockSmoke } from './schedule-smoke.mjs';
 
 // Reusable against the published image or an owned source-launched fixture.
 // Every write here is synthetic, and the caller must supply a fresh isolated
@@ -98,6 +99,7 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       persistedSoul.match(/<!-- HOB:BOT-IDENTITY:START -->/g)?.length === 1
         && persistedSoul.includes('Name: Main\n') && persistedSoul.includes('Stable profile id: default\n'));
     // A schedule created paused must stay paused and, above all, must never run.
+    await scheduleClockSmoke({ api, workspace, check });
     const schedulePreview = await workspace('schedule-preview', 'POST', { schedule: '0 9 * * *' });
     check('native schedule preview returns the effective timezone and a next run', schedulePreview.valid === true && Number.isFinite(Date.parse(schedulePreview.nextRun)) && typeof schedulePreview.timezone === 'string');
     check('invalid schedules fail before creation', (await request('/api/hermes/workspace/jobs?profile=default', 'POST', { name: 'Invalid smoke schedule', prompt: 'Never run.', schedule: '99 99 * * *' })).status === 400);

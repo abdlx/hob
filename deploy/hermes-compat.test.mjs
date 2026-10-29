@@ -4,6 +4,12 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+test('qualified timezone cache follows saved profile changes, stays bounded and refuses unknown source', async t => {
+  try {
+    await promisify(execFile)(process.platform === 'win32' ? 'python' : 'python3', [fileURLToPath(new URL('./test-timezone-compat.py', import.meta.url))], { timeout: 15000, windowsHide: true });
+  } catch (error) { if (error.code === 'ENOENT') { t.skip('Python unavailable'); return; } throw error; }
+});
+
 test('native controls mount only on qualified source and refuse repeated or unknown edits', async t => {
   const script = [
     'import ast, hashlib, importlib.util, tempfile',

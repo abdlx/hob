@@ -7,7 +7,8 @@ The app image applies a checksum-guarded fix to `gateway/run_goals.py`: native
 LOCAL heartbeats reach Hermes's admission queue before the legacy adapter-handler
 check. It also mounts `deploy/hob-native-controls.py` on the qualified native
 skills router for full revision-bound proposal decisions and scheduler previews.
-Unknown source bytes fail the build. `hob-compat.json` records both changes;
+The native clock cache also follows changed bot timezones without requiring a
+process restart. Unknown source bytes fail the build. `hob-compat.json` records the changes;
 Hermes still owns scheduling, memory/skill application, admission, execution and persistence.
 Local reference and archived runtime source trees are
 excluded from the app build context.

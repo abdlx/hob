@@ -230,14 +230,24 @@ async def history(profile: Optional[str] = None):
 
 @router.post("/api/hob/schedule-preview")
 async def schedule_preview(body: dict, profile: Optional[str] = None):
-    if set(body) != {"schedule"} or not isinstance(body["schedule"], str) or len(body["schedule"]) > 200:
+    if "schedule" not in body or set(body) - {"schedule", "after"} or not isinstance(body["schedule"], str) or len(body["schedule"]) > 200:
         raise HTTPException(400, "Enter one schedule")
+    after = body.get("after")
+    if after is not None:
+        from datetime import datetime
+        try:
+            if not isinstance(after, str) or len(after) > 40 or datetime.fromisoformat(after).utcoffset() is None:
+                raise ValueError("Explicit preview offset required")
+        except ValueError:
+            raise HTTPException(400, "Use an ISO preview reference with an explicit UTC offset")
     def work():
         from cron.jobs import parse_schedule, compute_next_run
         from hermes_time import get_timezone
         try:
             parsed = parse_schedule(body["schedule"])
-            next_run = compute_next_run(parsed)
+            if after is not None and parsed.get("kind") == "once":
+                raise HTTPException(400, "Reference-date previews apply only to recurring schedules")
+            next_run = compute_next_run(parsed, last_run_at=after)
             zone = get_timezone()
             return {"valid": True, "schedule": parsed, "nextRun": next_run, "timezone": str(zone) if zone else "server local timezone"}
         except (ValueError, TypeError):

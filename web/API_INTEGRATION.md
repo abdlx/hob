@@ -27,7 +27,7 @@ to one enrolled bot; changing the UI selector cannot redirect an in-flight write
 | `POST /api/hermes/setup/audio/transcribe` | `{dataUrl, confirm:true}`, supported audio up to 1 MB; transcript-only response |
 | `GET/PUT /api/hermes/setup/learning` | Independent effective policy values and their sources |
 | `/api/hermes/workspace/jobs` and job lifecycle routes | Native bot-owned schedules; create/edit requires authoritative validation |
-| `POST /api/hermes/workspace/schedule-preview` | Native parser, next run and effective timezone without creating a job |
+| `POST /api/hermes/workspace/schedule-preview` | Native parser, next run and effective timezone without creating a job; optional offset-qualified `after` reference for recurring previews |
 | `GET /api/hermes/workspace/reviews/:subsystem`, `GET .../:id` | Memory/skill proposal page, complete bounded diff/payload and revision |
 | `POST /api/hermes/workspace/reviews/:subsystem` | `{id, revision, action, requestId, confirm:true}` for one inspected approve/reject decision |
 | `GET /api/hermes/workspace/review-history` | Selected profile's decision metadata |

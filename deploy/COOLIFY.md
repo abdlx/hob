@@ -7,7 +7,7 @@ For an existing resource, preserve its current secrets and storage before deploy
 1. Copy the existing `SERVICE_PASSWORD_64_MUSE` value into `SERVICE_PASSWORD_64_HOB`, and `SERVICE_REALBASE64_64_MUSE` into `SERVICE_REALBASE64_64_HOB`. Do this privately in Coolify; never paste the values into logs or Git. The new references can otherwise generate different secrets.
 2. Move the existing domain/proxy assignment from service `muse` to `hob`. Use `SERVICE_URL_HOB_3000` / `HOB_PUBLIC_URL` for the same public origin. Keep the same resource/project and existing `hermes-data` volume; do not create an empty replacement volume.
 3. Rename operator-supplied `MUSE_*` application settings to `HOB_*`. The source-launch configuration adapter accepts old names only when the corresponding canonical setting is absent. Compose interpolation uses the variables shown in the current files.
-4. Build the whole image. The new native review and schedule-preview endpoints are installed by `apply-hermes-compat.py`; replacing only the frontend bundle is insufficient. Both upstream source checksums must match the pinned runtime, or the build stops.
+4. Build the whole image. The native review/schedule-preview endpoints and timezone-cache fix are installed by `apply-hermes-compat.py`; replacing only the frontend bundle is insufficient. The heartbeat, skills-router and clock source checksums must match the pinned runtime, or the build stops.
    If the deployed `/api/version` reports commit `unknown`, provide the public
    checkout SHA as build-time `HOB_GIT_COMMIT` when Coolify does not export
    `SOURCE_COMMIT`. The CI image passes and verifies the exact checkout SHA.

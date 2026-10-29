@@ -39,7 +39,7 @@ The product, supported source, deployment service, examples and CI names use `ho
 
 ## Runtime ownership and recovery
 
-The pinned runtime remains Hermes commit `7e9eb8d9a30f4a9bb9f8ecaf816b4b0ffdf47357`. The application adds a checksum-qualified native JSON router for schedule previews and proposal reviews, alongside the existing heartbeat fix. Both source hashes must match at image build; an unknown upstream router fails the build. A complete image rebuild is required.
+The pinned runtime remains Hermes commit `7e9eb8d9a30f4a9bb9f8ecaf816b4b0ffdf47357`. The application adds a checksum-qualified native JSON router for schedule previews and proposal reviews, alongside the heartbeat and timezone-cache fixes. Every qualified source hash must match at image build; unknown upstream content fails the build. A complete image rebuild is required.
 
 The review extension reads the native pending store and delegates application to native memory/skill appliers with their preconditions. Decisions claim a proposal before applying it. A crash or audit failure after application leaves an unresolved claim; another request cannot blindly apply it again. Decision history is metadata, not automatic rollback. Preserve native state, claims and audit together for manual reconciliation. The audit is not an independently tamper-proof security boundary against a process with the same filesystem identity.
 
@@ -48,9 +48,9 @@ Delivery recovery observes retained native terminal receipts in bounded batches;
 ## Verification record
 
 - Full server suite after telemetry and ownership checks: 459 passed, two platform-specific skips.
-- Web unit suite: 55 passed. Production build and lint passed.
+- Web unit suite: 56 passed. Production build and lint passed; the affected scheduling browser regression passed after bot-zone formatting changed.
 - Browser suite: 34 passed in the full run. The subsequently added 320px touch-target/input-size test passed separately, for 35 passing cases. Its CSS refinement also passed build and lint.
-- Deployment unit suite: 32 passed, including live-check behavior, source qualification and smoke fixtures. Native review helper: eight passed, including store-path and malformed-decision refusal.
+- Deployment unit suite: 32 passed before the additional timezone-cache regression, which also passed. Native review helper: eight passed, including store-path and malformed-decision refusal.
 - Mobile: TypeScript check and three tests passed. No physical Android/iOS build or microphone test is claimed.
 - Existing full server checks exercise real local Chromium human leases, raw CDP gating, persistent per-bot cookies, viewer load and crash recovery. These are local regressions, not production latency or Linux isolation certification.
 
@@ -58,7 +58,9 @@ Delivery recovery observes retained native terminal receipts in bounded batches;
 
 Docker is unavailable locally, but [Linux image CI for `a6bd9441`](https://github.com/abdlx/hob/actions/runs/40916698066) passed both shared and OS-user-isolated smoke runs. Those runs exercise the real image, native preview/review extension, native image input, reviewed skill application, artifact publication/download, ACLs, proactive scheduling/relay/heartbeat, and container crash/recreation. Web and server CI passed too. The attachment fixture required both native routing and explicit vision capability because its synthetic model has no model-catalog entry; native configuration reads intentionally flatten model metadata to a model-name string.
 
-The follow-up adds real native background-memory approve/reject/idempotency/restart checks to the disposable image fixture. This additional coverage remains pending CI until its commit's run finishes; it is not a live-provider speech or recall score.
+The [follow-up Linux CI for `70d04e2f`](https://github.com/abdlx/hob/actions/runs/40919413949) passed both image modes, including actual background-memory staging, complete payload review, cross-bot/stale denial, approve/reject/idempotency, and persisted approved/absent rejected memory after recreation. It also verified the baked checkout SHA. These are real native tool/applier tests using the owned local fixture provider; they are not live-provider speech or recall scores.
+
+Timezone follow-up: the pinned clock cached a profile's timezone by config path alone. A same-path configuration change reproduced a stale value without restart. The checksum-qualified fix keys the cache by the effective zone as well, uses one coherent resolved value, and caps the cache at 256 entries. The original regression and exact pinned source qualification pass locally. Native image coverage adds immediate timezone changes, spring/autumn daily cron, an autumn repeated hour, elapsed intervals, and a spring skipped-time instant. That new image coverage remains pending its CI run. Reference-date previews are read-only recurring-schedule calculations through Hermes's own `compute_next_run`; saves still validate from the current native clock. The UI now formats previews in the bot's zone instead of labelling the viewer's local time as bot time.
 
 The operator's live domain initially returned proxy 404s after the Compose service rename. After its route was reassigned, `/api/version` reached Hermes and unauthenticated session/settings/workspace/diagnostic requests returned 401. The supplied application login was rejected, so authenticated live checks and cookie attributes remain untested. Preserve the old generated Coolify password/session-secret values under the new variable names before redeploying. No password, cookie or private response body is stored in this document or the live-check reports. The live instance currently reports build commit `unknown`; CI now requires the baked checkout SHA, and Compose accepts an explicit `HOB_GIT_COMMIT` fallback when `SOURCE_COMMIT` is unavailable.
 

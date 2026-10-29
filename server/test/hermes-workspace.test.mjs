@@ -16,7 +16,7 @@ const client = {
   async dashboard(route, options) {
     calls.push({ route, ...options });
     if (reply) return reply(route, options);
-    if (route === '/api/hob/schedule-preview') return { valid: true, nextRun: '2026-12-01T09:00:00+05:00', timezone: 'Asia/Karachi' };
+    if (route === '/api/hob/schedule-preview') return { valid: true, nextRun: '2099-12-01T09:00:00+05:00', timezone: 'Asia/Karachi' };
     if (route === '/api/cron/jobs' && !options.method) return jobs[options.profile] || [];
     return { ok: true };
   },
@@ -172,6 +172,13 @@ test('invalid schedules never reach native writes, and preview uses the native o
   const result = await request('schedule-preview', 'POST', { schedule: '0 9 * * *' });
   assert.equal((await result.json()).timezone, 'Asia/Karachi');
   assert.equal(calls.at(-1).profile, 'coder');
+  assert.equal((await request('schedule-preview', 'POST', { schedule: '0 9 * * *', after: '2027-03-13T09:01:00-05:00' })).status, 200);
+  assert.deepEqual(calls.at(-1).body, { schedule: '0 9 * * *', after: '2027-03-13T09:01:00-05:00' });
+  for (const after of ['tomorrow', '2027-03-13T09:00:00', '2027-99-99T00:00:00Z']) {
+    const before = calls.length;
+    assert.equal((await request('schedule-preview', 'POST', { schedule: '0 9 * * *', after })).status, 400);
+    assert.equal(calls.length, before);
+  }
   reply = route => { if (route === '/api/hob/schedule-preview') return { valid: false }; throw new Error('Invalid preview must not create a job'); };
   try { assert.equal((await request('jobs', 'POST', { name: 'Refused', prompt: 'Do work', schedule: '0 9 * * *' })).status, 400); }
   finally { reply = undefined; }
