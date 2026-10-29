@@ -171,6 +171,66 @@ def phase_browse(base, cookie, browser_navigate, browser_snapshot):
           "https://example.com" in snapshot and '"success": true' in snapshot)
 
 
+def phase_focused_tools(base, cookie, navigate, snapshot, fill, click, console, cdp):
+    """Pinned-image contract: real native tools, disposable DOM, no model calls.
+
+    Only navigation loads a public page. Inputs and clicks affect a synthetic
+    client-side DOM; no form, message or transaction is submitted externally.
+    """
+    def result(raw):
+        value = json.loads(raw)
+        assert isinstance(value, dict), "Native tool response must be an object"
+        return value
+
+    def succeeds(label, raw):
+        value = result(raw)
+        assert value.get("success") is True, label + ": " + json.dumps(value)[:700]
+        print("[PASS] " + label, flush=True)
+        return value
+
+    succeeds("pinned Hermes navigates through HOB's broker", navigate(SITE, task_id="e2e"))
+    assert status(base, cookie)["url"].rstrip("/") == SITE.rstrip("/")
+    fixture = """(() => {
+      document.body.innerHTML = '<label>Fixture draft<input id="hob-fixture"></label><button id="hob-apply">Apply fixture</button><p id="hob-result"></p>';
+      window.hobFixtureClicks = 0;
+      document.getElementById('hob-apply').onclick = () => {
+        window.hobFixtureClicks++;
+        document.getElementById('hob-result').textContent = 'clicked ' + window.hobFixtureClicks;
+      };
+      return 'fixture-ready';
+    })()"""
+    succeeds("native console creates only the disposable DOM fixture", console(expression=fixture, task_id="e2e"))
+    tree = snapshot(task_id="e2e")
+    succeeds("native snapshot reads the disposable controls", tree)
+    boxes = refs_from_snapshot(tree, r"\btextbox\b", require="Fixture draft")
+    buttons = refs_from_snapshot(tree, r"\bbutton\b", require="Apply fixture")
+    assert len(boxes) == len(buttons) == 1, "Native snapshot must expose both fixture refs"
+    succeeds("native typing reaches the actual input", fill(boxes[0], "reviewed value", task_id="e2e"))
+    succeeds("native clicking invokes the actual button", click(buttons[0], task_id="e2e"))
+    expression = "({value: document.getElementById('hob-fixture').value, clicks: window.hobFixtureClicks})"
+    expected = {"value": "reviewed value", "clicks": 1}
+    assert succeeds("native evaluation verifies the final DOM", console(expression=expression, task_id="e2e"))["result"] == expected
+    assert control(base, cookie, "take")["control"]["holder"] == "human"
+    before_url = status(base, cookie)["url"]
+    attempts = [
+        ("navigation", lambda: navigate(SITE + "?blocked=1", task_id="e2e")),
+        ("typing", lambda: fill(boxes[0], "forbidden", task_id="e2e")),
+        ("clicking", lambda: click(buttons[0], task_id="e2e")),
+        ("console evaluation", lambda: console(expression="window.hobFixtureClicks = 99", task_id="e2e")),
+    ]
+    for label, attempt in attempts:
+        assert result(attempt()).get("success") is False, "Human takeover must refuse native " + label
+        print("[PASS] human takeover refuses native " + label, flush=True)
+    raw = cdp(method="Page.navigate", params={"url": SITE + "?raw-blocked=1"}, task_id="e2e")
+    assert "-32001" in raw, "Raw native CDP must surface the broker's lease refusal: " + raw[:700]
+    assert status(base, cookie)["url"] == before_url, "No refused path may navigate"
+    assert control(base, cookie, "release")["control"]["holder"] == "agent"
+    assert succeeds("native tools resume after human handback", console(expression=expression, task_id="e2e"))["result"] == expected
+    succeeds("a native click succeeds after handback", click(buttons[0], task_id="e2e"))
+    assert succeeds("handback preserves the same DOM and input", console(expression=expression, task_id="e2e"))["result"] == {**expected, "clicks": 2}
+    print("[PASS] pinned native browser tools and raw CDP honor the human lease", flush=True)
+
+
 def phase_type_and_click(base, cookie, browser_navigate, browser_snapshot, browser_type, browser_click):
     info("phase 1b: the bot types and clicks on a real page")
     opened = browser_navigate(FORM_SITE, task_id="e2e")
@@ -663,7 +723,7 @@ def main():
         facts = json.loads(ready[len("READY "):])
         base = f"http://127.0.0.1:{facts['httpPort']}"
         info(f"hob listening on {base}")
-        info(f"bot {BOT} agent CDP endpoint: {facts['cdpUrl']}")
+        info(f"bot {BOT} uses its private broker endpoint")
 
         # The bot's Hermes profile is pointed at the managed browser exactly the way
         # the product does it: browser.backend=off plus browser.cdp_url.
@@ -693,6 +753,10 @@ def main():
             notes.append(f"browser_console unavailable: {error}")
 
         cookie = login(base)
+        if os.environ.get("HOB_E2E_FOCUSED") == "1":
+            assert all([browser_click, browser_type, browser_console, browser_cdp]), "All pinned native browser tools are required; no skipped contracts"
+            phase_focused_tools(base, cookie, browser_navigate, browser_snapshot, browser_type, browser_click, browser_console, browser_cdp)
+            return 0
         phase_browse(base, cookie, browser_navigate, browser_snapshot)
         if browser_click and browser_type:
             phase_type_and_click(base, cookie, browser_navigate, browser_snapshot, browser_type, browser_click)

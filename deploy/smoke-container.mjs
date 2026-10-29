@@ -268,6 +268,9 @@ try {
       return JSON.parse(docker(['exec', container, '/usr/local/bin/node', '-e', script, url], 10000)).location;
     } });
   const saved = await smoke.firstBoot();
+  if (!usersIsolation) console.log('Pinned native browser tools: ' + docker(['exec', '--user', '10000:10000',
+    '--env', 'HERMES_REPO=/opt/hermes', '--env', 'HOB_E2E_FOCUSED=1', '--env', 'HOB_E2E_AGENT_WAIT_MS=250',
+    container, '/opt/hermes/.venv/bin/python', '/app/server/e2e/hermes-tools-e2e.py'], 180000));
   verifyRuntimeUsers(container);
   if (usersIsolation) console.log('OS isolation proof: ' + docker(['exec', container, '/usr/bin/python3', '/app/deploy/isolation-proof.py'], 120000));
   console.log('Actual image first boot passed ' + smoke.checks.length + ' authenticated native checks.');
