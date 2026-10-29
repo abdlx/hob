@@ -171,6 +171,7 @@ function HobApp() {
     {connection ? <>
       {bootstrap && !webError ? <View style={{ flex: 1 }}><WebView<unknown> key={bootstrap.ticket} ref={web} source={{ html: `<!DOCTYPE html><html><body style="background:${palette.bg}"><form id="b" method="POST" action="${connection.origin}/api/mobile/bootstrap"><input type="hidden" name="ticket" value="${bootstrap.ticket.replace(/"/g, '&quot;')}"></form><script>document.getElementById("b").submit();</script></body></html>`, baseUrl: connection.origin }}
         style={{ backgroundColor: palette.bg }} originWhitelist={[connection.origin]} javaScriptEnabled domStorageEnabled sharedCookiesEnabled thirdPartyCookiesEnabled={false} mixedContentMode="never" allowFileAccess={false} allowFileAccessFromFileURLs={false} allowUniversalAccessFromFileURLs={false}
+        mediaCapturePermissionGrantType="prompt"
         injectedJavaScript={injected} injectedJavaScriptForMainFrameOnly injectedJavaScriptBeforeContentLoadedForMainFrameOnly
         onMessage={onMessage} onNavigationStateChange={state => { canGoBack.current = state.canGoBack; }}
         onShouldStartLoadWithRequest={request => { if (sameInstance(request.url, connection.origin)) return true; if (request.isTopFrame === false) return false; if (/^(https:|mailto:|tel:)/i.test(request.url)) void Linking.openURL(request.url).catch(() => undefined); return false; }}

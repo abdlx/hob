@@ -34,6 +34,7 @@ jobs:
       - run: npm run bundle:check
       - run: npx expo prebuild --no-install --platform android
       - run: npx expo config --type introspect --json > /tmp/hob-native-config.json
+      - run: node scripts/check-native-config.mjs /tmp/hob-native-config.json
   android-preview:
     # An account-free, arm64 phone preview signed with the generated debug key.
     # Store builds and APNs/FCM credentials remain owned by the user's EAS project.
