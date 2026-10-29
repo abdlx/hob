@@ -142,10 +142,13 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       const history = await api(session(sessionId, '/messages'));
       check('native history includes the assistant reply', history.some(item => item.role === 'assistant' && item.content.includes(SMOKE_REPLY)));
       // This owned fixture accepts image parts but has no public model-catalog
-      // entry. Declare native routing for this probe; production keeps Hermes'
-      // capability-aware default rather than forcing images into text models.
-      await api('/api/hermes/config', 'PUT', { config: { agent: { image_input_mode: 'native' } } });
-      check('the owned vision probe explicitly selects native image routing', (await api('/api/hermes/config')).agent?.image_input_mode === 'native');
+      // entry. Native routing and request capability are distinct checks in the
+      // pinned runtime. Declare BOTH for this owned vision-capable fixture;
+      // production keeps Hermes's capability-aware defaults for real models.
+      const beforeVision = await api('/api/hermes/config');
+      await api('/api/hermes/config', 'PUT', { config: { model: { supports_vision: true }, agent: { image_input_mode: 'native' } } });
+      const visionConfig = await api('/api/hermes/config');
+      check('the owned vision probe declares native routing and model capability', visionConfig.agent?.image_input_mode === 'native' && visionConfig.model?.supports_vision === true);
       const mediaConversation = await api('/api/sessions', 'POST', { title: 'Native attachment proof', agentId: 'default' });
       const upload = (name, mime, base64) => api(session(mediaConversation.id, '/attachments'), 'POST', { name, mime, base64 });
       const photo = await upload('proof.png', 'image/png', 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jq1sAAAAASUVORK5CYII=');
@@ -156,7 +159,7 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
       const mediaStream = await mediaTurn.text();
       check('the native image reaches the model as actual image content', mediaTurn.ok && mediaStream.includes(SMOKE_ATTACHMENT_REPLY)
         && mediaStream.includes('event: done') && !mediaStream.includes('event: error'), mediaStream.slice(-1600));
-      await api('/api/hermes/config', 'PUT', { config: { agent: { image_input_mode: 'auto' } } });
+      await api('/api/hermes/config', 'PUT', { config: { model: { supports_vision: beforeVision.model?.supports_vision ?? null }, agent: { image_input_mode: beforeVision.agent?.image_input_mode || 'auto' } } });
       providerTier = true;
     } else {
       check('the native runtime status endpoint answers', typeof (await api('/api/readiness')).ready === 'boolean');
