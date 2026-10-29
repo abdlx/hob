@@ -699,7 +699,10 @@ export class BrowserSession {
     const targets = await this.#listTargets();
     if (Array.isArray(targets)) {
       const pages = targets.filter(target => target?.type === 'page' && !String(target.url || '').startsWith('devtools://'));
-      const active = pages.find(target => target.id === this.#castTargetId) ?? pages[0];
+      // Polling without a viewer must follow the same selection rules as the
+      // screencast: a leftover launch tab must not hide the agent's real page.
+      const active = this.#selectTarget(pages.map(target => ({ ...target, targetId: target.id })));
+      if (active) this.#castTargetId = active.id;
       this.#tabs = pages.map(target => ({
         id: target.id,
         url: String(target.url || ''),

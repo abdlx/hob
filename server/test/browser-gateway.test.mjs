@@ -305,6 +305,23 @@ test('gateway: the viewer streams frames and drives the browser while in control
   await waitFor(() => viewer.received.some(message => message.t === 'tabs' && message.tabs.length >= 1));
 });
 
+test('gateway: polling without a viewer follows the real page instead of a launch tab', async t => {
+  const started = await startManager(t);
+  if (!started) return;
+  const session = await started.manager.ensure('alpha');
+  const agent = await agentClient(session);
+  t.after(() => agent.raw.close());
+  await session.refresh();
+  const created = await agent.raw.call('Target.createTarget', { url: dataUrl('<title>UNWATCHED-WORK</title><h1>Actual work page</h1>') });
+  assert.ok(created.result?.targetId);
+  await waitFor(async () => (await session.refresh()).tabs.find(tab => tab.active)?.title === 'UNWATCHED-WORK');
+  assert.equal(session.status().viewers, 0);
+  assert.equal(session.status().tabs.find(tab => tab.active)?.id, created.result.targetId);
+  assert.equal(session.status().title, 'UNWATCHED-WORK');
+  await agent.raw.call('Target.createTarget', { url: 'about:blank' });
+  assert.equal((await session.refresh()).tabs.find(tab => tab.active)?.id, created.result.targetId);
+});
+
 test('gateway: a viewer opened on the launch page follows the page the agent opens', async t => {
   const started = await startManager(t);
   if (!started) return;

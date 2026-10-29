@@ -4,6 +4,12 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+test('qualified native browser evaluation keeps supplied CDP execution on its selected CLI page', async t => {
+  try {
+    await promisify(execFile)(process.platform === 'win32' ? 'python' : 'python3', [fileURLToPath(new URL('./test-browser-eval-compat.py', import.meta.url))], { timeout: 15000, windowsHide: true });
+  } catch (error) { if (error.code === 'ENOENT') { t.skip('Python unavailable'); return; } throw error; }
+});
+
 test('qualified timezone cache follows saved profile changes, stays bounded and refuses unknown source', async t => {
   try {
     await promisify(execFile)(process.platform === 'win32' ? 'python' : 'python3', [fileURLToPath(new URL('./test-timezone-compat.py', import.meta.url))], { timeout: 15000, windowsHide: true });

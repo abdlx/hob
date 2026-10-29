@@ -9,6 +9,10 @@ check. It also mounts `deploy/hob-native-controls.py` on the qualified native
 skills router for full revision-bound proposal decisions and scheduler previews.
 The native clock cache also follows changed bot timezones without requiring a
 process restart. Unknown source bytes fail the build. `hob-compat.json` records the changes;
+For supplied CDP connections, native console evaluation uses the same Hermes CLI
+session as navigation, snapshots, typing and clicking. The pinned supervisor's
+optional evaluation fast path can otherwise target the untouched New Tab page.
+This correction is checksum-qualified against the pinned native browser source.
 Hermes still owns scheduling, memory/skill application, admission, execution and persistence.
 An unconfirmed native approval retains its claimed proposal instead of becoming
 replayable. The review queue shows these claims for inspection. After comparing
