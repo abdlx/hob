@@ -233,6 +233,10 @@ def phase_focused_tools(base, cookie, navigate, snapshot, fill, click, console, 
     assert status(base, cookie)["url"] == before_url, "No refused path may navigate"
     assert control(base, cookie, "release")["control"]["holder"] == "agent"
     assert succeeds("native tools resume after human handback", console(expression=expression, task_id="e2e"))["result"] == expected
+    refreshed = snapshot(task_id="e2e")
+    succeeds("native snapshot refreshes ephemeral refs after handback", refreshed)
+    buttons = refs_from_snapshot(refreshed, r"\bbutton\b", require="Apply fixture")
+    assert len(buttons) == 1, "The same button must remain available after handback"
     succeeds("a native click succeeds after handback", click(buttons[0], task_id="e2e"))
     assert succeeds("handback preserves the same DOM and input", console(expression=expression, task_id="e2e"))["result"] == {**expected, "clicks": 2}
     print("[PASS] pinned native browser tools and raw CDP honor the human lease", flush=True)
