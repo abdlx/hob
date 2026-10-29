@@ -66,7 +66,21 @@ jobs:
           node-version: '24.21.0'
       - run: npm install --global npm@11.19.0 --no-audit --no-fund
       - run: npm ci --prefix server
-      - run: node --test --test-concurrency=2 server/test/*.test.mjs
+      - name: Server tests with inspectable failure evidence
+        shell: bash
+        run: |
+          set +e
+          node --test --test-reporter=spec --test-concurrency=2 server/test/*.test.mjs 2>&1 | tee "$RUNNER_TEMP/server-tests.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            detail=$(tail -c 6000 "$RUNNER_TEMP/server-tests.log")
+            detail=${detail//'%'/'%25'}
+            detail=${detail//$'\r'/'%0D'}
+            detail=${detail//$'\n'/'%0A'}
+            printf '::error title=server test failures::%s\n' "$detail"
+          fi
+          exit "$status"
       - run: node --test deploy/*.test.mjs
       - run: python3 deploy/test-native-controls.py
   first-run:
