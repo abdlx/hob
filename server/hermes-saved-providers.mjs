@@ -26,9 +26,11 @@ export function createSavedProviders(client, bots, { home, managedEnv }) {
     const env = await client.dashboard('/api/env', { profile });
     if (!env || typeof env !== 'object' || Array.isArray(env)) throw new HermesError(502, 'Hermes returned an invalid credential inventory.', 'HERMES_PROTOCOL_ERROR');
     const hasMembership = Object.values(env).some(row => row?.provider || row?.provider_profiles?.length);
+    const hasSavedKeys = Object.entries(env).some(([key, row]) => keyName(key) && !managedEnv.test(key)
+      && !/^HERMES_CUSTOM_/.test(key) && row?.is_set === true && row?.is_password !== false);
     // Older runtimes need picker hints; current native credential metadata is
     // sufficient, so ordinary card loads never need a model catalog probe.
-    const catalog = hasMembership ? { providers: [] } : await client.dashboard('/api/model/options', {
+    const catalog = hasMembership || !hasSavedKeys ? { providers: [] } : await client.dashboard('/api/model/options', {
       profile, query: { include_unconfigured: true, explicit_only: true },
     });
     if (!Array.isArray(catalog.providers)) throw new HermesError(502, 'Hermes returned an invalid provider inventory.', 'HERMES_PROTOCOL_ERROR');
@@ -74,7 +76,7 @@ export function createSavedProviders(client, bots, { home, managedEnv }) {
     for (let offset = 0; offset < roster.length; offset += 4) {
       await Promise.all(roster.slice(offset, offset + 4).map(async source => {
         try {
-          const { rows } = await inventory(source.name), currentRevision = await revision(source.name);
+          const { rows } = source.name === target ? targetInventory : await inventory(source.name), currentRevision = await revision(source.name);
           for (const row of rows) {
             const proof = verified.get(row.id);
             const verifiedAt = proof && currentRevision && proof.revision === currentRevision && Date.now() - proof.time < 600_000 ? new Date(proof.time).toISOString() : null;

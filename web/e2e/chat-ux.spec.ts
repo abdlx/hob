@@ -78,7 +78,10 @@ test('native media appears in removable cards above the text field and attachmen
   await openChat(page, true);
   const composer = page.getByRole('form', { name: 'Message composer' });
   const initial = (await composer.boundingBox())!;
-  await page.getByRole('button', { name: 'Attach photos or files', exact: true }).click();
+  await page.getByRole('button', { name: 'Add files or library', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: 'File library', exact: true })).toBeVisible();
+  await page.screenshot({ path: 'test-results/chat-plus-menu-mobile.png', fullPage: true });
+  await page.getByRole('menuitem', { name: 'Attach files', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Remove attachment photo.png', exact: true })).toBeVisible();
   await expect(composer.getByText('notes.txt', { exact: true })).toBeVisible();
   expect((await composer.boundingBox())!.height).toBeGreaterThan(initial.height + 50);
@@ -107,7 +110,8 @@ test('a cancelled native picker releases the composer without staging files', as
     } } });
   });
   await openChat(page);
-  await page.getByRole('button', { name: 'Attach photos or files', exact: true }).click();
+  await page.getByRole('button', { name: 'Add files or library', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Attach files', exact: true }).click();
   await expect(page.getByText('Adding attachments…', { exact: true })).toBeHidden();
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Still ready');
   await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();

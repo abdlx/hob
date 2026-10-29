@@ -417,7 +417,8 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
         <div className="flex-1 min-h-0 overflow-y-auto px-3 py-1 space-y-1" role="list">
           {filteredAgents.length === 0 ? (
             <div className="text-center py-8 px-4 text-faint">
-              <p className="text-xs">No bots match "{search}".</p>
+              <p className="text-xs">{isPreparing ? 'Loading bots…' : search.trim() ? `No bots match "${search}".` : 'No bots available.'}</p>
+              {search.trim() ? <button className="mt-3 text-xs text-accent cursor-pointer" onClick={() => setSearch('')}>Clear search</button> : !isPreparing && <button className="mt-3 text-xs text-accent cursor-pointer" onClick={() => setActiveNav('settings')}>Open bot settings</button>}
             </div>
           ) : (
             filteredAgents.map((bot) => {

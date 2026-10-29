@@ -25,6 +25,7 @@ import { HermesBrowser, HermesIdentity } from '../pages/HermesWorkspace';
 import { buttonClass, Field, inputClass, Notice, Skeleton } from './WorkspaceUI';
 import { errorText } from './workspaceUtils';
 import { MobileDock } from './MobileDock';
+import { AgentModelSettings } from './AgentModelSettings';
 import type { RightPanelTab } from '../types/chat';
 
 const AgentComputerViewer = lazy(() => import('./AgentComputerViewer').then(module => ({ default: module.AgentComputerViewer })));
@@ -495,7 +496,7 @@ function IdentityPanel() {
   return runtime === 'hermes' ? <HermesIdentity key={agent.id} profile={agent.id} /> : <OpenClawIdentityPanel />;
 }
 
-export function RightPanel() {
+export function RightPanel({ onNavigateBots }: { onNavigateBots?: () => void }) {
   const {
     agent,
     connected,
@@ -591,6 +592,10 @@ export function RightPanel() {
             {connected ? 'Connected' : 'Disconnected'}
           </span>
         </div>
+
+        <button type="button" aria-label="Change bot model" onClick={() => setActiveTab('goals')} className="mt-2 max-w-full truncate text-xs text-accent hover:underline cursor-pointer">
+          {agent?.model || 'Choose a model'}
+        </button>
 
         {/* 5-Tab Selector: Noticeably rounder pill container and pill highlight */}
         <div
@@ -755,7 +760,7 @@ export function RightPanel() {
         {activeTab === 'identity' && <IdentityPanel />}
 
         {/* Settings Tab (Daily Goals & Scheduling) */}
-        {activeTab === 'goals' && <DailyGoals />}
+        {activeTab === 'goals' && <div className="space-y-5"><AgentModelSettings key={agent?.id} /><DailyGoals /></div>}
       </div>
       </div>
 
@@ -763,8 +768,8 @@ export function RightPanel() {
       <div className="shrink-0 pt-1 pb-2 bg-transparent flex justify-center lg:hidden">
         <MobileDock
           currentMobileView="chat"
-          onNavigateBots={() => toggleRightPanel()}
-          onOpenActivity={() => toggleRightPanel()}
+          onNavigateBots={onNavigateBots}
+          onNavigate={toggleRightPanel}
         />
       </div>
     </div>

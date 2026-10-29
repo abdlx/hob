@@ -1,6 +1,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hermesConfigChanges, hermesModelSelectionResult } from '../src/services/hermes-settings.ts';
+import { hermesConfigChanges, hermesModelSelectionResult, providerCredentialName } from '../src/services/hermes-settings.ts';
+
+test('configured providers retain their credential name, respecting native primary keys and aliases', () => {
+  const credentials = {
+    OPENAI_BASE_URL: { is_set: true, is_password: false, provider: 'openai' },
+    ALTERNATE_KEY: { is_set: true, provider: 'openai' },
+    OPENAI_API_KEY: { is_set: true, provider: 'openai', provider_primary: true },
+    SHARED_KEY: { is_set: true, provider: 'other', provider_profiles: [{ provider: 'shared', primary: true }] },
+  };
+  assert.equal(providerCredentialName(credentials, 'openai'), 'OPENAI_API_KEY');
+  assert.equal(providerCredentialName(credentials, 'shared'), 'SHARED_KEY');
+  assert.equal(providerCredentialName(credentials, 'openai', 'NATIVE_KEY'), 'NATIVE_KEY');
+  assert.equal(providerCredentialName(credentials, 'oauth'), '');
+  assert.equal(providerCredentialName(credentials, ''), '');
+});
 
 test('native model warnings require explicit confirmation instead of showing a false saved message', () => {
   assert.deepEqual(hermesModelSelectionResult({ ok: false, confirm_required: true, confirm_message: 'This model has higher costs.' }),

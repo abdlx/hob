@@ -8,6 +8,7 @@ interface MobileDockProps {
   currentMobileView?: 'bots' | 'chat';
   onNavigateBots?: () => void;
   onOpenActivity?: () => void;
+  onNavigate?: () => void;
 }
 
 const items: DockItemConfig[] = [
@@ -19,13 +20,14 @@ const items: DockItemConfig[] = [
 ];
 
 export const MobileDock: React.FC<MobileDockProps> = ({
-  currentMobileView = 'chat',
   onNavigateBots,
   onOpenActivity,
+  onNavigate,
 }) => {
   const { activeNav, setActiveNav } = useChat();
 
   const handleDockChange = (id: string) => {
+    onNavigate?.();
     if (id === 'bots') {
       if (onNavigateBots) onNavigateBots();
       setActiveNav('chat');
@@ -37,18 +39,9 @@ export const MobileDock: React.FC<MobileDockProps> = ({
     }
   };
 
-  const activeId =
-    activeNav === 'activity'
-      ? 'activity'
-      : currentMobileView === 'bots'
-      ? 'bots'
-      : activeNav === 'idea'
-      ? 'idea'
-      : activeNav === 'goals'
-      ? 'goals'
-      : activeNav === 'library'
-      ? 'library'
-      : 'bots';
+  const activeId = items.some(item => item.id === activeNav)
+    ? activeNav
+    : ['chat', 'search', 'groups'].includes(activeNav) ? 'bots' : '';
 
   return (
     <div className="md:hidden flex justify-center items-center w-full shrink-0" style={{ paddingBottom: 'max(4px, env(safe-area-inset-bottom))' }}>

@@ -11,6 +11,7 @@ async function fixture(page: Page, extraApps = false, savedProviderCards = false
   let saved = { model: 'test-model', memory: { enabled: true } }, failSave = false, installed = false;
   let heartbeat: { status: string; prompt: string; interval_seconds: number; fire_count: number } | null = null;
   let providerConnected = false, providerVerified = false;
+  const models: Record<string, { provider: string; model: string }> = { default: { provider: 'openai', model: 'test-model' }, research: { provider: 'openrouter', model: 'research-model' } };
   await page.route('**/api/**', async route => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname;
     const profile = url.searchParams.get('profile') || 'default';
@@ -21,9 +22,13 @@ async function fixture(page: Page, extraApps = false, savedProviderCards = false
     if (path === '/api/readiness') return json({ ready: true, status: 'ready' });
     if (path === '/api/events') return route.fulfill({ contentType: 'text/event-stream', body: 'event: connection\ndata: {"connected":true}\n\n' });
     if (path === '/api/agents') return json({ agents: [{ id: 'default', name: 'Main' }, { id: 'research', name: 'Research' }] });
-    if (path === '/api/agent') return json({ id: 'default', name: 'Main', status: 'connected', model: 'test-model', avatarUrl: '' });
+    if (path === '/api/agent') {
+      const selected = request.headers()['x-hob-profile'] || 'default';
+      return json({ id: selected, name: selected === 'default' ? 'Main' : 'Research', status: 'connected', model: models[selected]?.model, avatarUrl: '' });
+    }
     if (path === '/api/sessions') return json([{ id: nativeSession, agentId: 'default', title: 'Test conversation', transport: 'canonical', createdAt: '2026-10-26T00:00:00Z' }]);
     if (path === `/api/sessions/${nativeSession}/messages` || path === '/api/tasks' || path === '/api/security/approvals') return json([]);
+    if (path === `/api/sessions/${nativeSession}/run`) return json({ run: null });
     if (path === '/api/stats') return json({ tokensUsed: 0, maxTokens: 128000 });
     if (path === '/api/hermes/profiles') return json({ profiles: [{ name: 'default' }, { name: 'research', display_name: 'Research' }] });
     if (path === '/api/hermes/exchanges') return json({ exchanges: [], nextBefore: null });
@@ -37,7 +42,7 @@ async function fixture(page: Page, extraApps = false, savedProviderCards = false
       return json(saved);
     }
     if (path === '/api/hermes/config/schema') return json({ fields: { 'memory.enabled': { type: 'boolean', category: 'memory', description: 'Enable long-term memory' } }, category_order: ['memory'] });
-    if (path === '/api/hermes/credentials') return json({ OPENAI_API_KEY: { is_set: true } });
+    if (path === '/api/hermes/credentials') return json({ OPENAI_API_KEY: { is_set: true, provider: 'openai', provider_primary: true }, OPENROUTER_API_KEY: { is_set: true, provider: 'openrouter', provider_primary: true } });
     if (path === '/api/hermes/saved-providers') {
       if (request.method() === 'POST') {
         const body = request.postDataJSON();
@@ -48,11 +53,24 @@ async function fixture(page: Page, extraApps = false, savedProviderCards = false
       }
       return json({ connections: savedProviderCards ? [{ id: 'a'.repeat(64), provider: 'openrouter', name: 'OpenRouter', sourceProfile: 'default', sourceName: 'Main', configured: profile === 'default' || providerConnected, verifiedAt: providerVerified ? new Date().toISOString() : null }] : [], unavailableProfiles: [] });
     }
-    if (path === '/api/hermes/setup/models') return json({ providers: [] });
+    if (path === '/api/hermes/setup/models') return json({ ...models[profile], providers: [
+      { slug: 'openai', name: 'OpenAI', authenticated: true, models: ['test-model', 'next-model', 'expensive-model'] },
+      { slug: 'openrouter', name: 'OpenRouter', authenticated: true, models: ['research-model'] },
+    ] });
+    if (path === '/api/hermes/model') {
+      const value = request.postDataJSON();
+      if (value.model === 'invalid-model') return json({ error: 'This model is not available.' }, 400);
+      if (value.model === 'expensive-model' && !value.confirm_expensive_model) return json({ ok: false, confirm_required: true, confirm_message: 'This model has higher costs.' });
+      models[profile] = { provider: value.provider, model: value.model };
+      return json({ ok: true });
+    }
     if (path === '/api/hermes/setup/accounts') return json({ providers: [] });
     if (path === '/api/hermes/setup/mcp') return json({ servers: [] });
     if (path === '/api/hermes/workspace/toolsets') return json([{ name: 'browser', enabled: true, configured: false }]);
     if (path === '/api/hermes/workspace/jobs') return json([]);
+    if (path === '/api/hermes/workspace/skills') return json([]);
+    if (path === '/api/hermes/workspace/learning') return json({ nodes: [] });
+    if (path === '/api/hermes/workspace/files') return json({ entries: [] });
     if (path === '/api/hermes/workspace/autonomy') {
       if (request.method() === 'POST') {
         const body = request.postDataJSON();
@@ -112,6 +130,115 @@ test('saved provider cards connect a bot privately while keeping model choice se
   await providers.getByRole('heading', { name: 'OpenRouter', exact: true }).scrollIntoViewIfNeeded();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/saved-providers-mobile.png', fullPage: true });
+  expect(state.errors).toEqual([]);
+});
+
+test('saved provider cards select a configured provider without losing its credential name', async ({ page }) => {
+  const state = await fixture(page, false, true);
+  await page.goto('/settings');
+  const providers = page.getByRole('region', { name: 'Saved providers', exact: true });
+  await providers.getByRole('button', { name: 'Choose model', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: /^Provider / })).toHaveValue('openrouter');
+  await expect(page.getByRole('combobox', { name: /^Credential name / })).toHaveValue('OPENROUTER_API_KEY');
+  await expect(page.getByRole('button', { name: 'Select model', exact: true })).toBeDisabled();
+  await page.getByRole('combobox', { name: /^Provider / }).selectOption('openai');
+  await expect(page.getByRole('combobox', { name: /^Credential name / })).toHaveValue('OPENAI_API_KEY');
+  expect(state.writes).toEqual([]);
+  expect(state.errors).toEqual([]);
+});
+
+test('an unconfirmed credential save retains the entered key and reports the failure', async ({ page }) => {
+  const state = await fixture(page);
+  await page.route('**/api/hermes/credentials?*', route => route.request().method() === 'PUT' ? route.fulfill({ json: { ok: false } }) : route.fallback());
+  await page.goto('/settings');
+  await page.getByRole('combobox', { name: /^Provider / }).selectOption('openai');
+  await expect(page.getByRole('combobox', { name: /^Credential name / })).toHaveValue('OPENAI_API_KEY');
+  const key = page.getByLabel(/^API key/);
+  await key.fill('synthetic-credential');
+  await page.getByRole('button', { name: 'Save credential', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('did not confirm the saved credential');
+  await expect(key).toHaveValue('synthetic-credential');
+  await expect(page.getByText('Credential saved for this bot.', { exact: true })).toHaveCount(0);
+  expect(state.errors).toEqual([]);
+});
+
+test('sidebar model selection saves the chosen bot, requires native confirmation, and survives reload', async ({ page }) => {
+  const state = await fixture(page);
+  await page.goto('/chat');
+  await page.getByRole('listitem').filter({ has: page.getByText('Research', { exact: true }) }).click();
+  await page.getByRole('button', { name: 'Change bot model', exact: true }).click();
+  const model = page.getByRole('region', { name: 'Bot model', exact: true });
+  await expect(model.getByRole('combobox', { name: /^Provider / })).toHaveValue('openrouter');
+  await expect(model.getByRole('combobox', { name: /^Model / })).toHaveValue('research-model');
+  await model.getByRole('combobox', { name: /^Provider / }).selectOption('openai');
+  await model.getByRole('combobox', { name: /^Model / }).fill('invalid-model');
+  await model.getByRole('button', { name: 'Save model', exact: true }).click();
+  await expect(model.getByRole('alert')).toContainText('not available');
+  await expect(model.getByRole('combobox', { name: /^Model / })).toHaveValue('invalid-model');
+  await model.getByRole('combobox', { name: /^Model / }).fill('expensive-model');
+  await model.getByRole('button', { name: 'Save model', exact: true }).click();
+  await expect(model.getByText('This model has higher costs.', { exact: true })).toBeVisible();
+  await expect(model.getByText('Model saved.', { exact: false })).toHaveCount(0);
+  await model.getByRole('button', { name: 'Confirm this model selection' }).click();
+  await expect(model.getByText('Model saved.', { exact: false })).toBeVisible();
+  expect(state.writes.filter(write => write.path === '/api/hermes/model')).toEqual([
+    { path: '/api/hermes/model', profile: 'research', body: { scope: 'main', provider: 'openai', model: 'invalid-model' } },
+    { path: '/api/hermes/model', profile: 'research', body: { scope: 'main', provider: 'openai', model: 'expensive-model' } },
+    { path: '/api/hermes/model', profile: 'research', body: { scope: 'main', provider: 'openai', model: 'expensive-model', confirm_expensive_model: true } },
+  ]);
+  await page.screenshot({ path: 'test-results/sidebar-model-desktop.png', fullPage: true });
+  // The bot selection is intentionally reset on a full reload; reopen Research.
+  await page.reload();
+  await page.getByRole('listitem').filter({ has: page.getByText('Research', { exact: true }) }).click();
+  await page.getByRole('button', { name: 'Change bot model', exact: true }).click();
+  await expect(model.getByRole('combobox', { name: /^Model / })).toHaveValue('expensive-model');
+  expect(state.errors).toEqual([]);
+});
+
+test('mobile dock tracks open pages, supports history and same-tab clicks, and closes the agent overlay', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await fixture(page);
+  await page.goto('/chat');
+  const dock = page.getByRole('navigation', { name: 'Bottom dock navigation' }).filter({ visible: true });
+  const current = () => dock.locator('[aria-current="page"]');
+  await expect(current()).toHaveAccessibleName('Bots');
+  await dock.getByRole('button', { name: 'Workshop', exact: true }).click();
+  await expect(page).toHaveURL(/\/ideas$/);
+  await expect(current()).toHaveAccessibleName('Workshop');
+  await expect(page.getByText('No skills installed for this bot', { exact: true })).toBeVisible();
+  await dock.getByRole('button', { name: 'Goals', exact: true }).click();
+  await expect(current()).toHaveAccessibleName('Goals');
+  await expect(page.getByText('No scheduled goals for this bot', { exact: true })).toBeVisible();
+  await dock.getByRole('button', { name: 'Library', exact: true }).click();
+  await expect(current()).toHaveAccessibleName('Library');
+  await page.goBack();
+  await expect(current()).toHaveAccessibleName('Goals');
+  await dock.getByRole('button', { name: 'Goals', exact: true }).click();
+  await expect(current()).toHaveAccessibleName('Goals');
+  await dock.getByRole('button', { name: 'Bots', exact: true }).click();
+  await page.getByRole('listitem').filter({ has: page.getByText('Main', { exact: true }) }).click();
+  await dock.getByRole('button', { name: 'Bots', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeHidden();
+  await page.getByRole('listitem').filter({ has: page.getByText('Main', { exact: true }) }).click();
+  await page.getByRole('button', { name: 'Open agent details and activity', exact: true }).click();
+  await page.getByRole('button', { name: 'Change bot model', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Bot model', exact: true })).toBeVisible();
+  await page.screenshot({ path: 'test-results/sidebar-model-mobile.png', fullPage: true });
+  await page.getByRole('complementary', { name: 'Agent details', exact: true }).getByRole('button', { name: 'Workshop', exact: true }).click();
+  await expect(page.getByRole('complementary', { name: 'Agent details', exact: true })).toBeHidden();
+  await expect(current()).toHaveAccessibleName('Workshop');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(state.errors).toEqual([]);
+});
+
+test('conversation search explains empty results and lets the user recover', async ({ page }) => {
+  const state = await fixture(page);
+  await page.goto('/chat');
+  await page.getByRole('button', { name: 'Conversations', exact: true }).filter({ visible: true }).click();
+  await page.getByRole('textbox', { name: 'Search conversations', exact: true }).fill('missing title');
+  await expect(page.getByText('No matching conversations', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Clear search', exact: true }).click();
+  await expect(page.getByRole('button').filter({ hasText: 'Test conversation' })).toBeVisible();
   expect(state.errors).toEqual([]);
 });
 

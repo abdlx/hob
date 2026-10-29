@@ -112,3 +112,15 @@ test('configured picker rows may omit key_env, and a target using a credential a
   await assert.rejects(f.service.operate('writer', { id: row.id, action: 'connect' }), error => error.status === 409);
   assert.equal(f.calls.filter(call => call.route === '/api/env/reveal').length, 0);
 });
+
+test('an empty target can reuse saved keys even when its model catalog is unavailable', async t => {
+  const f = await fixture(t);
+  f.state.fail = 'writer:/api/model/options';
+  const inventory = await f.service.list('writer');
+  assert.equal(inventory.connections.length, 1);
+  assert.deepEqual(inventory.unavailableProfiles, []);
+  assert.equal(f.calls.some(call => call.route === '/api/model/options' && call.profile === 'writer'), false);
+  assert.equal(f.calls.filter(call => call.route === '/api/env' && call.profile === 'writer').length, 1);
+  await f.service.operate('writer', { id: inventory.connections[0].id, action: 'connect' });
+  assert.equal(f.env.writer.OPENROUTER_API_KEY.is_set, true);
+});

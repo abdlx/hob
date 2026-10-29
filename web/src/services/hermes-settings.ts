@@ -1,4 +1,20 @@
 export type HermesConfig = Record<string, unknown>;
+export interface HermesCredential {
+  is_set: boolean; description?: string; category?: string; is_password?: boolean;
+  provider?: string; provider_primary?: boolean;
+  provider_profiles?: { provider: string; primary?: boolean }[];
+}
+
+/** Configured model-catalog rows can omit key_env; credential metadata owns aliases. */
+export function providerCredentialName(credentials: Record<string, HermesCredential>, provider: string, suggested?: string) {
+  if (!provider) return '';
+  if (suggested) return suggested;
+  const matches = Object.entries(credentials).filter(([, value]) => value.is_password !== false
+    && (value.provider === provider || value.provider_profiles?.some(identity => identity.provider === provider)));
+  return matches.find(([, value]) => value.provider === provider && value.provider_primary
+    || value.provider_profiles?.some(identity => identity.provider === provider && identity.primary))?.[0]
+    || matches.find(([, value]) => value.is_set)?.[0] || matches[0]?.[0] || '';
+}
 export type HermesModelSelection = { saved: true; confirmation?: string } | { saved: false; confirmation: string };
 
 export function hermesModelSelectionResult(value: unknown): HermesModelSelection {

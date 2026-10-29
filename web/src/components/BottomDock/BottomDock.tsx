@@ -509,13 +509,6 @@ export const BottomDock: React.FC<BottomDockProps> = ({
       if (dragRef.current.hasMoved) return;
       item.onClick?.();
 
-      if (item.id === currentActiveRef.current) {
-        if (rafIdRef.current === null) {
-          setPillActiveState(false);
-        }
-        return;
-      }
-
       const oldBtn = itemRefs.current[currentActiveRef.current];
       const newBtn = itemRefs.current[item.id];
       if (oldBtn) oldBtn.classList.remove("active");
@@ -612,6 +605,7 @@ export const BottomDock: React.FC<BottomDockProps> = ({
             {/* Draggable Active Pill Indicator with Physics Jelly Deformation */}
             <div
               ref={indicatorRef}
+              hidden={!items.some(item => item.id === active)}
               className={`bottomDockIndicator ${isDragging ? "isDragging" : ""}`}
               style={{
                 width: `${indicatorWidth}px`,

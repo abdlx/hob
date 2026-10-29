@@ -87,6 +87,10 @@
 }
 
 /* Draggable Active Pill Indicator Container */
+.bottomDockIndicator[hidden] {
+  display: none;
+}
+
 .bottomDockIndicator {
   position: absolute;
   top: 3px;

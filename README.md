@@ -175,6 +175,8 @@ A healthy settings service does not prove that a provider or tool is configured.
 6. Create additional bots deliberately in Settings. Each bot needs its own provider/model and workspace setup. Incomplete setup stays visible for explicit recovery and never activates silently.
 7. Optional: configure **Tools & providers**, **Messaging channels**, **MCP servers**, **Memory providers**, and **Learning & write approvals** for each bot.
 
+To switch a bot's model, open its right sidebar and click its current model name or the **Settings** tab. Choose a provider and model, then **Save model**. Start a new conversation to use the saved selection. Connect new provider credentials and define custom endpoints in the main Settings page.
+
 **Saved providers** in Models & providers discovers API keys already saved in your bots' native Hermes profiles. Select a bot and click **Connect** to reuse a saved provider key; its model selection stays unchanged. An existing target key is preserved. Keys never appear in the cards or their API responses. Each bot holds its own copy, so replacing one key does not rotate other bots' keys. OAuth accounts and custom endpoint definitions retain their separate setup flows.
 
 **Verify key** asks Hermes to check the saved credential with its provider. “Verified recently” requires provider acceptance, expires after ten minutes or a profile credential-file change, and resets on application restart. Unsupported or unavailable probes remain unverified; saving a key alone does not prove it works.

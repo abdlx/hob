@@ -318,7 +318,7 @@ export function ActivityView() {
             </div>
           ))}
         </CardList>
-      ) : visible.length === 0 ? (
+      ) : visible.length === 0 ? !error && (
         <EmptyState
           icon={<Inbox size={28} />}
           title={filterBot ? `No activity for ${filterBot.name}` : statusFilter === 'all' ? 'No bot activity yet' : 'Nothing here right now'}

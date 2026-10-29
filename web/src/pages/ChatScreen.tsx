@@ -182,7 +182,7 @@ export const ChatScreen: React.FC = () => {
             className="hob-panel-right fixed inset-0 z-50 flex flex-col w-full h-[100dvh] max-h-[100dvh] bg-canvas overflow-hidden lg:relative lg:inset-auto lg:z-auto lg:rounded-[34px] lg:shadow-[0_8px_30px_rgba(0,0,0,0.045)] lg:border lg:border-hair lg:shrink-0 lg:w-[22%] lg:min-w-[300px] lg:max-w-[350px] lg:h-full"
             aria-label="Agent details"
           >
-            <RightPanel />
+            <RightPanel onNavigateBots={() => setMobileView('bots')} />
           </aside>
       )}
     </div>

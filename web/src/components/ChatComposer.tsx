@@ -63,7 +63,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   return (
     <div className="hob-composer w-full px-3 sm:px-4 md:px-6 pt-2 bg-canvas shrink-0 flex flex-col items-center gap-1 md:gap-2 select-none" style={{ paddingBottom: showMobileDock && !focused ? 10 : 'max(10px, env(safe-area-inset-bottom))' }}>
       <form aria-label="Message composer" onSubmit={submit} className="w-full max-w-[840px]">
-        <div className="overflow-hidden rounded-[26px] border border-edge bg-surface shadow-[0_3px_14px_rgba(0,0,0,0.04)] transition-colors focus-within:border-accent-line focus-within:shadow-[0_0_0_3px_var(--color-accent-soft)]">
+        <div className="rounded-[26px] border border-edge bg-surface shadow-[0_3px_14px_rgba(0,0,0,0.04)] transition-colors focus-within:border-accent-line focus-within:shadow-[0_0_0_3px_var(--color-accent-soft)]">
         {attachments}
         <div className="w-full min-h-14 px-2 py-2 flex items-end gap-2">
           {(onAttach || onAddContext) && (
@@ -73,6 +73,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
                 title="Add files or library"
                 aria-label="Add files or library"
                 aria-expanded={actionMenuOpen}
+                aria-haspopup={onAttach && onAddContext ? 'menu' : undefined}
                 disabled={disabled}
                 onClick={() => {
                   if (onAttach && onAddContext) {

@@ -18,7 +18,7 @@ export const ChatsDrawer: React.FC = () => {
   if (!isLeftDrawerOpen) return null;
 
   const filtered = sessions.filter((s) =>
-    s.title.toLowerCase().includes(search.toLowerCase())
+    s.title.toLowerCase().includes(search.trim().toLowerCase())
   );
 
   return (
@@ -39,6 +39,7 @@ export const ChatsDrawer: React.FC = () => {
           </div>
           <button
             onClick={toggleLeftDrawer}
+            aria-label="Close conversations"
             className="p-1.5 rounded-full text-faint hover:text-ink hover:bg-neutral transition-colors cursor-pointer"
           >
             <X size={18} />
@@ -67,6 +68,7 @@ export const ChatsDrawer: React.FC = () => {
             <input
               type="text"
               placeholder="Search chats..."
+              aria-label="Search conversations"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full bg-neutral text-sm text-ink pl-9.5 pr-4 py-2 rounded-full border border-transparent focus:outline-none placeholder-faint"
@@ -76,6 +78,12 @@ export const ChatsDrawer: React.FC = () => {
 
         {/* Sessions list */}
         <div className="flex-1 min-h-0 overflow-y-auto px-2.5 py-1.5 space-y-1">
+          {filtered.length === 0 && <div className="px-4 py-10 text-center">
+            <MessageSquare size={24} className="mx-auto mb-3 text-muted" />
+            <p className="text-sm font-medium text-ink">{search.trim() ? 'No matching conversations' : 'No conversations yet'}</p>
+            <p className="mt-2 text-xs text-muted">{search.trim() ? 'Try another title or clear your search.' : 'Start a new chat with this bot to begin.'}</p>
+            {search && <button className="mt-3 text-xs text-accent cursor-pointer" onClick={() => setSearch('')}>Clear search</button>}
+          </div>}
           {filtered.map((session) => {
             const isActive = session.id === activeSessionId;
             return (

@@ -112,7 +112,7 @@ export function ChatMessageList() {
       title: 'Make a little room',
       description: 'Talk through what needs doing.',
       icon: MessageCircle,
-      action: () => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.focus(),
+      action: () => Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea[aria-label="Message"]')).find(element => element.getClientRects().length > 0)?.focus(),
     },
     {
       title: 'Put it on autopilot',

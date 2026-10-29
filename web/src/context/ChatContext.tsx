@@ -58,7 +58,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const result = await apiFetch<{ groups: GroupSummary[] }>('/api/hermes/groups', { headers: { 'X-Hob-Profile': 'default' } });
     setGroups(Array.isArray(result.groups) ? result.groups : []);
   }, []);
-  const [isRightPanelOpen, setIsRightPanelOpen] = useState(window.innerWidth >= 768);
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(window.innerWidth >= 1024);
   const [isLeftDrawerOpen, setIsLeftDrawerOpen] = useState(false);
   const [isBotsSidebarOpen, setIsBotsSidebarOpen] = useState(() => {
     const saved = localStorage.getItem('mused-bots-sidebar-open');
