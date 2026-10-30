@@ -168,6 +168,34 @@ test('deployment root aliases work while an alias into another bot cannot receiv
   assert.equal(JSON.parse(await readFile(path.join(actual, 'main', '.hob', 'relay.json'), 'utf8')).token, credential('default'));
 }));
 
+test('generated coordinator artifact commands send no path override and bind a review to its hash and stable request', async () => fixture(async root => {
+  const seen = [], id = '11111111-1111-4111-8111-111111111111', digest = 'f'.repeat(64);
+  const server = createServer(async (req, res) => {
+    const chunks = []; for await (const chunk of req) chunks.push(chunk);
+    seen.push({ path: req.url, method: req.method, authorization: req.headers.authorization, body: chunks.length ? JSON.parse(Buffer.concat(chunks)) : null });
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify(req.url.endsWith('/reviews') ? { review: { verdict: 'passed', sha256: digest } } : { artifact: { path: `.hob/team-inbox/${id}/output.json`, sha256: digest } }));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const network = new HermesBotNetwork({ roster: async () => ({ profiles: [{ name: 'default', state: 'active' }] }), workspaceRoot: root, credential,
+      relayUrl: `http://127.0.0.1:${server.address().port}/api/hermes/bot-relay` });
+    await network.sync();
+    const helper = path.join(root, 'main', '.hob', 'talk.mjs');
+    const env = { ...process.env, HOB_TALK_REVIEW_ID: 'stable-review' }; delete env.HOB_TALK_TOKEN;
+    const fetch = await promisify(execFile)(process.execPath, [helper, 'artifact', id], { env });
+    assert.match(fetch.stdout, /copied file alone does not verify/);
+    await promisify(execFile)(process.execPath, [helper, 'artifact-status', id], { env });
+    await promisify(execFile)(process.execPath, [helper, 'review', id, digest, 'passed', 'Parsed the JSON', 'and checked the assigned outcome.'], { env });
+    assert.deepEqual(seen.map(item => [item.path, item.method, item.body]), [
+      [`/api/hermes/bot-relay/team/artifacts/${id}`, 'POST', {}],
+      [`/api/hermes/bot-relay/team/artifacts/${id}`, 'GET', null],
+      [`/api/hermes/bot-relay/team/artifacts/${id}/reviews`, 'POST', { requestId: 'stable-review', sha256: digest, verdict: 'passed', checks: 'Parsed the JSON and checked the assigned outcome.' }],
+    ]);
+    assert.equal(seen.every(item => item.authorization === `Bearer ${credential('default')}`), true);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+}));
+
 test('a hard-linked AGENTS file cannot copy operator secrets into a bot workspace', async () => fixture(async root => {
   const secret = path.join(root, 'operator-private.json');
   await writeFile(secret, 'private-operator-secret');

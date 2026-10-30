@@ -50,6 +50,8 @@ The coordinator's **Settings → Memory & history → Shared team core & documen
 
 Activity preserves scheduled runs' original outcomes. Historical failures for verified deleted jobs stay in history; existing jobs, unavailable status checks, and unlinked legacy entries have distinct labels. Incomplete scheduler history produces a visible warning. These annotations do not acknowledge failures, delete records, or mark work successful.
 
+In coordinator-only preview mode, Main can receive the worker's nominated output with `node .hob/talk.mjs artifact <exchange-id>`, inspect the coordinator-local copy, and record its checks with `review <exchange-id> <sha256> <passed|failed> <checks>`. `artifact-status` shows the receipt and review history. Team completion remains pending until the coordinator records passing checks against the exact output snapshot.
+
 ## Contents
 
 - [Android and iPhone app](mobile/README.md)

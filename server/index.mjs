@@ -13,6 +13,7 @@ import { botRelayUrl } from './hermes-bot-network.mjs';
 import { HermesBotIsolation, isolationMode } from './hermes-isolation.mjs';
 import { createHobTelemetry } from './hob-telemetry.mjs';
 import { HermesTeam } from './hermes-team.mjs';
+import { createTeamArtifactHandoffs } from './hermes-team-artifacts.mjs';
 
 Object.assign(process.env, hobEnv());
 
@@ -56,6 +57,7 @@ const browser = await BrowserManager.open({
   options: { telemetry, ...(Number.isFinite(idleMs) && idleMs >= 0 ? { idleMs } : {}), ...(isolation ? { spawnBrowser: isolation.spawnBrowser.bind(isolation) } : {}) },
 });
 const team = new HermesTeam({ stateDir: process.env.HOB_STATE_DIR, workspaceRoot: process.env.HOB_WORKSPACE_ROOT || path.join(process.env.HERMES_HOME, 'workspaces'), roster: () => registry.list() });
+const teamArtifacts = createTeamArtifactHandoffs({ team, workspaceRoot: process.env.HOB_WORKSPACE_ROOT || path.join(process.env.HERMES_HOME, 'workspaces'), roster: () => registry.list() });
 const bots = new HermesBots({
   team,
   registry, isolation,
@@ -70,7 +72,7 @@ const gateway = new HermesClient({ ...clientOptions, profileAccess: profile => r
 const runJournal = await HermesRunJournal.open(process.env.HOB_STATE_DIR);
 const nativeSessions = new HermesSessionBridge({ telemetry, profileAccess: profile => registry.token(profile) });
 const exchanges = await HermesExchanges.open(process.env.HOB_STATE_DIR);
-const server = createApp({ gateway, bots, browser, runJournal, nativeSessions, exchanges, telemetry, team, ...(process.env.HOB_STATIC_DIR ? { staticDir: process.env.HOB_STATIC_DIR } : {}) });
+const server = createApp({ gateway, bots, browser, runJournal, nativeSessions, exchanges, telemetry, team, teamArtifacts, ...(process.env.HOB_STATIC_DIR ? { staticDir: process.env.HOB_STATIC_DIR } : {}) });
 gateway.start();
 const port = Number(process.env.HOB_PORT || 3000);
 const build = `${process.env.HOB_GIT_COMMIT || 'unknown'} (${process.env.HOB_GIT_REF || 'unknown'})`;

@@ -56,6 +56,36 @@ test('unopened bots show five-word last-message previews and pick up unattended 
   expect(state.errors).toEqual([]);
 });
 
+test('worker reports, copied output and coordinator verdicts remain separate in the exchange inspector', async ({ page }) => {
+  const { expectNoHorizontalScroll } = await import('./mobile-layout');
+  const state = await fixture(page);
+  const stages = [
+    { verification: 'self-reported', output: false, text: 'The worker reported completion. Coordinator review is still pending.' },
+    { verification: 'self-reported', output: true, text: 'The assigned output was received. Coordinator review is still pending.' },
+    { verification: 'coordinator-reviewed', output: true, text: 'Main reviewed the output and recorded passing checks.' },
+    { verification: 'coordinator-rejected', output: true, text: 'Main reviewed the output and recorded failed checks.' },
+  ];
+  let current = stages[0];
+  await page.route('**/api/hermes/exchanges/*', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/transcript')) return route.fulfill({ json: { messages: [] } });
+    return route.fulfill({ json: { id: ids[0], fromName: 'Main', toName: 'Scribe', status: 'completed', createdAt: Date.parse('2026-10-26T10:01:00Z'),
+      message: 'Nominated task', reply: 'TASK plan-1 — DONE', teamTask: { id: 'plan-1' }, teamVerification: current.verification,
+      ...(current.output ? { teamOutput: { sha256: 'f'.repeat(64), bytes: 20, receivedAt: '2026-10-26T10:02:00Z' } } : {}) } });
+  });
+  await page.setViewportSize({ width: 320, height: 760 });
+  for (const stage of stages) {
+    current = stage;
+    await page.goto('/chat');
+    const notice = page.locator(`[data-exchange-id="${ids[0]}"]`);
+    await notice.getByRole('button').first().click();
+    await expect(notice.getByText(stage.text, { exact: true })).toBeVisible();
+    await expectNoHorizontalScroll(page);
+  }
+  expect(state.errors).toEqual([]);
+  expect(state.writes).toEqual([]);
+});
+
 test('each bot exchange is a separate expandable notice with its own transcript and survives refresh', async ({ page }) => {
   const state = await fixture(page);
   await page.goto('/chat');

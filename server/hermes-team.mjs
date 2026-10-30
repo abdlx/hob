@@ -32,7 +32,7 @@ export function coreBlock(core) {
 }
 
 /** Pin each directory component. Production Linux operations use directory FDs. */
-export async function teamDirectory(root, parts, { create = false } = {}) {
+export async function teamDirectory(root, parts, { create = false, mode = 0o700 } = {}) {
   const handles = [];
   try {
     let physical = await realpath(root), target = physical;
@@ -43,7 +43,7 @@ export async function teamDirectory(root, parts, { create = false } = {}) {
     for (const part of parts) {
       if (!part || part === '.' || part === '..' || /[\\/\x00-\x1f]/.test(part)) throw fail('Invalid team directory.');
       const next = path.join(target, part); physical = path.join(physical, part);
-      if (create) await mkdir(next, { mode: 0o700 }).catch(error => { if (error.code !== 'EEXIST') throw error; });
+      if (create) await mkdir(next, { mode }).catch(error => { if (error.code !== 'EEXIST') throw error; });
       const entry = await lstat(next);
       if (!entry.isDirectory() || entry.isSymbolicLink() || await realpath(next) !== physical) throw fail('Linked team directories are refused.');
       if (process.platform === 'linux') {
@@ -108,7 +108,9 @@ export class HermesTeam {
       CREATE TABLE IF NOT EXISTS sync_state (profile TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS document_manifests (profile TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS runtime_profiles (profile TEXT PRIMARY KEY, value TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS runtime_sessions (profile TEXT NOT NULL, session TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('user','relay')), assignment TEXT NOT NULL, PRIMARY KEY(profile,session));`);
+      CREATE TABLE IF NOT EXISTS runtime_sessions (profile TEXT NOT NULL, session TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('user','relay')), assignment TEXT NOT NULL, PRIMARY KEY(profile,session));
+      CREATE TABLE IF NOT EXISTS artifact_handoffs (exchange TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS artifact_reviews (request TEXT PRIMARY KEY, exchange TEXT NOT NULL, value TEXT NOT NULL, created INTEGER NOT NULL);`);
       this.#db.prepare('INSERT OR IGNORE INTO settings VALUES (1,?)').run(JSON.stringify(defaults));
     } catch (error) { this.#db.close(); throw error; }
   }
@@ -148,6 +150,24 @@ export class HermesTeam {
   sessionKind(profile, session) {
     this.#active(profile);
     return this.#db.prepare('SELECT kind FROM runtime_sessions WHERE profile=? AND session=?').get(profile, session)?.kind === 'relay' ? 'relay' : 'session';
+  }
+  artifactHandoff(exchange) { return JSON.parse(this.#db.prepare('SELECT value FROM artifact_handoffs WHERE exchange=?').get(exchange)?.value || 'null'); }
+  saveArtifactHandoff(exchange, receipt) {
+    this.#db.prepare('INSERT OR IGNORE INTO artifact_handoffs VALUES (?,?)').run(exchange, JSON.stringify(receipt));
+    return this.artifactHandoff(exchange);
+  }
+  artifactReviews(exchange) { return this.#db.prepare('SELECT value FROM artifact_reviews WHERE exchange=? ORDER BY created DESC,rowid DESC LIMIT 30').all(exchange).map(row => JSON.parse(row.value)); }
+  saveArtifactReview(exchange, review) {
+    const previous = this.#db.prepare('SELECT value,exchange FROM artifact_reviews WHERE request=?').get(review.requestId);
+    if (previous) {
+      const stored = JSON.parse(previous.value);
+      if (previous.exchange !== exchange || ['sha256', 'verdict', 'checks'].some(key => stored[key] !== review[key])) throw fail('This review request already has another decision.', 409);
+      return stored;
+    }
+    if (this.artifactHandoff(exchange)?.sha256 !== review.sha256) throw fail('The reviewed output snapshot changed.', 409);
+    const value = { ...review, author: 'default', at: new Date(this.#now()).toISOString() };
+    this.#db.prepare('INSERT INTO artifact_reviews VALUES (?,?,?,?)').run(review.requestId, exchange, JSON.stringify(value), this.#now());
+    return value;
   }
   core() { return this.#db.prepare('SELECT revision,content,digest,committed FROM core_versions ORDER BY revision DESC LIMIT 1').get() || { revision: 0, content: '', digest: hash('') }; }
   history() { return this.#db.prepare('SELECT revision,content,digest,committed FROM core_versions ORDER BY revision DESC LIMIT 50').all(); }

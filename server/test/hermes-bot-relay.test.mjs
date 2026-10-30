@@ -7,7 +7,7 @@ const MAIN = 'a'.repeat(64);
 const WRITER = 'b'.repeat(64);
 const EDITOR = 'c'.repeat(64);
 
-function fixture(team, output = 'the finished answer') {
+function fixture(team, output = 'the finished answer', teamArtifacts) {
   const roster = [
     { name: 'default', displayName: 'Main', display_name: 'Main', state: 'active' },
     { name: 'writer', displayName: 'Scribe', display_name: 'Scribe', state: 'active', description: 'Writes docs.' },
@@ -39,7 +39,7 @@ function fixture(team, output = 'the finished answer') {
       yield { event: 'run.completed', output };
     },
   };
-  const relay = createHermesBotRelay({ client, bots, team });
+  const relay = createHermesBotRelay({ client, bots, team, teamArtifacts });
   const call = async (path, { method = 'GET', token, input } = {}) => {
     let status, payload;
     const req = { method, headers: token ? { authorization: `Bearer ${token}` } : {} };
@@ -57,6 +57,37 @@ const refuses = (promise, status, code) => assert.rejects(promise,
   error => error.status === status && (code ? error.code === code : true));
 
 const teamAssignment = 'TASK plan-1 — Prepare a plan\nOUTCOME: A checked plan file\nCONSTRAINTS: No external messages\nOUTPUT: artifacts/plan.md\nDEADLINE: none\nCORE REFS: none';
+
+test('only the authenticated coordinator can receive and review the original assigned output', async () => {
+  const calls = [], digest = 'f'.repeat(64);
+  const reply = 'TASK plan-1 — DONE\nRESULT: Saved the plan\nFILES: artifacts/plan.md\nVERIFICATION: Read the file\nBLOCKERS: none\nPROMOTE: none';
+  const { call, relay } = fixture({ policy: () => ({ coordinatorOnly: true }) }, reply, {
+    async receive(record) { calls.push(['receive', record.id, record.teamTask.fields.OUTPUT]); return { sha256: digest, bytes: 20, path: '.hob/team-inbox/private-main-copy', receivedAt: '2026-10-30T12:00:00Z' }; },
+    async inspect() { return null; },
+    async review(record, value) { calls.push(['review', record.id]); return { ...value, author: 'default', at: '2026-10-30T12:01:00Z' }; },
+  });
+  try {
+    const response = await call('/send', { method: 'POST', token: MAIN, input: { to: 'writer', message: teamAssignment, waitMs: 30 } });
+    const id = response.body.id, route = `/team/artifacts/${id}`;
+    await refuses(call(route, { method: 'POST', token: WRITER, input: {} }), 403);
+    await refuses(call(route + '/reviews', { method: 'POST', token: WRITER, input: {} }), 403);
+    await refuses(call(route, { method: 'POST', token: MAIN, input: { path: 'MEMORY.md' } }), 400);
+    assert.equal(calls.length, 0);
+    const received = await call(route, { method: 'POST', token: MAIN, input: {} });
+    assert.equal(received.body.artifact.sha256, digest);
+    assert.equal((await call('/exchanges/' + id, { token: MAIN })).body.teamVerification, 'self-reported');
+    assert.equal((await call('/exchanges/' + id, { token: MAIN })).body.completed, false);
+    const decision = await call(route + '/reviews', { method: 'POST', token: MAIN, input: { requestId: 'review-1', sha256: digest, verdict: 'passed', checks: 'PRIVATE_MAIN_CHECK_DETAILS' } });
+    assert.equal(decision.body.review.author, 'default');
+    const workerView = (await call('/exchanges/' + id, { token: WRITER })).body;
+    assert.equal(workerView.teamVerification, 'coordinator-reviewed');
+    assert.equal(workerView.status, 'completed');
+    assert.equal(workerView.nativeCompleted, true);
+    assert.equal(workerView.completed, true);
+    assert.doesNotMatch(JSON.stringify(workerView), /private-main-copy|PRIVATE_MAIN_CHECK_DETAILS/);
+    assert.deepEqual(calls, [['receive', id, 'artifacts/plan.md'], ['review', id]]);
+  } finally { await relay.close(); }
+});
 
 test('employee-team mode denies worker-to-worker aliases before any native admission', async () => {
   const { call, runtime, relay } = fixture({ policy: () => ({ coordinatorOnly: true }) });

@@ -8,6 +8,10 @@ export interface BotExchange {
   id: string; fromName: string; toName: string; status: string; createdAt: number;
   message?: string; reply?: string; replyTruncated?: boolean; error?: string; observationError?: string; sessionKey?: string; to?: string;
   wakeups?: { id: string; profile: string; status: string; error?: string | null }[];
+  teamTask?: { id: string };
+  teamVerification?: 'unproven' | 'self-reported' | 'coordinator-reviewed' | 'coordinator-rejected';
+  teamReview?: { id: string; sha256: string; verdict: 'passed' | 'failed'; at: string };
+  teamOutput?: { sha256: string; bytes: number; receivedAt: string };
 }
 interface ExchangePage { exchanges: BotExchange[]; nextBefore: number | null }
 const failure = (error: unknown) => error instanceof Error ? error.message : 'Could not load bot exchanges.';
@@ -67,16 +71,20 @@ export function BotExchangeNotice({ exchange, profile }: { exchange: BotExchange
     return () => { stopped = true; window.clearInterval(timer); };
   }, [exchange.id, exchange.status, profile, open]);
   const record = detail || exchange;
+  const statusLabel = record.teamTask && record.status === 'completed'
+    ? record.teamVerification === 'coordinator-reviewed' ? 'reviewed' : record.teamVerification === 'coordinator-rejected' ? 'checks failed' : 'review pending'
+    : record.status.replaceAll('_', ' ');
   return <div className="my-2 rounded-xl border border-line bg-surface/70 text-xs" data-exchange-id={exchange.id}>
     <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-muted hover:bg-neutral cursor-pointer">
       <MessagesSquare size={14} className="shrink-0 text-accent" />
       <span className="min-w-0 flex-1">{exchange.fromName} talked with {exchange.toName}</span>
-      <span className="text-[10px] capitalize">{record.status.replaceAll('_', ' ')}</span>
+      <span className="text-[10px] capitalize">{statusLabel}</span>
       <time className="hidden sm:inline text-[10px]" dateTime={new Date(exchange.createdAt).toISOString()}>{new Date(exchange.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
       <ChevronDown size={13} className={open ? 'rotate-180' : ''} />
     </button>
     {open && <div className="space-y-3 border-t border-line p-4">
       <p className="text-[10px] text-faint">{new Date(exchange.createdAt).toLocaleString()} · Exchange {exchange.id.slice(0, 8)}</p>
+      {record.teamTask && <p role="status" className="break-words text-muted">{record.teamVerification === 'coordinator-reviewed' ? `${record.fromName} reviewed the output and recorded passing checks.` : record.teamVerification === 'coordinator-rejected' ? `${record.fromName} reviewed the output and recorded failed checks.` : record.teamOutput ? 'The assigned output was received. Coordinator review is still pending.' : record.teamVerification === 'self-reported' ? 'The worker reported completion. Coordinator review is still pending.' : 'This result has not been verified.'}</p>}
       {error && <p role="alert" className="text-red-600">{error}</p>}
       {!detail && !error && <p role="status" className="text-muted">Loading exchange…</p>}
       {detail && <>

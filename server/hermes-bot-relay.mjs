@@ -11,10 +11,12 @@ const text = value => typeof value === 'string' ? value.replace(/\s+/g, ' ').tri
 const label = bot => text(bot.displayName || bot.display_name) || (bot.name === 'default' ? 'Main' : bot.name);
 const invalid = message => new HermesError(400, message, 'INVALID_REQUEST');
 const summary = record => ({ ...record, completed: record.status === 'completed', ok: true,
+  nativeCompleted: record.status === 'completed',
+  ...(record.teamTask ? { completed: record.status === 'completed' && record.teamVerification === 'coordinator-reviewed' } : {}),
   sessionKey: record.sessionId ? hermesSessionKey(record.to, record.sessionId) : null });
 
 /** Each handoff has its own native session and durable correlation record. */
-export function createHermesBotRelay({ client, bots, exchanges = new HermesExchanges(), journal, bridge, onWake, team }) {
+export function createHermesBotRelay({ client, bots, exchanges = new HermesExchanges(), journal, bridge, onWake, team, teamArtifacts }) {
   const observers = new Map(), admissions = new Map(), controllers = new Set();
   let closed = false, timer, sweep;
   const participant = reference => bots.roster().filter(bot => bot.state === 'active')
@@ -27,6 +29,9 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
       try {
         const result = parseTeamReply(value.reply ?? before.reply, before.teamTask.id);
         value = { ...value, teamResult: result, teamVerification: value.status === 'completed' && result.title === 'DONE' && result.fields.VERIFICATION.toLowerCase() !== 'none' ? 'self-reported' : 'unproven' };
+        if (before.teamReview) value = (value.reply ?? before.reply) === before.reply && value.status === 'completed'
+          ? { ...value, teamVerification: before.teamVerification }
+          : { ...value, teamVerification: 'unproven', teamReview: null };
       } catch { value = { ...value, teamVerification: 'unproven', teamResultError: 'The native output did not satisfy the pinned TASK reply format. Inspect it before reporting completion.' }; }
     }
     const record = exchanges.update(id, value);
@@ -67,6 +72,10 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
     return work;
   };
   const reconcile = async record => {
+    if (record?.teamTask && record.status === 'completed' && teamArtifacts?.reviewState) {
+      const reviewed = teamArtifacts.reviewState(record);
+      if (reviewed && Object.entries(reviewed).some(([key, value]) => JSON.stringify(record[key]) !== JSON.stringify(value))) record = exchanges.update(record.id, reviewed);
+    }
     if (!record || terminal.has(record.status)) return record;
     if (!record.runId && record.sessionId && journal) {
       const correlated = journal.get(hermesSessionKey(record.to, record.sessionId));
@@ -153,7 +162,31 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
     if (!url.pathname.startsWith(BASE)) return false;
     const sender = await bots.authenticate(/^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization || '')?.[1]);
     if (!sender) throw new HermesError(401, 'A bot relay credential is required.', 'RELAY_UNAUTHORIZED');
+    if (closed) throw new HermesError(503, 'The relay is shutting down. No new handoff was started.', 'RELAY_CLOSED');
     const tail = url.pathname.slice(BASE.length);
+    const artifact = /^\/team\/artifacts\/([a-f0-9-]{36})(?:\/(reviews))?$/.exec(tail);
+    if (artifact && teamArtifacts) {
+      // This is the nominated OUTPUT from the original assignment, never a
+      // caller-supplied filesystem path or a private-workspace browsing route.
+      if (sender.name !== 'default') throw new HermesError(403, 'Only the coordinator can inspect or review assigned worker outputs.', 'TEAM_COORDINATOR_REQUIRED');
+      const record = await reconcile(exchanges.get(artifact[1]));
+      if (!record || record.from !== 'default') throw new HermesError(404, 'Assigned exchange not found.', 'NOT_FOUND');
+      if (!artifact[2] && req.method === 'GET') return json(res, 200, { artifact: await teamArtifacts.inspect(record) });
+      if (req.method === 'POST') {
+        const input = await body(req);
+        if (artifact[2]) {
+          const review = await teamArtifacts.review(record, input);
+          await patch(record.id, { teamVerification: review.verdict === 'passed' ? 'coordinator-reviewed' : 'coordinator-rejected',
+            teamReview: { id: review.requestId, sha256: review.sha256, verdict: review.verdict, at: review.at } });
+          return json(res, 200, { review });
+        }
+        if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length) throw invalid('The assigned output is fixed by its original TASK. No path overrides are accepted.');
+        const receipt = await teamArtifacts.receive(record);
+        await patch(record.id, { teamOutput: { sha256: receipt.sha256, bytes: receipt.bytes, receivedAt: receipt.receivedAt } });
+        return json(res, 200, { artifact: receipt });
+      }
+      throw new HermesError(405, 'Inspect, receive or review this assigned output.', 'INVALID_REQUEST');
+    }
     if (team && tail === '/team/core' && req.method === 'POST') {
       const value = await body(req);
       if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['content', 'base', 'evidence'].includes(key))) throw invalid('Unsupported core proposal fields.');

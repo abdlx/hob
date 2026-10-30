@@ -59,8 +59,8 @@ if (!token) {
   } catch { /* Report a repairable missing credential without leaking file contents. */ }
   finally { await handle?.close(); }
 }
-const usage = 'Usage: node .hob/talk.mjs roster\n       node .hob/talk.mjs send <bot-id-or-name> <message> [--parent <exchange-id>]\n       node .hob/talk.mjs status <exchange-id>';
-let lastRequestId;
+const usage = 'Usage: node .hob/talk.mjs roster\n       node .hob/talk.mjs send <bot-id-or-name> <message> [--parent <exchange-id>]\n       node .hob/talk.mjs status <exchange-id>\n       node .hob/talk.mjs artifact <exchange-id>\n       node .hob/talk.mjs artifact-status <exchange-id>\n       node .hob/talk.mjs review <exchange-id> <sha256> <passed|failed> <checks>';
+let lastRequestId, lastReviewId;
 if (!token) {
   console.error('This bot has no relay credential. Ask the operator to re-run bot synchronization.');
   process.exit(2);
@@ -77,7 +77,7 @@ async function call(pathname, init = {}) {
   return body;
 }
 const [command, ...args] = process.argv.slice(2);
-const parentIndex = args.indexOf('--parent');
+const parentIndex = command === 'send' ? args.indexOf('--parent') : -1;
 const parentExchangeId = parentIndex >= 0 ? args.splice(parentIndex, 2)[1] : undefined;
 try {
   if (command === 'roster') {
@@ -97,6 +97,17 @@ try {
   } else if (command === 'status') {
     const body = await call('/exchanges/' + encodeURIComponent(args[0] || ''));
     console.log(JSON.stringify(body, null, 2));
+  } else if (command === 'artifact' || command === 'artifact-status') {
+    if (args.length !== 1) throw new Error(usage);
+    const body = await call('/team/artifacts/' + encodeURIComponent(args[0]), command === 'artifact' ? { method: 'POST', body: '{}' } : {});
+    console.log(JSON.stringify(body, null, 2));
+    if (body.artifact) console.log('Read the coordinator-local snapshot at ' + body.artifact.path + ' and check the assigned outcome before recording a review. A copied file alone does not verify task completion.');
+  } else if (command === 'review') {
+    if (args.length < 4) throw new Error(usage);
+    lastReviewId = process.env.HOB_TALK_REVIEW_ID || randomUUID();
+    console.error('Review request: ' + lastReviewId);
+    const body = await call('/team/artifacts/' + encodeURIComponent(args[0]) + '/reviews', { method: 'POST', body: JSON.stringify({ sha256: args[1], verdict: args[2], checks: args.slice(3).join(' '), requestId: lastReviewId }) });
+    console.log(JSON.stringify(body, null, 2));
   } else {
     console.log(usage);
     process.exitCode = command ? 2 : 0;
@@ -104,6 +115,7 @@ try {
 } catch (error) {
   console.error(error.message);
   if (lastRequestId) console.error('If admission is uncertain, retry the same message with HOB_TALK_REQUEST_ID=' + lastRequestId + ' to avoid duplicate work.');
+  if (lastReviewId) console.error('Inspect artifact-status before retrying an uncertain review. Reuse HOB_TALK_REVIEW_ID=' + lastReviewId + ' for the exact same decision.');
   process.exitCode = 1;
 }
 `;
@@ -135,7 +147,7 @@ const managedBlock = (self, roster, coordinatorOnly = false) => {
     'Each send creates a separate, inspectable exchange and native conversation. The recipient receives only the context you send. For further delegation from an exchange, include --parent <exchange-id> from its request. Never delegate back to an ancestor. Do not claim a timed-out exchange failed; use node .hob/talk.mjs status <exchange-id> to check it. Use independent tasks for parallel delegation. For recurring work, use Hermes native scheduled jobs; no schedule exists until Hermes confirms it.',
     'The relay is a real message to another bot, which acts with its own tools, workspace, memory and approvals. Never claim another bot completed work without its reply. Do not send secrets, credentials, or tokens through bot messages.',
     'Save final deliverables under artifacts/ in your assigned workspace. Copy completed scratch outputs there before reporting delivery, and link the actual saved file. Keep intermediate files separate. Match the user’s requested language in replies and conversation titles; use the conversation language for Roman Urdu and mixed-language chats, and do not import another bot or project’s language preference.',
-    ...(coordinatorOnly ? ['', 'Employee-team assignments and replies use these exact fields, in order. Indent multiline continuations by two spaces. A worker OUTPUT is relative to its own workspace; ask the coordinator to publish a nominated artifact.', '```text', TASK_FORMAT, '```', '```text', REPLY_FORMAT, '```', 'A session-only fact stays in that session, including its summary. Do not write it to private memory, shared docs or core. Propose eligible core changes to the coordinator; only a user-approved revision is distributed. A DONE reply is self-reported until the coordinator verifies the actual files and result. Attribute worker results by their configured names. External facts require source and observation time; label stale observations stale.'] : []),
+    ...(coordinatorOnly ? ['', 'Employee-team assignments and replies use these exact fields, in order. Indent multiline continuations by two spaces. A worker OUTPUT is relative to its own workspace; ask the coordinator to publish a nominated artifact.', '```text', TASK_FORMAT, '```', '```text', REPLY_FORMAT, '```', ...(main ? ['After the worker replies, run node .hob/talk.mjs artifact <exchange-id> to receive only its nominated OUTPUT. Read the returned coordinator-local file and check the requested outcome with your own tools. Then run node .hob/talk.mjs review <exchange-id> <returned-sha256> <passed|failed> "<actual checks and findings>". Do not report verified completion merely because a file was copied or the worker said DONE. Artifact-status inspects the existing snapshot and review history.'] : []), 'A session-only fact stays in that session, including its summary. Do not write it to private memory, shared docs or core. Propose eligible core changes to the coordinator; only a user-approved revision is distributed. A DONE reply is self-reported until the coordinator verifies the actual files and result. Attribute worker results by their configured names. External facts require source and observation time; label stale observations stale.'] : []),
     END,
   ];
   return lines.join('\n');
