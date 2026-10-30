@@ -294,7 +294,7 @@ function OpenClawSettingsView() {
     </div>
     {error && <Notice error>{error}</Notice>}{status && <Notice>{status}</Notice>}{snapshot?.valid === false && <Notice error>OpenClaw reported configuration issues: {JSON.stringify(snapshot.issues)}</Notice>}
     <div className="flex flex-col gap-4 md:flex-row">
-      <nav className="settings-nav flex w-full shrink-0 gap-1 overflow-x-auto rounded-xl border border-hair bg-surface p-2 md:w-56 md:flex-col md:overflow-visible" aria-label="Settings sections">
+      <nav className="settings-nav flex flex-wrap w-full shrink-0 gap-1 rounded-xl border border-hair bg-surface p-2 md:w-56 md:flex-col" aria-label="Settings sections">
         {navSections.map((item) => <button key={item.id} type="button" onClick={() => { setSection(item.id); setQuery(''); }} className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors ${!searching && section === item.id ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-hover hover:text-ink'}`}><span className="whitespace-nowrap">{item.title}</span></button>)}
       </nav>
       <div className="min-w-0 flex-1 space-y-4">

@@ -150,7 +150,7 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
   }
 
   return <div className="space-y-5">
-    <div className="flex items-center justify-between gap-3"><p className="text-xs md:text-sm text-muted">Configure Hermes and your independent bots.</p><button className={buttonClass} disabled={busy || loading} onClick={load}>Refresh</button></div>
+    <div className="flex items-center justify-between gap-3"><p className="min-w-0 text-xs md:text-sm text-muted">Configure Hermes and your independent bots.</p><button className={`${buttonClass} shrink-0`} disabled={busy || loading} onClick={load}>Refresh</button></div>
     {error && <Notice error>{error}</Notice>}
     <Field label="Bot"><select className={inputClass} disabled={busy || loading} value={profile} onChange={event => { loadSequence.current++; setProfile(event.target.value); setSnapshot(null); setSecret(''); setProvider(''); setModel(''); setBaseUrl(''); setEndpointName(''); setEndpointSecret(''); setModelConfirmation(''); }}>
       <option value="default">{profiles.find(item => item.name === 'default')?.display_name || 'Main'}</option>{profiles.filter(item => item.name !== 'default' && (!item.state || item.state === 'active')).map(item => <option key={item.name} value={item.name}>{item.display_name || item.name}</option>)}

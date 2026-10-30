@@ -6,14 +6,17 @@ const stamp = '2026-10-27T10:00:00Z';
 const code = 'const greeting = "Hello, مرحبا";\nconsole.log(greeting);';
 const reply = 'Here is the launch direction.\n\n![Launch direction](/api/hermes/media?profile=default&path=launch.png)\n\n```javascript\n' + code + '\n```\n\n| Milestone | Status |\n| --- | --- |\n| Design | Ready |\n\n<script>window.chatUnsafe = true</script>';
 
-async function fixture(page: Page, { long = false, question = false, brokenImage = false } = {}) {
+const wideCode = 'const url = "https://example.com/' + 'longpath'.repeat(35) + '";';
+const wideReply = '[https://example.com/' + 'path'.repeat(60) + '](https://example.com)\n\n```javascript\n' + wideCode + '\n```\n\n| Resource | Description | Status |\n| --- | --- | --- |\n| ' + 'Resource'.repeat(20) + ' | ' + 'Details'.repeat(25) + ' | Ready |';
+
+async function fixture(page: Page, { long = false, question = false, brokenImage = false, wide = false } = {}) {
   const errors: string[] = [], writes: { path: string; body: Record<string, unknown> }[] = [];
   page.on('pageerror', error => errors.push(error.message));
   let release: (() => void) | undefined;
   let run = question ? { runId: 'native-run', status: 'waiting_for_approval', revision: 'revision-1', questions: [{ id: 'question-1', generation: 1, question: 'Which direction should I use?', choices: ['Warm and expressive', 'Quiet and minimal'], multiSelect: false }], canRecover: false, canResolveUnknown: false } : null;
   const history = long ? Array.from({ length: 35 }, (_, index) => ({ id: `history-${index}`, role: index % 2 ? 'assistant' : 'user', content: `Earlier message ${index}. A detailed note about the launch, its milestones and next steps.\n\nKeep the details available for review.`, timestamp: stamp })) : [
     { id: 'user-1', role: 'user', content: 'Show the launch direction and the sample code.', timestamp: stamp },
-    { id: 'assistant-1', role: 'assistant', content: reply, timestamp: stamp },
+    { id: 'assistant-1', role: 'assistant', content: wide ? wideReply : reply, timestamp: stamp },
   ];
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
@@ -317,5 +320,31 @@ test('failed image and clipboard operations show useful feedback and image retry
   await page.getByRole('button', { name: 'Copy code', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Copy failed. Select the text to copy it.', exact: true })).toHaveText('Copy failed');
   await expect(page.getByRole('region', { name: 'Conversation messages' }).getByText('console.log(greeting);', { exact: false })).toBeVisible();
+  expect(state.errors).toEqual([]);
+});
+
+
+test('long URLs, code, tables and attachments wrap inside mobile chat', async ({ page }) => {
+  const { expectNoHorizontalScroll } = await import('./mobile-layout');
+  const state = await fixture(page, { wide: true });
+  for (const width of [320, 393]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto('/chat');
+    await expect(page.getByRole('region', { name: 'Table', exact: true })).toBeVisible();
+    await expectNoHorizontalScroll(page);
+    await page.getByRole('button', { name: 'Copy code', exact: true }).click();
+    await page.getByRole('button', { name: 'Add files or library', exact: true }).click();
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('menuitem', { name: 'Attach files', exact: true }).click();
+    await (await chooser).setFiles([
+      { name: 'first-long-reference-document.txt', mimeType: 'text/plain', buffer: Buffer.from('First') },
+      { name: 'second-long-reference-document.txt', mimeType: 'text/plain', buffer: Buffer.from('Second') },
+    ]);
+    await expect(page.getByLabel('Prompt attachments')).toBeVisible();
+    await expectNoHorizontalScroll(page);
+    await expect(page.getByRole('button', { name: 'Remove attachment first-long-reference-document.txt', exact: true })).toBeInViewport();
+    await expect(page.getByRole('button', { name: 'Remove attachment second-long-reference-document.txt', exact: true })).toBeInViewport();
+    await page.screenshot({ path: `test-results/mobile-wrapped-chat-${width}.png` });
+  }
   expect(state.errors).toEqual([]);
 });

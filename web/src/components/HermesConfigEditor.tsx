@@ -115,7 +115,7 @@ export function HermesConfigEditor({ snapshot, schema, busy = false, onSave }: P
     <div className="p-4 md:p-5 border-b border-hair space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div><h2 className="text-base md:text-lg font-semibold text-ink">Hermes settings</h2><p className="mt-1 text-xs leading-relaxed text-muted">Every native Hermes option is available here. Settings are grouped so advanced controls stay out of the way.</p></div>
-        <div className="flex items-center gap-2" role="status" aria-live="polite">
+        <div className="flex flex-wrap items-center gap-2" role="status" aria-live="polite">
           {changed ? <span className="text-xs text-warn">Unsaved changes</span> : saved ? <span className="inline-flex items-center gap-1 text-xs text-ok"><Check size={13} />Saved</span> : <span className="text-xs text-muted">All settings saved</span>}
           <button className={buttonClass} disabled={!changed || saving || busy} onClick={() => { setDraft(snapshot); setSaved(false); setError(''); }}><RotateCcw size={13} />Discard</button>
           <button className={buttonClass} disabled={!changed || saving || busy} onClick={() => void save()}><Save size={13} />{saving ? 'Saving…' : 'Save changes'}</button>
@@ -130,13 +130,13 @@ export function HermesConfigEditor({ snapshot, schema, busy = false, onSave }: P
     </div>
 
     <div className="flex min-h-[520px] flex-col md:flex-row">
-      <nav className="settings-nav flex md:w-48 shrink-0 gap-1 overflow-x-auto border-b md:border-b-0 md:border-r border-hair p-2" aria-label="Settings categories">
+      <nav className="settings-nav flex flex-wrap md:flex-col md:w-48 shrink-0 gap-1 border-b md:border-b-0 md:border-r border-hair p-2" aria-label="Settings categories">
         {categories.map(category => {
           const count = Object.values(schema.fields).filter(field => (field.category || 'general') === category).length;
           return <button key={category} type="button" onClick={() => { setActiveCategory(category); setSearch(''); }} className={`flex shrink-0 items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors ${currentCategory === category && !query ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-hover hover:text-ink'}`}><span>{categoryLabel(category)}</span><span className="text-[10px] opacity-60">{count}</span></button>;
         })}
       </nav>
-      <div className="flex-1 space-y-3 p-3 md:p-5">
+      <div className="min-w-0 flex-1 space-y-3 p-3 md:p-5">
         {query && <p className="text-xs text-muted">{visibleEntries.length} matching setting{visibleEntries.length === 1 ? '' : 's'}</p>}
         {!visibleEntries.length && <Notice>No settings match this search.</Notice>}
         {Object.entries(grouped).map(([group, entries], index) => <details key={group} open={Boolean(query) || index === 0} className="settings-group rounded-xl border border-hair bg-surface">
@@ -147,7 +147,7 @@ export function HermesConfigEditor({ snapshot, schema, busy = false, onSave }: P
               const sensitive = sensitivePath.test(path);
               const type = field.type || 'string';
               const displayValue = sensitive ? '' : value;
-              return <label key={path} className="settings-field rounded-lg border border-hair bg-surface p-3">
+              return <label key={path} className="settings-field min-w-0 [overflow-wrap:anywhere] rounded-lg border border-hair bg-surface p-3">
                 <span className="mb-1 block text-xs font-medium text-ink">{labelFor(path, field.description)}</span>
                 <span className="mb-2 block font-mono text-[10px] text-muted">{path}</span>
                 {type === 'boolean' ? <select className={inputClass} value={String(value ?? false)} onChange={event => update(path, field, event.target.value === 'true')}><option value="true">Enabled</option><option value="false">Disabled</option></select>

@@ -254,7 +254,7 @@ export function ActivityView() {
       </div>
 
       {/* Bot filter chips */}
-      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+      <div className="flex flex-wrap gap-2 pb-1">
         <button
           type="button"
           onClick={() => setActivityFilter(null)}
@@ -287,7 +287,7 @@ export function ActivityView() {
       </div>
 
       {/* Status filter chips */}
-      <div className="flex gap-2 overflow-x-auto -mx-1 px-1">
+      <div className="flex flex-wrap gap-2">
         {statusFilters.map((filter) => (
           <button
             key={filter.id}

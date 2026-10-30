@@ -79,6 +79,10 @@ async function fixture(page: Page, extraApps = false, savedProviderCards = false
       if (request.method() === 'PUT') preferences[profile] = request.postDataJSON();
       return json(preferences[profile] || { language: 'auto', timezone: 'Asia/Karachi', maxTurns: 30, runBudgetSeconds: 300 });
     }
+    if (path === '/api/hermes/setup/tools') return json([{ name: 'web', label: 'Web search', description: 'Search the web.', enabled: true, configured: true }]);
+    if (path === '/api/hermes/setup/channels') return json({ platforms: [] });
+    if (path === '/api/hermes/setup/memory') return json({ active: '', providers: [], builtinFiles: { memory: 120, user: 40 } });
+    if (path === '/api/hermes/setup/learning') return json({ controls: Object.fromEntries(['memoryEnabled', 'userProfileEnabled', 'memoryApproval', 'skillApproval', 'backgroundReview'].map(key => [key, { value: true, source: 'default' }])) });
     if (path === '/api/hermes/setup/mcp') return json({ servers: [] });
     if (path === '/api/hermes/workspace/toolsets') return json([{ name: 'browser', enabled: true, configured: false }]);
     if (path === '/api/hermes/workspace/jobs') return json([]);
@@ -615,5 +619,30 @@ test('automation saves a real conversation-scoped heartbeat and displays native 
   await page.locator('.hob-settings-directory').getByRole('button', { name: 'Automation', exact: true }).click();
   await expect(automation.getByRole('button', { name: 'Resume heartbeat' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(state.errors).toEqual([]);
+});
+
+test('every settings category fits a narrow phone without horizontal panel scrolling', async ({ page }) => {
+  const { expectNoHorizontalScroll } = await import('./mobile-layout');
+  const state = await fixture(page, true, true);
+  const nativeCategories = ['memory', 'general', 'model', 'tools', 'browser', 'compression', 'terminal', 'agent', 'display', 'privacy'];
+  await page.route(url => url.pathname === '/api/hermes/config/schema', route => route.fulfill({ json: { fields: Object.fromEntries(nativeCategories.map(category => [`${category}.${'long_native_setting_'.repeat(5)}`, { type: 'string', category, description: 'A long native setting with a URL: https://example.com/' + 'path'.repeat(45) }])), category_order: nativeCategories } }));
+  for (const width of [320, 393]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto('/settings');
+    const categories = page.locator('.hob-settings-directory').getByRole('navigation', { name: 'Settings categories' });
+    await expect(categories.getByRole('button')).toHaveCount(11);
+    const labels = await categories.getByRole('button').allTextContents();
+    for (const label of labels) {
+      await categories.getByRole('button').filter({ hasText: label }).click();
+      await expect(categories).toBeHidden();
+      expect((await page.locator('.hob-settings-content').getByRole('button', { name: 'Refresh', exact: true }).first().boundingBox())!.height).toBeLessThanOrEqual(44);
+      if (label.startsWith('Advanced')) await expect(page.locator('.settings-nav').getByRole('button')).toHaveCount(nativeCategories.length);
+      await expectNoHorizontalScroll(page);
+      await page.screenshot({ path: `test-results/mobile-settings-${width}-${label.split(' ')[0]}.png` });
+      await page.getByRole('button', { name: 'Back', exact: true }).click();
+      await expect(categories).toBeVisible();
+    }
+  }
   expect(state.errors).toEqual([]);
 });

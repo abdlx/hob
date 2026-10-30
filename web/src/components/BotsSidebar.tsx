@@ -490,7 +490,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
                     <div className="flex items-center justify-between gap-1">
                       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
                       <span
-                        className={`max-w-full text-[14.5px] font-semibold truncate ${
+                        className={`max-w-full text-[14.5px] leading-tight font-semibold truncate ${
                           isSelected ? 'text-code-strong' : 'text-ink'
                         }`}
                       >
@@ -500,9 +500,6 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
 
                       </div>
                       <div className="shrink-0 flex items-center gap-1">
-                        {!isCurrent && !isSelected && (
-                          <span className="w-2 h-2 rounded-full bg-ok-dot opacity-70" />
-                        )}
                         {runtime === 'hermes' && !filteringActivity && (
                           <button
                             type="button"
@@ -535,7 +532,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
                       </div>
                     </div>
                     <p
-                      className={`text-[12px] truncate mt-0.5 ${
+                      className={`text-[12px] leading-tight truncate ${
                         isSelected ? 'text-muted' : 'text-faint'
                       }`}
                     >

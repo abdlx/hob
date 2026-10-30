@@ -284,7 +284,7 @@ hob is designed for a trusted operator, not for mutually hostile tenants.
 
 - **Single public port.** Only the app port (`3000`) is exposed. Hermes settings (`8080`) and runtime (`8642`) stay on loopback.
 - **Server-side secrets.** Provider keys, listener credentials, and the Hermes dashboard token never reach the browser.
-- **Authenticated API.** `/api/*` is gated by an HttpOnly, SameSite=Strict session cookie. Login attempts are rate-limited, and state-changing requests check their origin.
+- **Authenticated API.** `/api/*` is gated by an HttpOnly, SameSite=Strict session cookie. Browser logins last 30 days and renew on authenticated API use during the final week. Existing valid one-day cookies upgrade on their next API request. Changing the password or session secret invalidates browser logins. Mobile WebView cookies cannot outlive their 30-day device enrollment and are invalidated when that device is revoked. Login attempts are rate-limited, and state-changing requests check their origin.
 - **Profile-bound routing.** Every dashboard operation selects one enrolled bot. Native credentials and session keys are scoped to that bot.
 - **Scoped local media.** The inline-media endpoint serves only raster images from the selected bot's profile home, workspace, or HOB browser captures. Path traversal, symlink escapes, other profiles, and the default profile's shared `profiles/`/`workspaces/bots/` subtrees are refused.
 - **No Docker socket.** The supplied Compose stack does not mount the host Docker socket. Compose drops every capability except the six required by the upstream volume initializer (`CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETGID`, `SETUID`, `KILL`) and retains `no-new-privileges`. Application processes run as the unprivileged Hermes user.

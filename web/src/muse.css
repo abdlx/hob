@@ -308,4 +308,14 @@ button { font-family: inherit; }
 .hob-workspace-header { display: flex; align-items: center; justify-content: space-between; flex: 0 0 82px; height: 82px; padding: 20px 32px 16px; }
 @media (max-width: 767px) {
   .hob-workspace-header { flex-basis: 88px; height: 88px; padding: 24px 15px 18px; }
+  /* Wrap content at its source; overflow-y panels otherwise become horizontal scrollers. */
+  :is(.hob-workspace-scroll, .hob-agent-scroll) { overflow-wrap: anywhere; }
+  .hob-app fieldset { min-inline-size: 0; }
+  :is(.hob-app, dialog) pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .hob-markdown-view { overflow-wrap: anywhere; }
+  .hob-markdown-view p { overflow-wrap: anywhere; }
+  .hob-markdown-view table { table-layout: fixed; }
+  .hob-markdown-view :is(th, td) { overflow-wrap: anywhere; padding: 8px 6px; }
+  .hob-attachments { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); overflow: visible; }
+  .hob-attachments > div { width: 100%; min-width: 0; }
 }

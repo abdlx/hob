@@ -312,3 +312,31 @@ test('settings directory opens appearance, returns home, and preserves the five-
   expect(state.writes).toEqual([]);
   expect(state.errors).toEqual([]);
 });
+
+test('mobile workspace panels fit without inner horizontal scrolling', async ({ page }) => {
+  const { expectNoHorizontalScroll } = await import('./mobile-layout');
+  const state = await fixture(page);
+  for (const width of [320, 393]) {
+    await page.setViewportSize({ width, height: 800 });
+    for (const path of ['/activity', '/ideas', '/goals', '/library', '/settings']) {
+      await page.goto(path);
+      await expect(page.locator('.hob-workspace-scroll')).toBeVisible();
+      await expectNoHorizontalScroll(page);
+    }
+    await page.goto('/chat');
+    await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeEnabled();
+    await expectNoHorizontalScroll(page);
+    await page.getByRole('button', { name: 'Open agent details and activity', exact: true }).click();
+    const panel = page.getByRole('complementary', { name: 'Agent details', exact: true });
+    for (const name of ['Activity', 'Approvals', 'Browser', 'Scheduled tasks', 'Identity']) {
+      await panel.getByRole('tab', { name, exact: true }).click();
+      await expectNoHorizontalScroll(page);
+    }
+    await panel.getByRole('button', { name: 'Back to chat', exact: true }).click();
+    await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+    await expectNoHorizontalScroll(page);
+    await page.getByRole('dialog', { name: 'Conversations', exact: true }).getByRole('button', { name: 'Bots', exact: true }).click();
+    await expectNoHorizontalScroll(page);
+  }
+  expect(state.errors).toEqual([]);
+});

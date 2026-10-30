@@ -9,6 +9,18 @@ export class ApiError extends Error {
   constructor(message: string, status: number) { super(message); this.status = status; }
 }
 
+// Provider/MCP authentication failures do not imply the Hob login expired.
+let sessionCheck: Promise<void> | null = null;
+async function checkSession() {
+  if (!sessionCheck) sessionCheck = (async () => {
+    try {
+      const response = await fetch(`${baseUrl}/api/auth/status`, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } });
+      if (response.ok && (await response.json()).authenticated === false) window.dispatchEvent(new Event('hob:unauthorized'));
+    } catch { /* A failed connectivity check is not proof of an expired login. */ }
+  })().finally(() => { sessionCheck = null; });
+  await sessionCheck;
+}
+
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (!headers.has('X-Hob-Profile')) headers.set('X-Hob-Profile', activeProfile);
@@ -17,7 +29,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     const error = new ApiError(body?.error?.message || body?.error || body?.message || `Request failed (${response.status})`, response.status);
-    if (response.status === 401) window.dispatchEvent(new Event('hob:unauthorized'));
+    if (response.status === 401 && !/^\/api\/auth\/(?:login|status)(?:[?]|$)/.test(path)) await checkSession();
     throw error;
   }
   if (response.status === 204) return undefined as T;
@@ -59,7 +71,7 @@ class ChatApiClient {
     });
     if (!response.ok) {
       const body = await response.json().catch(() => null);
-      if (response.status === 401) window.dispatchEvent(new Event('hob:unauthorized'));
+      if (response.status === 401) await checkSession();
       throw new ApiError(body?.error?.message || body?.error || body?.message || `Agent request failed (${response.status})`, response.status);
     }
     if (!response.body) throw new Error('The server did not return an agent response.');

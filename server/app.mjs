@@ -21,6 +21,8 @@ import { MobileDevices } from './mobile-devices.mjs';
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
+const SESSION_LIFETIME = 30 * 86400_000;
+const SESSION_RENEW_WINDOW = 7 * 86400_000;
 const MAX_BODY = 2 * 1024 * 1024;
 const PROFILE_FILES = new Set(['SOUL.md', 'MEMORY.md', 'IDENTITY.md', 'USER.md', 'AGENTS.md', 'TOOLS.md', 'HEARTBEAT.md']);
 const MEDIA = /\.(png|jpe?g|gif|webp|svg|avif|mp4|webm|mov|mp3|wav|ogg|m4a|flac)$/i;
@@ -112,11 +114,11 @@ async function browserImage(stateDir, filename) {
   } finally { await handle?.close(); await rootHandle.close(); }
 }
 
-export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gateway : undefined, bots, browser, runJournal, nativeSessions, exchanges, telemetry, password = hobEnv().HOB_PASSWORD, accessToken = hobEnv().HOB_ACCESS_TOKEN, sessionSecret = hobEnv().HOB_SESSION_SECRET, publicUrl = hobEnv().HOB_PUBLIC_URL, secureCookies = hobEnv().HOB_SECURE_COOKIES === 'true', stateDir = process.env.OPENCLAW_STATE_DIR, viewerTicketTtlMs, staticDir = fileURLToPath(new URL('../web/dist', import.meta.url)) }) {
+export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gateway : undefined, bots, browser, runJournal, nativeSessions, exchanges, telemetry, password = hobEnv().HOB_PASSWORD, accessToken = hobEnv().HOB_ACCESS_TOKEN, sessionSecret = hobEnv().HOB_SESSION_SECRET, publicUrl = hobEnv().HOB_PUBLIC_URL, secureCookies = hobEnv().HOB_SECURE_COOKIES === 'true', stateDir = process.env.OPENCLAW_STATE_DIR, viewerTicketTtlMs, sessionNow = Date.now, staticDir = fileURLToPath(new URL('../web/dist', import.meta.url)) }) {
   const configured = Boolean(password || accessToken);
   const secret = sessionSecret || createHash('sha256').update(`hob-session:${password || accessToken || randomBytes(32).toString('hex')}`).digest();
   const fingerprint = createHash('sha256').update(`${password || ''}:${accessToken || ''}`).digest('base64url');
-  const mobile = new MobileDevices({ stateDir: process.env.HOB_STATE_DIR || stateDir, fingerprint });
+  const mobile = new MobileDevices({ stateDir: process.env.HOB_STATE_DIR || stateDir, fingerprint, now: sessionNow });
   const bootstrapTickets = new Map();
   const publicationAttempts = new Set();
   const notifyCompleted = value => {
@@ -181,15 +183,29 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   const attempts = new Map();
   const streams = new Set();
   const sign = value => createHmac('sha256', secret).update(value).digest('base64url');
-  const cookieValid = req => {
+  const readCookie = req => {
     const token = req.headers.cookie?.split(';').map(v => v.trim()).find(v => v.startsWith('hob_session='))?.slice('hob_session='.length);
-    if (!token || token.length > 1024) return false;
-    const [payload, signature] = token.split('.');
-    if (!signature || !safeEquals(sign(payload), signature)) return false;
-    try { const data = JSON.parse(Buffer.from(payload, 'base64url')); return data.exp > Date.now() && data.fp === fingerprint && (!data.mobileDeviceId || mobile.active(data.mobileDeviceId)); } catch { return false; }
+    if (!token || token.length > 1024) return null;
+    const parts = token.split('.');
+    if (parts.length !== 2 || !parts[1] || !safeEquals(sign(parts[0]), parts[1])) return null;
+    try {
+      const data = JSON.parse(Buffer.from(parts[0], 'base64url'));
+      return Number.isFinite(data.exp) && data.exp > sessionNow() && data.fp === fingerprint && (!data.mobileDeviceId || mobile.active(data.mobileDeviceId)) ? data : null;
+    } catch { return null; }
   };
-  const authenticated = req => configured && (cookieValid(req) || mobile.authenticate(req.headers.authorization) || (accessToken && safeEquals(req.headers.authorization || '', `Bearer ${accessToken}`)));
+  const authenticated = req => configured && (Boolean(readCookie(req)) || mobile.authenticate(req.headers.authorization) || (accessToken && safeEquals(req.headers.authorization || '', `Bearer ${accessToken}`)));
   const setCookie = (res, value, maxAge) => res.setHeader('Set-Cookie', `hob_session=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${secureCookies || publicUrl?.startsWith('https:') ? '; Secure' : ''}`);
+  const sessionExpiry = mobileDeviceId => Math.min(sessionNow() + SESSION_LIFETIME, mobileDeviceId ? mobile.status(mobileDeviceId).expiresAt : Infinity);
+  const issueCookie = (res, mobileDeviceId, exp = sessionExpiry(mobileDeviceId)) => {
+    const payload = Buffer.from(JSON.stringify({ exp, fp: fingerprint, nonce: randomUUID(), ...(mobileDeviceId ? { mobileDeviceId } : {}) })).toString('base64url');
+    setCookie(res, `${payload}.${sign(payload)}`, Math.max(0, Math.floor((exp - sessionNow()) / 1000)));
+  };
+  const renewCookie = (req, res) => {
+    const session = readCookie(req);
+    if (!session || session.exp - sessionNow() > SESSION_RENEW_WINDOW) return;
+    const exp = sessionExpiry(session.mobileDeviceId);
+    if (exp > session.exp) issueCookie(res, session.mobileDeviceId, exp);
+  };
   const assertOrigin = req => {
     if (req.headers['sec-fetch-site'] === 'cross-site') throw new HttpError(403, 'Cross-site requests are refused.');
     const origin = req.headers.origin;
@@ -266,12 +282,16 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
       if (route === '/api/version' && method === 'GET') return json(res, 200, build);
       if (route === '/api/mobile/discovery' && method === 'GET') return json(res, 200, { app: 'hob', protocol: 1, instanceId: mobile.instanceId,
         auth: 'password', configured, version: build, capabilities: { workspace: true, attachments: Boolean(canonicalChat), push: true, maxAttachmentBytes: 5 * 1024 * 1024, maxAttachments: 10 } });
-      if (route === '/api/auth/status' && method === 'GET') return json(res, 200, { authenticated: Boolean(authenticated(req)), configured, gatewayConnected: gateway.connected });
+      if (route === '/api/auth/status' && method === 'GET') {
+        const signedIn = Boolean(authenticated(req));
+        if (signedIn) renewCookie(req, res);
+        return json(res, 200, { authenticated: signedIn, configured, gatewayConnected: gateway.connected });
+      }
       if (method !== 'GET' && method !== 'HEAD') assertOrigin(req);
       if (['/api/auth/login', '/api/mobile/login'].includes(route) && method === 'POST') {
         if (!configured) throw new HttpError(503, 'Set HOB_PASSWORD or HOB_ACCESS_TOKEN on the server.');
         const ip = req.socket.remoteAddress;
-        const now = Date.now();
+        const now = sessionNow();
         let record = attempts.get(ip);
         if (!record || now - record.at > 60000) record = { at: now, count: 0 };
         if (record.count >= 10) throw new HttpError(429, 'Too many login attempts. Try again in a minute.');
@@ -282,8 +302,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
         if (!((password && safeEquals(input.password || '', password)) || (accessToken && safeEquals(input.password || input.token || '', accessToken)))) throw new HttpError(401, 'Invalid password or access token.');
         attempts.delete(ip);
         if (route === '/api/mobile/login') return json(res, 200, { authenticated: true, ...mobile.login(input.deviceName) });
-        const payload = Buffer.from(JSON.stringify({ exp: now + 86400000, fp: fingerprint, nonce: randomUUID() })).toString('base64url');
-        setCookie(res, `${payload}.${sign(payload)}`, 86400);
+        issueCookie(res);
         return json(res, 200, { authenticated: true });
       }
       if (route === '/api/mobile/bootstrap' && method === 'POST') {
@@ -292,9 +311,8 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
         const fields = new URLSearchParams(Buffer.concat(chunks).toString());
         if ([...fields.keys()].some(key => key !== 'ticket') || fields.getAll('ticket').length !== 1) throw new HttpError(400, 'Invalid bootstrap ticket.');
         const ticket = fields.get('ticket'), entry = bootstrapTickets.get(ticket); bootstrapTickets.delete(ticket);
-        if (!entry || entry.expires < Date.now() || !mobile.active(entry.deviceId)) throw new HttpError(401, 'Reconnect the app to continue.');
-        const payload = Buffer.from(JSON.stringify({ exp: Date.now() + 86400_000, fp: fingerprint, nonce: randomUUID(), mobileDeviceId: entry.deviceId })).toString('base64url');
-        setCookie(res, `${payload}.${sign(payload)}`, 86400);
+        if (!entry || entry.expires < sessionNow() || !mobile.active(entry.deviceId)) throw new HttpError(401, 'Reconnect the app to continue.');
+        issueCookie(res, entry.deviceId);
         res.writeHead(303, { Location: '/chat?mobile=1', 'Cache-Control': 'no-store' }); res.end(); return;
       }
       // Bot-to-bot traffic is authenticated by each bot's own Hermes listener
@@ -304,13 +322,14 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
       }
       if (route.startsWith('/api/')) {
         if (!authenticated(req)) throw new HttpError(401, 'Sign in to hob.');
+        renewCookie(req, res);
         if (route.startsWith('/api/mobile/')) {
           const deviceId = mobile.authenticate(req.headers.authorization);
           if (!deviceId) throw new HttpError(401, 'Sign in from the mobile app.');
           if (route === '/api/mobile/session' && method === 'POST') {
-            for (const [key, value] of bootstrapTickets) if (value.expires < Date.now()) bootstrapTickets.delete(key);
+            for (const [key, value] of bootstrapTickets) if (value.expires < sessionNow()) bootstrapTickets.delete(key);
             if (bootstrapTickets.size >= 1000) throw new HttpError(429, 'Try reconnecting shortly.');
-            const ticket = randomBytes(32).toString('base64url'); bootstrapTickets.set(ticket, { deviceId, expires: Date.now() + 60_000 });
+            const ticket = randomBytes(32).toString('base64url'); bootstrapTickets.set(ticket, { deviceId, expires: sessionNow() + 60_000 });
             return json(res, 200, { ticket });
           }
           if (route === '/api/mobile/device' && method === 'GET') return json(res, 200, mobile.status(deviceId));
