@@ -223,14 +223,13 @@ button { font-family: inherit; }
   ::-webkit-scrollbar { width: 0; height: 0; }
   .hob-panel-center { background: var(--color-canvas); }
   .hob-reference-header::before { content: ''; position: absolute; z-index: -1; inset: 0 0 auto; height: 150px; background: linear-gradient(var(--color-canvas) 8%, color-mix(in srgb, var(--color-canvas) 95%, transparent) 32%, transparent); pointer-events: none; }
-  .hob-workspace-profile { position: absolute; height: 160px; }
-  .hob-workspace-scroll { padding: 160px 15px 20px; }
+  .hob-workspace-scroll { padding: 0 15px 20px; }
   .hob-workspace-scroll > div { max-width: none; }
   .hob-workspace-settings { padding-top: 85px; background: var(--color-panel); }
   .hob-settings-layout { display: block; }
   .hob-settings-root:not(.hob-settings-detail) .hob-settings-content { display: none; }
   .hob-settings-detail .hob-settings-directory { display: none; }
-  .hob-composer { padding: 6px 15px 14px !important; gap: 4px; background: var(--color-canvas); }
+  .hob-composer { padding: 6px 15px 14px !important; background: var(--color-canvas); }
   .hob-composer form > div { border: 0; border-radius: 28px; background: var(--color-panel); box-shadow: none; }
   .hob-composer form > div:focus-within { box-shadow: none; }
   .hob-composer form > div > div:last-child { min-height: 46px; padding: 3px 8px; gap: 2px; align-items: center; }
@@ -264,7 +263,7 @@ button { font-family: inherit; }
 .hob-sidebar-nav-button { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; color: var(--hob-icon-idle); }
 .hob-sidebar-nav-button[aria-current='page'] { background: var(--hob-selected); color: var(--color-ink); }
 .hob-sidebar-nav-button:hover { background: var(--color-hover); }
-.hob-workspace-scroll { padding-top: 112px; }
+.hob-workspace-scroll { padding-top: 0; }
 .hob-settings-titlebar { position: absolute; inset: 0 0 auto; height: 80px; padding: 24px 15px 10px; display: flex; align-items: center; justify-content: center; z-index: 20; background: linear-gradient(var(--color-panel) 65%, transparent); }
 .hob-settings-titlebar > button { position: absolute; left: 15px; }
 .hob-settings-titlebar h1 { font-size: 17px; font-weight: 600; }
@@ -294,16 +293,19 @@ button { font-family: inherit; }
 .hob-video-play { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; }
 
 @media (min-width: 768px) {
-  .hob-workspace-profile { height: 96px; }
   .hob-settings-titlebar { background: var(--color-canvas); }
   .hob-file-label strong { font-size: 17px; }
   .hob-artifact-list .hob-file-open { height: 68px; }
   .hob-media-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 767px) {
-  .hob-workspace-scroll:not(.hob-workspace-settings) { padding-top: 160px; }
   .hob-settings-layout { display: block; }
   .hob-settings-group { padding: 0 15px; }
   .hob-settings-group > button { min-height: 68px; font-size: 17px; }
   .hob-settings-group small { font-size: 12px; }
+}
+
+.hob-workspace-header { display: flex; align-items: center; justify-content: space-between; flex: 0 0 82px; height: 82px; padding: 20px 32px 16px; }
+@media (max-width: 767px) {
+  .hob-workspace-header { flex-basis: 88px; height: 88px; padding: 24px 15px 18px; }
 }

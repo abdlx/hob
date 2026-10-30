@@ -451,9 +451,9 @@ test('conversation search explains empty results and lets the user recover', asy
 test('categories retain drafts, failed saves stay unsaved, successful saves survive reload', async ({ page }) => {
   const state = await fixture(page);
   await page.goto('/settings');
-  await expect(page.getByText('No activity yet. Tasks will appear here as your bot works.')).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Agent details', exact: true })).toHaveCount(0);
   await expect(page.getByText('Executed Python script')).toHaveCount(0);
-  await expect(page.getByRole('tab', { name: 'Browser', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('tab', { name: 'Browser', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Advanced configuration', exact: false }).click();
   const editor = page.locator('.settings-editor');
   await editor.getByRole('combobox').selectOption('false');
@@ -527,7 +527,7 @@ test('catalog install uses reviewed SHA, reports missing credentials and refuses
 
 test('opening the computer inspector loads its deferred module and shows actual availability', async ({ page }) => {
   const state = await fixture(page);
-  await page.goto('/settings');
+  await page.goto('/chat');
   const computerStatus = page.waitForResponse(response => new URL(response.url()).pathname === '/api/hermes/agent-computer/status');
   await page.getByRole('tab', { name: 'Browser', exact: true }).click();
   await page.getByRole('button', { name: 'Open browser', exact: true }).click();

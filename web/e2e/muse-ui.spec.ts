@@ -77,6 +77,25 @@ async function fixture(page: Page) {
 
 test.use({ viewport: { width: 393, height: 800 } });
 
+test('workspace pages use compact toolbars without bot avatars or the old header gap', async ({ page }) => {
+  const state = await fixture(page);
+  for (const viewport of [{ width: 393, height: 800 }, { width: 1440, height: 960 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/chat');
+    await expect(page.locator('.hob-profile-button')).toHaveCount(1);
+    for (const path of ['/activity', '/ideas', '/goals', '/library']) {
+      await page.goto(path);
+      await expect(page.locator('.hob-workspace-header')).toBeVisible();
+      await expect(page.locator('.hob-profile-button')).toHaveCount(0);
+      await expect(page.locator('.hob-agent-profile')).toHaveCount(0);
+      expect((await page.locator('.hob-workspace-header').boundingBox())!.height).toBe(viewport.width < 768 ? 88 : 82);
+      expect(await page.locator('.hob-workspace-scroll').evaluate(node => getComputedStyle(node).paddingTop)).toBe('0px');
+    }
+    await page.screenshot({ path: `test-results/library-compact-header-${viewport.width}.png` });
+  }
+  expect(state.errors).toEqual([]);
+});
+
 test('the new conversation action creates one session and the unified sidebar lists it', async ({ page }) => {
   const state = await fixture(page);
   await page.goto('/chat');
@@ -146,7 +165,7 @@ test('settings exposes every original category once using grouped rows', async (
   expect(state.errors).toEqual([]);
 });
 
-test('each screen uses the selected bot identity and the avatar sits in front of its tag', async ({ page }) => {
+test('chat uses the selected bot identity and workspaces have no avatar header', async ({ page }) => {
   const state = await fixture(page);
   await page.goto('/chat');
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeEnabled();
@@ -171,8 +190,9 @@ test('each screen uses the selected bot identity and the avatar sits in front of
   await expect(panel.locator('.hob-agent-profile img')).toHaveAttribute('src', orbitAvatar);
   await panel.getByRole('button', { name: 'Back to chat', exact: true }).click();
   await page.getByRole('navigation', { name: 'Mobile navigation' }).getByRole('button', { name: 'Library', exact: true }).click();
-  await expect(profile).toHaveText('Orbit');
-  await expect(profile.locator('img')).toHaveAttribute('src', orbitAvatar);
+  await expect(profile).toHaveCount(0);
+  await page.getByRole('button', { name: 'Library options', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Library bot', exact: true })).toHaveValue('orbit');
   await page.screenshot({ path: 'test-results/muse-selected-bot.png' });
   expect(state.errors).toEqual([]);
 });
@@ -227,7 +247,7 @@ test('artifact and media tabs support previews, overflow tools, scrolling and na
   const state = await fixture(page);
   await page.goto('/library');
   await expect(page.getByRole('tab', { name: 'Artifacts', exact: true })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('button', { name: 'Open agent details and activity', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open agent details and activity', exact: true })).toHaveCount(0);
   await expect(page.locator('button[aria-label="Preview FA1_Kaplan_Exam_Kit_2025-26.md"]')).toHaveCount(1);
   await page.screenshot({ path: 'test-results/muse-artifacts.png' });
   await page.getByRole('button', { name: 'Preview FA1_Kaplan_Exam_Kit_2025-26.md', exact: true }).filter({ visible: true }).click();

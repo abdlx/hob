@@ -1,6 +1,6 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Plus, FolderOpen, ArrowUp, LoaderCircle, Paperclip } from 'lucide-react';
+import { Plus, FolderOpen, ArrowUp, LoaderCircle, Paperclip, ChevronDown } from 'lucide-react';
 
 export interface ChatComposerProps {
   value: string;
@@ -37,7 +37,6 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [focused, setFocused] = useState(false);
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
-  const hint = useId();
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -58,7 +57,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   };
 
   return (
-    <div className="hob-composer relative w-full px-3 sm:px-4 md:px-6 pt-2 bg-canvas shrink-0 flex flex-col items-center gap-1 md:gap-2 select-none" >
+    <div className="hob-composer relative w-full px-3 sm:px-4 md:px-6 pt-2 bg-canvas shrink-0 flex flex-col items-center select-none">
       <form aria-label="Message composer" onSubmit={submit} className="w-full max-w-[840px]">
         <div className="rounded-[26px] border border-edge bg-surface shadow-[0_3px_14px_rgba(0,0,0,0.04)] transition-colors focus-within:border-accent-line focus-within:shadow-[0_0_0_3px_var(--color-accent-soft)]">
         {attachments}
@@ -129,7 +128,6 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
 
           <textarea
             aria-label="Message"
-            aria-describedby={hint}
             ref={textareaRef}
             rows={1}
             value={value}
@@ -147,6 +145,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
             className="min-w-0 flex-1 bg-transparent text-ink placeholder-faint text-base md:text-[15px] outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 border-none shadow-none resize-none py-2 px-0 m-0 min-h-10 max-h-40 leading-6 text-left disabled:opacity-60"
           />
 
+          {focused && <button type="button" aria-label="Dismiss keyboard" title="Dismiss keyboard" onClick={() => textareaRef.current?.blur()} className="flex h-10 w-8 shrink-0 items-center justify-center rounded-full text-muted hover:text-ink md:hidden"><ChevronDown size={20} /></button>}
           <div className="hob-voice-slot">{voiceInput}</div>
           <div className="hob-send-action flex items-center shrink-0">
             <button
@@ -162,7 +161,6 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
         </div>
         </div>
       </form>
-      <div id={hint} className={`w-full max-w-[840px] items-center justify-between gap-2 px-2 text-[10px] text-muted ${working || focused ? 'flex min-h-4' : 'hidden md:flex min-h-4'}`}><span>{working ? 'Your bot is working. Keep drafting while you wait.' : <span>Enter to send · Shift + Enter for a new line</span>}</span>{focused && <button type="button" onClick={() => textareaRef.current?.blur()} className="px-2 py-1 text-xs text-accent md:hidden cursor-pointer">Done</button>}</div>
     </div>
   );
 };

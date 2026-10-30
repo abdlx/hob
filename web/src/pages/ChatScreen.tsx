@@ -49,6 +49,6 @@ export function ChatScreen() {
       </div>
       {mobile && activeNav !== 'settings' && <MobileDock hidden={drafting} onNavigate={id => { setDrafting(false); if (id === 'chat') setMobileView('chat'); }} />}
     </main>
-    {activeNav !== 'groups' && !library && isRightPanelOpen && <aside className="hob-panel-right fixed inset-0 z-50 flex flex-col w-full h-dvh max-h-dvh bg-canvas overflow-hidden xl:relative xl:inset-auto xl:z-auto xl:rounded-[34px] xl:border xl:border-hair xl:shrink-0 xl:w-[22%] xl:min-w-[300px] xl:max-w-[350px] xl:h-full" aria-label="Agent details"><RightPanel /></aside>}
+    {chatPage && isRightPanelOpen && <aside className="hob-panel-right fixed inset-0 z-50 flex flex-col w-full h-dvh max-h-dvh bg-canvas overflow-hidden xl:relative xl:inset-auto xl:z-auto xl:rounded-[34px] xl:border xl:border-hair xl:shrink-0 xl:w-[22%] xl:min-w-[300px] xl:max-w-[350px] xl:h-full" aria-label="Agent details"><RightPanel /></aside>}
   </div>;
 }

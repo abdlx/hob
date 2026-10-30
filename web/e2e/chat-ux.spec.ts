@@ -257,6 +257,28 @@ test('inline question choices show selection, require confirmation, and expose t
   expect(state.errors).toEqual([]);
 });
 
+test('the composer has no keyboard hint row or reserved hint space on desktop and mobile', async ({ page }) => {
+  const state = await fixture(page);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await openChat(page, width < 768);
+    const composer = page.locator('.hob-composer');
+    const input = page.getByRole('textbox', { name: 'Message', exact: true });
+    await expect(input).toBeEnabled();
+    await expect(composer.locator(':scope > *')).toHaveCount(1);
+    await expect(input).not.toHaveAttribute('aria-describedby');
+    await expect(composer.getByText(/Enter to send|Shift \+ Enter|Keep drafting while you wait/)).toHaveCount(0);
+    await input.focus();
+    expect(await composer.evaluate(node => {
+      const style = getComputedStyle(node);
+      const form = node.querySelector('form')!;
+      return node.getBoundingClientRect().height === form.getBoundingClientRect().height + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+    })).toBe(true);
+    await page.screenshot({ path: `test-results/composer-no-hint-${width}.png` });
+  }
+  expect(state.errors).toEqual([]);
+});
+
 test('mobile dock has accessible icon labels, gives space to drafting and image previews fit the screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -268,7 +290,7 @@ test('mobile dock has accessible icon labels, gives space to drafting and image 
   const input = page.getByRole('textbox', { name: 'Message', exact: true });
   await input.fill('Keep this draft\nwith another line');
   await expect(dock).toBeHidden();
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('button', { name: 'Dismiss keyboard', exact: true }).click();
   await expect(dock).toBeVisible(); await expect(input).toHaveValue('Keep this draft\nwith another line');
   await page.getByRole('button', { name: 'Preview image: Launch direction', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Launch direction', exact: true });
