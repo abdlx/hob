@@ -9,23 +9,26 @@ import {
   Camera,
   Save,
   ArrowLeft,
-  Info,
-  Sliders,
-  Settings,
-  Compass,
-  ChevronLeft,
+  List,
+  ShieldCheck,
+  Monitor,
+  History,
+  Fingerprint,
+  Command,
+  LoaderCircle,
+  Share,
+  Maximize2,
 } from 'lucide-react';
 import { useChat } from '../context/ChatContext';
 import { useRuntime } from '../context/RuntimeContext';
 import { apiFetch } from '../services/api';
-import { DogeshAvatar } from './DogeshAvatar';
+import { AgentAvatar } from './AgentAvatar';
 import { MarkdownView } from './MarkdownView';
 import { DailyGoals } from '../pages/WorkspaceViews';
 import { HermesBrowser, HermesIdentity } from '../pages/HermesWorkspace';
 import { buttonClass, Field, inputClass, Notice, Skeleton } from './WorkspaceUI';
 import { errorText } from './workspaceUtils';
-import { MobileDock } from './MobileDock';
-import { AgentModelSettings } from './AgentModelSettings';
+import { useToast } from '../context/ToastContext';
 import type { RightPanelTab } from '../types/chat';
 
 const AgentComputerViewer = lazy(() => import('./AgentComputerViewer').then(module => ({ default: module.AgentComputerViewer })));
@@ -457,14 +460,14 @@ function OpenClawIdentityPanel() {
 }
 
 const RIGHT_PANEL_TABS = [
-  { id: 'tasks', label: 'Info', icon: Info },
-  { id: 'security', label: 'Skills', icon: Sliders },
-  { id: 'browser', label: 'Web', icon: Globe },
-  { id: 'identity', label: 'Files', icon: FileText },
-  { id: 'goals', label: 'Settings', icon: Settings },
+  { id: 'tasks', label: 'Activity', icon: List },
+  { id: 'security', label: 'Approvals', icon: ShieldCheck },
+  { id: 'browser', label: 'Browser', icon: Monitor },
+  { id: 'goals', label: 'Scheduled tasks', icon: History },
+  { id: 'identity', label: 'Identity', icon: Fingerprint },
 ] as const;
 
-function BrowserPanel() {
+function LiveBrowserPanel() {
   const { agent } = useChat();
   const runtime = useRuntime();
   if (!agent) {
@@ -496,282 +499,66 @@ function IdentityPanel() {
   return runtime === 'hermes' ? <HermesIdentity key={agent.id} profile={agent.id} /> : <OpenClawIdentityPanel />;
 }
 
-export function RightPanel({ onNavigateBots }: { onNavigateBots?: () => void }) {
-  const {
-    agent,
-    connected,
-    tasks,
-    approvals,
-    activeTab,
-    setActiveTab,
-    isRightPanelOpen,
-    toggleRightPanel,
-    resolveApproval,
-    setActiveNav,
-    setActivityFilter,
-  } = useChat();
+function BrowserPanel() {
+  const [open, setOpen] = useState(false);
+  return open ? <div className="space-y-4"><button className={buttonClass} onClick={() => setOpen(false)}><ArrowLeft size={16} />Back to preview</button><LiveBrowserPanel /></div> :
+    <button type="button" className="hob-browser-preview" onClick={() => setOpen(true)} aria-label="Open browser">
+      <div className="hob-browser-art" aria-hidden="true"><div className="hob-browser-window"><div className="hob-browser-traffic"><i /><i /><i /></div><div className="hob-browser-mini-avatar"><Monitor size={22} /></div><div className="hob-browser-address" /></div></div>
+      <span>Open browser <Maximize2 size={16} /></span>
+    </button>;
+}
 
+export function RightPanel() {
+  const { agent, connected, tasks, approvals, activeTab, setActiveTab, isRightPanelOpen, toggleRightPanel, resolveApproval } = useChat();
   const [error, setError] = useState('');
   const [approvalBusy, setApprovalBusy] = useState<string | null>(null);
-
-  if (!isRightPanelOpen) return null;
-
-  const decide = async (id: string, decision: 'approved' | 'rejected') => {
-    setApprovalBusy(id);
-    setError('');
-    try {
-      await resolveApproval(id, decision);
-    } catch (error) {
-      setError(errorText(error));
-    } finally {
-      setApprovalBusy(null);
-    }
+  const { toast } = useToast();
+  const share = async () => {
+    try { if (navigator.share) await navigator.share({ title: 'hob', url: window.location.origin }); else { await navigator.clipboard.writeText(window.location.origin); toast('Link copied.'); } }
+    catch (error) { if (!(error instanceof DOMException && error.name === 'AbortError')) toast('Could not share the link.', 'error'); }
   };
-
-  // Group dynamic tasks if available
-  const hasLiveTasks = tasks && tasks.length > 0;
-
-  return (
-    <div className="hob-agent-panel w-full h-full min-h-0 bg-canvas flex flex-col select-none overflow-hidden relative">
-      {/* Mobile top bar with back button */}
-      <div className="xl:hidden flex items-center justify-between px-4 py-3 border-b border-line shrink-0 bg-canvas">
-        <button
-          onClick={toggleRightPanel}
-          className="flex items-center gap-1 text-[14px] font-medium text-accent hover:text-accent-strong p-1 -ml-1 cursor-pointer transition-colors"
-          title="Back to chat"
-          aria-label="Back to chat"
-        >
-          <ChevronLeft size={20} strokeWidth={2.4} />
-          <span>Back</span>
-        </button>
-        <span className="text-[15px] font-semibold text-ink">Bot Activity</span>
-        <button
-          onClick={toggleRightPanel}
-          className="w-8 h-8 rounded-full flex items-center justify-center text-muted hover:text-ink hover:bg-black/5 transition-colors cursor-pointer"
-          title="Close"
-          aria-label="Close"
-        >
-          <X size={18} strokeWidth={2} />
-        </button>
+  if (!isRightPanelOpen) return null;
+  const decide = async (id: string, decision: 'approved' | 'rejected') => {
+    setApprovalBusy(id); setError('');
+    try { await resolveApproval(id, decision); } catch (error) { setError(errorText(error)); } finally { setApprovalBusy(null); }
+  };
+  const groups = new Map<string, typeof tasks>();
+  for (const task of tasks) {
+    const parsed = new Date(task.timestamp);
+    const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+    const label = task.group || (Number.isNaN(parsed.getTime()) || parsed.toDateString() === new Date().toDateString() ? 'Today' : parsed.toDateString() === yesterday.toDateString() ? 'Yesterday' : parsed.toLocaleDateString([], { month: 'long', day: 'numeric' }));
+    groups.set(label, [...(groups.get(label) || []), task]);
+  }
+  return <div className="hob-agent-panel">
+    <div className="hob-agent-scroll">
+      <header className="hob-agent-profile">
+        <button className="hob-round-button hob-agent-close" aria-label="Back to chat" title="Close panel" onClick={toggleRightPanel}><X size={24} strokeWidth={1.6} /></button>
+        <AgentAvatar size={72} showEditBadge avatarUrl={agent?.avatarUrl} onEditClick={() => setActiveTab('identity')} hideBorder hideStatusDot />
+        <button className="hob-round-button hob-agent-config" aria-label="Share app" onClick={() => void share()}><Share size={23} strokeWidth={1.6} /></button>
+        <h2>{agent?.name || 'Main'}</h2>
+        <p>{connected ? 'online' : 'offline'}</p>
+      </header>
+      <div className="hob-segments hob-agent-tabs" role="tablist" aria-label="Agent panel">
+        {RIGHT_PANEL_TABS.map(({ id, label, icon: Icon }) => <button key={id} role="tab" id={`agent-tab-${id}`} aria-selected={activeTab === id} aria-controls="agent-tab-content" aria-label={label} title={label} onClick={() => setActiveTab(id as RightPanelTab)}><Icon size={22} strokeWidth={1.65} /></button>)}
       </div>
-
-      {/* Desktop close button */}
-      <button
-        onClick={toggleRightPanel}
-        title="Close panel"
-        className="hidden xl:block absolute top-4 right-4 p-2 rounded-full text-muted hover:text-ink hover:bg-black/5 transition-colors cursor-pointer z-10"
-      >
-        <X size={18} strokeWidth={2} />
-      </button>
-
-      {/* Middle scrollable content */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 sm:px-5 sm:py-4 xl:px-5 xl:py-5">
-
-      {/* Profile Header */}
-      <div className="flex flex-col items-center text-center">
-        <DogeshAvatar
-          size={78}
-          showEditBadge
-          avatarUrl={agent?.avatarUrl}
-          onEditClick={() => setActiveTab('identity')}
-          status={connected ? 'connected' : 'disconnected'}
-          ringColor="ring-canvas"
-        />
-
-        <h2 className="mt-3 text-[17px] font-semibold text-ink tracking-tight">
-          {agent?.name || 'Main'}
-        </h2>
-
-        <div className="flex items-center gap-1.5 mt-1">
-          <span
-            className={`w-2 h-2 rounded-full inline-block ${
-              connected ? 'bg-ok-dot' : 'bg-faint'
-            }`}
-          />
-          <span className="text-[13px] font-medium text-ink capitalize">
-            {connected ? 'Connected' : 'Disconnected'}
-          </span>
-        </div>
-
-        <button type="button" aria-label="Change bot model" onClick={() => setActiveTab('goals')} className="mt-2 max-w-full truncate text-xs text-accent hover:underline cursor-pointer">
-          {agent?.model || 'Choose a model'}
-        </button>
-
-        {/* 5-Tab Selector: Noticeably rounder pill container and pill highlight */}
-        <div
-          className="w-full mt-5 mb-5 bg-panel border border-line rounded-full p-[5px] h-[66px] flex items-center justify-between"
-          role="tablist"
-          aria-label="Agent panel"
-        >
-          {RIGHT_PANEL_TABS.map(({ id, label, icon: Icon }) => {
-            const isActive = activeTab === id;
-            return (
-              <button
-                key={id}
-                role="tab"
-                aria-selected={isActive}
-                aria-label={label}
-                onClick={() => setActiveTab(id as RightPanelTab)}
-                className={`flex-1 h-full rounded-full flex flex-col items-center justify-center transition-all cursor-pointer py-1 ${
-                  isActive
-                    ? 'bg-accent-soft text-accent'
-                    : 'text-code hover:text-ink hover:bg-black/[0.02]'
-                }`}
-              >
-                <Icon
-                  size={17}
-                  strokeWidth={isActive ? 2.2 : 1.8}
-                  className={isActive ? 'text-accent' : 'text-code'}
-                />
-                <span
-                  className={`text-[11px] font-medium mt-1 leading-none ${
-                    isActive ? 'text-accent' : 'text-muted'
-                  }`}
-                >
-                  {label}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Tab Body */}
-      <div className="flex-1 space-y-4">
-        {/* Info Tab (Active default): About + Activity */}
-        {activeTab === 'tasks' && (
-          <div>
-            {/* About Section */}
-            <div className="mb-5 pb-5 border-b border-line">
-              <h3 className="text-[14px] font-semibold text-ink mb-1.5">About</h3>
-              <p className="text-[13px] text-muted leading-relaxed">
-                {agent?.roleDescription ||
-                  'No role description has been configured for this bot.'}
-              </p>
-            </div>
-
-            {/* Activity Section */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-[14px] font-semibold text-ink">Activity</h3>
-                <button
-                  type="button"
-                  className="text-[12px] font-medium text-accent hover:underline cursor-pointer"
-                  onClick={() => { setActivityFilter(agent?.id || null); setActiveNav('activity'); }}
-                >
-                  View all
-                </button>
-              </div>
-
-              {hasLiveTasks ? (
-                <div className="space-y-1.5">
-                  {tasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="h-[36px] flex items-center justify-between gap-2.5 px-1 py-1 rounded-lg hover:bg-black/[0.02] transition-colors"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="w-6 h-6 rounded-md bg-sunken text-code flex items-center justify-center shrink-0">
-                          <Compass size={13} strokeWidth={2} />
-                        </div>
-                        <span className="text-[13px] text-ink truncate">{task.title}</span>
-                      </div>
-                      <span className="text-[12px] text-faint shrink-0">
-                        {Number.isNaN(Date.parse(task.timestamp))
-                          ? task.timestamp
-                          : new Date(task.timestamp).toLocaleTimeString([], {
-                              hour: 'numeric',
-                              minute: '2-digit',
-                            })}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs leading-relaxed text-muted">{connected ? 'No activity has been reported for this bot.' : 'Activity is unavailable while the runtime is disconnected.'}</p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Skills Tab (Approvals & Permissions) */}
-        {activeTab === 'security' && (
-          <div className="space-y-3.5 pt-1">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted px-1">
-              Approvals & Skills
-            </span>
-            {error && <Notice error>{error}</Notice>}
-            {approvals.length === 0 && <Notice>No pending tool approvals.</Notice>}
-            {approvals.map((approval) => (
-              <div
-                key={approval.id}
-                className="p-4 bg-surface border border-hair rounded-2xl space-y-3 text-xs md:text-sm shadow-xs"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-ink uppercase text-xs px-2.5 py-1 rounded-lg bg-code-soft">
-                    {approval.type}
-                  </span>
-                  <span
-                    className={`text-xs font-medium capitalize ${
-                      approval.status === 'pending'
-                        ? 'text-amber-600'
-                        : approval.status === 'approved'
-                        ? 'text-emerald-600'
-                        : 'text-red-600'
-                    }`}
-                  >
-                    {approval.status}
-                  </span>
-                </div>
-                <p className="text-code text-xs md:text-sm leading-relaxed">{approval.description}</p>
-                {approval.commandSnippet && (
-                  <pre className="p-3 bg-code-soft rounded-xl text-xs text-ink overflow-x-auto border border-hair font-mono select-text">
-                    {approval.commandSnippet}
-                  </pre>
-                )}
-                {approval.status === 'pending' && (
-                  <div className="flex space-x-2 pt-1">
-                    <button
-                      disabled={approvalBusy !== null}
-                      onClick={() => decide(approval.id, 'approved')}
-                      className="flex-1 py-2 px-3 rounded-xl bg-accent hover:bg-accent-strong text-white font-medium text-xs md:text-sm flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-40 transition-colors shadow-xs"
-                    >
-                      <Check size={14} />
-                      <span>Approve</span>
-                    </button>
-                    <button
-                      disabled={approvalBusy !== null}
-                      onClick={() => decide(approval.id, 'rejected')}
-                      className="flex-1 py-2 px-3 rounded-xl bg-neutral hover:bg-neutral-strong text-ink font-medium text-xs md:text-sm cursor-pointer disabled:opacity-40 transition-colors"
-                    >
-                      Deny
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Web Tab (Browser) */}
+      <div className="hob-agent-content" id="agent-tab-content" role="tabpanel" aria-labelledby={`agent-tab-${activeTab}`}>
+        {activeTab === 'tasks' && <div className="hob-activity-list">
+          {!tasks.length && <><h3>Today</h3><p className="hob-empty-copy">{connected ? 'No activity yet. Tasks will appear here as your bot works.' : 'Activity is unavailable while your bot is offline.'}</p></>}
+          {[...groups].map(([label, entries]) => <section key={label}><h3>{label}</h3>{entries.map(task => <div className="hob-detail-row" key={task.id}>
+            <span className={`hob-task-icon ${task.status === 'in_progress' ? 'is-running' : ''}`}>{task.status === 'in_progress' ? <LoaderCircle size={18} className="animate-spin motion-reduce:animate-none" /> : <Command size={21} />}</span>
+            <div><h4>{task.title}</h4>{task.subtitle && <p>{task.subtitle}</p>}<time>{Number.isNaN(Date.parse(task.timestamp)) ? task.timestamp : new Date(task.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div>
+          </div>)}</section>)}
+        </div>}
+        {activeTab === 'security' && <div className="hob-approvals-list"><h3>Approvals history</h3>{error && <Notice error>{error}</Notice>}{!approvals.length && <p className="hob-empty-copy">No approvals yet.</p>}
+          {approvals.map(approval => <div key={approval.id} className="hob-detail-row"><span className="hob-approval-icon"><Globe size={31} strokeWidth={1.8} /></span><div><h4>{approval.description}</h4><p>{approval.type}</p><time>{approval.status === 'pending' ? 'Awaiting approval' : approval.status === 'approved' ? 'Allowed' : 'Denied'} ? {new Date(approval.requestedAt).toLocaleDateString()}</time>
+            {approval.commandSnippet && <pre className="hob-approval-command">{approval.commandSnippet}</pre>}
+            {approval.status === 'pending' && <div className="mt-3 flex gap-2"><button className={buttonClass} disabled={approvalBusy !== null} onClick={() => void decide(approval.id, 'approved')}><Check size={15} />Approve</button><button className={buttonClass} disabled={approvalBusy !== null} onClick={() => void decide(approval.id, 'rejected')}>Deny</button></div>}
+          </div></div>)}
+        </div>}
         {activeTab === 'browser' && <BrowserPanel />}
-
-        {/* Files Tab (Identity / SOUL.md / MEMORY.md) */}
+        {activeTab === 'goals' && <div className="hob-scheduled-tasks"><DailyGoals /></div>}
         {activeTab === 'identity' && <IdentityPanel />}
-
-        {/* Settings Tab (Daily Goals & Scheduling) */}
-        {activeTab === 'goals' && <div className="space-y-5"><AgentModelSettings key={agent?.id} /><DailyGoals /></div>}
-      </div>
-      </div>
-
-      {/* Mobile floating bottom dock navigation */}
-      <div className="shrink-0 pt-1 pb-2 bg-transparent flex justify-center xl:hidden">
-        <MobileDock
-          currentMobileView="chat"
-          onNavigateBots={onNavigateBots}
-          onNavigate={toggleRightPanel}
-        />
       </div>
     </div>
-  );
+  </div>;
 }

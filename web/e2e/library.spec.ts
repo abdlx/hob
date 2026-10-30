@@ -85,6 +85,7 @@ test('Library folders, empty search, error states and bot scope work on a phone'
   await page.setViewportSize({ width: 390, height: 844 });
   const state = await fixture(page);
   await page.goto('/library');
+  await page.getByRole('button', { name: 'Library options', exact: true }).click();
   const library = page.getByRole('region', { name: 'File library' });
   await library.getByRole('textbox', { name: 'Search library' }).fill('missing-file');
   await expect(library.getByText('No matching files')).toBeVisible();
@@ -92,9 +93,11 @@ test('Library folders, empty search, error states and bot scope work on a phone'
   await library.getByRole('button', { name: 'Open folder Research', exact: true }).click();
   await expect(library.getByRole('button', { name: 'Preview Field notes.md', exact: true })).toBeVisible();
   await library.getByRole('navigation', { name: 'Library folders' }).getByRole('button', { name: 'Workspace', exact: true }).click();
+  await library.getByRole('tab', { name: 'Media', exact: true }).click();
   await expect(library.getByRole('button', { name: 'Preview Brand direction.png', exact: true }).locator('img')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/library-gallery-mobile.png', fullPage: true });
+  await library.getByRole('tab', { name: 'Artifacts', exact: true }).click();
   await library.getByRole('button', { name: 'Preview Oversized.pdf', exact: true }).click();
   await expect(page.getByRole('dialog').getByRole('alert')).toContainText('up to 2 MB');
   await page.getByRole('button', { name: 'Close file preview', exact: true }).click();

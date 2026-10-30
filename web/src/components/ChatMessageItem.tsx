@@ -36,7 +36,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
     return (
       <div className="group/message flex min-w-0 flex-col items-end w-full mb-5 select-text" data-message-id={message.id}>
         <div
-          className="min-w-0 max-w-[92%] sm:max-w-[85%] rounded-[22px] rounded-tr-[6px] bg-surface text-[14.5px] text-ink leading-relaxed px-4 py-2.5 shadow-xs border border-hair"
+          className="hob-outgoing-bubble min-w-0 max-w-[92%] sm:max-w-[85%] rounded-[22px] rounded-tr-[6px] bg-surface text-[14.5px] text-ink leading-relaxed px-4 py-2.5 shadow-xs border border-hair"
         >
           {renderedContent}
         </div>
@@ -57,7 +57,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
         <span className="mb-1 ml-2 text-[12px] font-semibold text-muted">{message.sender}</span>
       )}
       {/* Incoming Bubble without bot avatar */}
-      <div className="min-w-0 max-w-[96%] sm:max-w-[92%] rounded-[22px] rounded-tl-[6px] bg-neutral text-[14.5px] text-code leading-relaxed px-4 py-3">
+      <div className="hob-incoming-bubble min-w-0 max-w-[96%] sm:max-w-[92%] rounded-[22px] rounded-tl-[6px] bg-neutral text-[14.5px] text-code leading-relaxed px-4 py-3">
         {renderedContent}
         {message.status === 'streaming' && (
           <span className="inline-block w-2 h-4 ml-1.5 bg-accent animate-pulse align-middle rounded-xs" />

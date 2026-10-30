@@ -3,7 +3,7 @@ import { AlertTriangle, ChevronRight, Inbox, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../services/api';
 import { useChat } from '../context/ChatContext';
 import { useRuntime } from '../context/RuntimeContext';
-import { DogeshAvatar } from '../components/DogeshAvatar';
+import { AgentAvatar } from '../components/AgentAvatar';
 import { buttonClass, CardList, CardRow, EmptyState, Notice, sectionLabelClass, Skeleton, StatusPill } from '../components/WorkspaceUI';
 import { errorText } from '../components/workspaceUtils';
 import type { TaskItem } from '../types/chat';
@@ -209,7 +209,7 @@ export function ActivityView() {
 
   const renderRow = (entry: ActivityEntry) => (
     <CardRow key={entryKey(entry)} onClick={() => openBot(entry)} className="items-start group">
-      <DogeshAvatar size={30} avatarUrl={entry.avatarUrl} showEditBadge={false} hideStatusDot />
+      <AgentAvatar size={30} avatarUrl={entry.avatarUrl} showEditBadge={false} hideStatusDot />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[13px] font-semibold text-ink truncate">{entry.title}</span>
@@ -279,7 +279,7 @@ export function ActivityView() {
                   : 'border-edge bg-surface text-soft hover:border-edge-strong'
               }`}
             >
-              <DogeshAvatar size={22} avatarUrl={bot.avatarUrl} showEditBadge={false} hideStatusDot />
+              <AgentAvatar size={22} avatarUrl={bot.avatarUrl} showEditBadge={false} hideStatusDot />
               <span className="max-w-[120px] truncate">{bot.name}</span>
             </button>
           );

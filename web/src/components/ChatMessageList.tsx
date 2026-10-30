@@ -179,7 +179,7 @@ export function ChatMessageList() {
           </section>
         )}
 
-        {runtime === 'hermes' && agent && <BotExchangeHistory key={agent.id} profile={agent.id} />}
+        {runtime === 'hermes' && agent && <div className={exchanges.rows.length ? '' : 'hob-exchange-history-empty'}><BotExchangeHistory key={agent.id} profile={agent.id} /></div>}
         {exchanges.earlier && <p className="mb-2 text-center text-xs text-muted">Showing the latest 100 exchanges. Earlier exchanges are in Bot exchange history.</p>}
         {exchanges.error && <p className="my-2 text-xs text-red-600" role="alert">Bot exchanges: {exchanges.error}</p>}
         {timeline.map((item, index) => <Fragment key={item.id}>

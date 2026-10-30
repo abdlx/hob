@@ -79,7 +79,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
       placeholder={
         readOnly
           ? 'Start a new conversation to continue'
-          : `Message ${agent?.name || 'Main'}...`
+          : 'Message'
       }
       onAddContext={() => setActiveNav('library')}
       onNavigateBots={onNavigateBots}

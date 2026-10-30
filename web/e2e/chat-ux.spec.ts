@@ -57,7 +57,7 @@ async function fixture(page: Page, { long = false, question = false, brokenImage
 
 async function openChat(page: Page, mobile = false) {
   await page.goto('/chat');
-  if (mobile) await page.getByRole('listitem').filter({ has: page.getByText('Main', { exact: true }) }).click();
+  if (mobile) await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeEnabled();
   else {
     await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible();
     if (await page.getByRole('button', { name: 'Close agent panel', exact: true }).isVisible()) await page.getByRole('button', { name: 'Close agent panel', exact: true }).click();
@@ -176,6 +176,8 @@ test('a notification opens its verified conversation from the mobile bot directo
   await page.setViewportSize({ width: 390, height: 844 });
   const state = await fixture(page);
   await page.goto('/chat');
+  await page.getByRole('button', { name: 'Open navigation' }).click();
+  await page.getByRole('dialog', { name: 'Navigation' }).getByRole('button', { name: 'Bots', exact: true }).click();
   await expect(page.getByRole('listitem').filter({ has: page.getByText('Main', { exact: true }) })).toBeVisible();
   await page.evaluate(() => {
     window.__hobPendingConversation = { profile: 'default', sessionKey: 'ux-session' };
@@ -231,7 +233,6 @@ test('typing stays available during a reply, drafts survive and new content resp
   await expect(chat.getByText('The new reply is ready.', { exact: true })).toBeInViewport();
   await page.setViewportSize({ width: 390, height: 844 });
   // This is the same mounted app: responsive layouts must share one draft.
-  await page.getByRole('listitem').filter({ has: page.getByText('Main', { exact: true }) }).click();
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('A draft for later');
   expect(state.writes.filter(write => write.path.endsWith('/turns'))).toHaveLength(1);
   expect(state.errors).toEqual([]);
@@ -256,13 +257,14 @@ test('inline question choices show selection, require confirmation, and expose t
   expect(state.errors).toEqual([]);
 });
 
-test('mobile dock has visible labels, gives space to drafting and image previews fit the screen', async ({ page }) => {
+test('mobile dock has accessible icon labels, gives space to drafting and image previews fit the screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const state = await fixture(page);
   await openChat(page, true);
-  const dock = page.getByRole('navigation', { name: 'Bottom dock navigation' });
-  await expect(dock.getByRole('button', { name: 'Library', exact: true })).toHaveText('Library');
+  const dock = page.getByRole('navigation', { name: 'Mobile navigation' });
+  await expect(dock.getByRole('button', { name: 'Library', exact: true })).toHaveAccessibleName('Library');
+  await expect(dock.getByRole('button')).toHaveCount(5);
   const input = page.getByRole('textbox', { name: 'Message', exact: true });
   await input.fill('Keep this draft\nwith another line');
   await expect(dock).toBeHidden();

@@ -75,7 +75,6 @@ test('each bot exchange is a separate expandable notice with its own transcript 
   await page.getByRole('button', { name: 'Close exchange history' }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await page.getByRole('listitem').filter({ has: page.getByText('Main', { exact: true }) }).click();
   await expect(notices).toHaveCount(2);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/bot-exchanges-mobile.png', fullPage: true });

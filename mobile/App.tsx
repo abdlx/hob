@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, BackHandler, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useColorScheme } from 'react-native';
+import { ActivityIndicator, Alert, AppState, BackHandler, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import type { WebViewMessageEvent } from 'react-native-webview';
@@ -17,6 +17,9 @@ const STORAGE = 'hob.connection.v1';
 const errorMessage = (error: unknown) => error instanceof Error ? error.message.slice(0, 400) : 'Unable to connect. Try again.';
 const injected = `(() => {
   document.documentElement.dataset.hobNative = '1';
+  const reportTheme = () => window.ReactNativeWebView?.postMessage(JSON.stringify({type:'theme', dark:document.documentElement.dataset.theme !== 'light'}));
+  new MutationObserver(reportTheme).observe(document.documentElement, {attributes:true, attributeFilter:['data-theme']});
+  reportTheme();
   window.addEventListener('hob:unauthorized', () => window.ReactNativeWebView?.postMessage(JSON.stringify({type:'auth-expired'})));
   document.addEventListener('click', event => {
     const link = event.target instanceof Element ? event.target.closest('a[download]') : null;
@@ -26,8 +29,9 @@ const injected = `(() => {
 })(); true;`;
 
 function HobApp() {
-  const dark = useColorScheme() === 'dark';
-  const palette = dark ? { bg: '#191d24', card: '#242932', ink: '#edf0f5', muted: '#a4afbe', border: '#384150', accent: '#82b2ff' }
+  const [workspaceDark, setWorkspaceDark] = useState<boolean | null>(null);
+  const dark = workspaceDark ?? true;
+  const palette = dark ? { bg: '#060605', card: '#333536', ink: '#f4f4f4', muted: '#929394', border: '#454647', accent: '#008bff' }
     : { bg: '#fafafa', card: '#fff', ink: '#17191d', muted: '#687588', border: '#e2e6ec', accent: '#1677ff' };
   const [url, setUrl] = useState(''), [password, setPassword] = useState('');
   const [verified, setVerified] = useState<{ origin: string; info: Instance } | null>(null);
@@ -153,6 +157,7 @@ function HobApp() {
     const current = connectionRef.current; if (!current || !sameInstance(event.nativeEvent.url, current.origin) || event.nativeEvent.data.length > 3_000_000) return;
     try {
       const message = JSON.parse(event.nativeEvent.data);
+      if (message.type === 'theme' && typeof message.dark === 'boolean') setWorkspaceDark(message.dark);
       if (message.type === 'pick-media' && typeof message.id === 'string' && /^[a-zA-Z0-9-]{1,80}$/.test(message.id)) {
         if (picker || pickerBusy.current) { respond(message.id, { error: 'A media picker is already open.' }); return; }
         setPicker(message.id);

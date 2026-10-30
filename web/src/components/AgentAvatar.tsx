@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pencil } from 'lucide-react';
 
-interface DogeshAvatarProps {
+interface AgentAvatarProps {
   size?: number;
   showEditBadge?: boolean;
   avatarUrl?: string;
@@ -13,7 +13,7 @@ interface DogeshAvatarProps {
   hideStatusDot?: boolean;
 }
 
-export const DogeshAvatar: React.FC<DogeshAvatarProps> = ({
+export const AgentAvatar: React.FC<AgentAvatarProps> = ({
   size = 76,
   showEditBadge = true,
   avatarUrl = '/brand/hob-mark.png',
@@ -24,7 +24,6 @@ export const DogeshAvatar: React.FC<DogeshAvatarProps> = ({
   hideBorder = false,
   hideStatusDot = false,
 }) => {
-  const isDefault = !avatarUrl || avatarUrl === '/brand/hob-mark.png' || avatarUrl.includes('hob-mark');
 
   return (
     <div
@@ -39,7 +38,7 @@ export const DogeshAvatar: React.FC<DogeshAvatarProps> = ({
         }`}
       >
         <img
-          src={isDefault ? '/brand/hob-mark.png' : avatarUrl}
+          src={avatarUrl || '/brand/hob-mark.png'}
           alt="Agent avatar"
           className="block w-full h-full object-cover"
         />

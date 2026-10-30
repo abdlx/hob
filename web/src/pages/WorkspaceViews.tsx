@@ -16,6 +16,7 @@ import { WorkshopView } from './WorkshopView';
 import { HermesSettings } from './HermesSettings';
 import { HermesGoals, HermesWorkspace } from './HermesWorkspace';
 import { HermesGroups } from './HermesGroups';
+import { ChatHeader } from '../components/ChatHeader';
 import { ActivityView } from './ActivityView';
 
 export interface GoalJob {
@@ -343,13 +344,14 @@ export function WorkspaceViews({ activeNav }: { activeNav: string }) {
   if (activeNav === 'groups' && runtime === 'hermes') return <HermesGroups />;
   return (
     <>
-      <header className="h-[64px] border-b border-line px-6 flex items-center gap-3.5 shrink-0 bg-canvas">
+      <header className="hob-workspace-titlebar h-[64px] border-b border-line px-6 flex items-center gap-3.5 shrink-0 bg-canvas">
         <button className="text-muted hover:text-ink md:hidden p-1.5 transition-colors cursor-pointer" title="Back to chat" onClick={() => setActiveNav('chat')}>
           <ArrowLeft size={18} />
         </button>
         <h1 className="text-base md:text-lg font-semibold text-ink">{title}</h1>
       </header>
-      <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 md:p-8">
+      {activeNav !== 'settings' && <ChatHeader workspace />}
+      <div className={`hob-workspace-scroll hob-workspace-${activeNav} flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 md:p-8`}>
         <div className={`mx-auto ${activeNav === 'library' ? 'max-w-[1280px]' : 'max-w-[960px]'}`}>
           {activeNav === 'groups' ? (
             <Notice>Groups require the Hermes runtime.</Notice>

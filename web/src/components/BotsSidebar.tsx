@@ -13,7 +13,7 @@ import {
 import { useToast } from '../context/ToastContext';
 import { useChat } from '../context/ChatContext';
 import { useRuntime } from '../context/RuntimeContext';
-import { DogeshAvatar } from './DogeshAvatar';
+import { AgentAvatar } from './AgentAvatar';
 import { apiFetch } from '../services/api';
 import { requestId } from '../services/id';
 import { chatPreview } from '../services/chat-preview';
@@ -250,7 +250,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
               aria-current={isCurrent ? 'true' : undefined}
               className={`shrink-0 rounded-full transition-transform cursor-pointer ${isCurrent ? 'ring-2 ring-accent ring-offset-2 ring-offset-canvas' : 'opacity-80 hover:opacity-100'}`}
             >
-              <DogeshAvatar size={40} showEditBadge={false} avatarUrl={bot.avatarUrl || '/brand/hob-mark.png'} hideBorder hideStatusDot />
+              <AgentAvatar size={40} showEditBadge={false} avatarUrl={bot.avatarUrl || '/brand/hob-mark.png'} hideBorder hideStatusDot />
             </button>
           );
         })}
@@ -291,6 +291,10 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
               className="w-8 h-8 rounded-full flex items-center justify-center text-code hover:bg-neutral transition-colors cursor-pointer"
             >
               <Plus size={18} strokeWidth={2} />
+            </button>
+            <button type="button" title="Settings" aria-label="Settings" onClick={() => setActiveNav('settings')}
+              className="hob-bots-settings md:hidden flex h-11 w-11 items-center justify-center rounded-full text-ink hover:bg-neutral">
+              <Settings size={22} strokeWidth={1.8} />
             </button>
           </div>
         </div>
@@ -472,7 +476,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
                 >
                   {/* Avatar with status indicator */}
                   <div className="relative shrink-0">
-                    <DogeshAvatar
+                    <AgentAvatar
                       size={42}
                       showEditBadge={false}
                       avatarUrl={avatar}

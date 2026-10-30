@@ -2,12 +2,13 @@ import { preference, savePreference } from './settings-navigation.ts';
 
 export type Theme = 'light' | 'dark' | 'system';
 export const readTheme = (): Theme => {
-  const value = preference('hob:theme', 'system');
+  const value = preference('hob:theme', 'dark');
   return value === 'light' || value === 'dark' ? value : 'system';
 };
 export function applyTheme(theme: Theme) {
   const dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#060605' : '#FAFAFA');
 }
 export function setTheme(theme: Theme) {
   const saved = savePreference('hob:theme', theme);

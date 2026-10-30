@@ -32,12 +32,14 @@ export const ChatScreen: React.FC = () => {
   const readOnly = sessions.find((session) => session.id === activeSessionId)?.readOnly === true;
   const libraryWorkspace = activeNav === 'library';
 
-  // On mobile: first screen is the bots directory, selecting a bot opens its chat
-  const [mobileView, setMobileView] = useState<'bots' | 'chat'>('bots');
+  // Chat is the mobile entry point; the sidebar opens the bot directory.
+  const [mobileView, setMobileView] = useState<'bots' | 'chat'>('chat');
   useEffect(() => {
     const opened = () => setMobileView('chat');
+    const bots = () => setMobileView('bots');
     window.addEventListener('hob:conversation-opened', opened);
-    return () => window.removeEventListener('hob:conversation-opened', opened);
+    window.addEventListener('hob:open-bots', bots);
+    return () => { window.removeEventListener('hob:conversation-opened', opened); window.removeEventListener('hob:open-bots', bots); };
   }, []);
 
   return (
@@ -166,7 +168,7 @@ export const ChatScreen: React.FC = () => {
                 currentMobileView={mobileView}
                 onNavigateBots={() => {
                   setActiveNav('chat');
-                  setMobileView('bots');
+                  setMobileView('chat');
                 }}
                 onOpenActivity={() => {
                   if (isRightPanelOpen) toggleRightPanel();
@@ -183,7 +185,7 @@ export const ChatScreen: React.FC = () => {
             className="hob-panel-right fixed inset-0 z-50 flex flex-col w-full h-[100dvh] max-h-[100dvh] bg-canvas overflow-hidden xl:relative xl:inset-auto xl:z-auto xl:rounded-[34px] xl:shadow-[0_8px_30px_rgba(0,0,0,0.045)] xl:border xl:border-hair xl:shrink-0 xl:w-[22%] xl:min-w-[300px] xl:max-w-[350px] xl:h-full"
             aria-label="Agent details"
           >
-            <RightPanel onNavigateBots={() => setMobileView('bots')} />
+            <RightPanel />
           </aside>
       )}
     </div>

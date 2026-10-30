@@ -65,8 +65,8 @@ export function VoiceInput({ profile, disabled, onTranscript }: { profile: strin
       onTranscript(result.transcript); recording.current = null; setPhase('idle'); setOpen(false);
     } catch (cause) { if (current === generation.current) { setError(errorText(cause)); setPhase('review'); } }
   }
-  return <div className="w-full max-w-[840px] text-xs">
-    {!open ? <button type="button" disabled={disabled} className="inline-flex min-h-9 items-center gap-1.5 px-2 text-muted hover:text-ink disabled:opacity-40 cursor-pointer" onClick={() => setOpen(true)}><Mic size={14} />Voice input</button> : <section aria-label="Voice input" className="mb-2 space-y-2 rounded-2xl border border-hair bg-panel p-3">
+  return <div className="hob-voice-input text-xs">
+    {!open ? <button type="button" disabled={disabled} aria-label="Voice input" className="hob-voice-trigger inline-flex min-h-9 items-center gap-1.5 px-2 text-muted hover:text-ink disabled:opacity-40 cursor-pointer" onClick={() => setOpen(true)}><Mic size={14} /><span>Voice input</span></button> : <section aria-label="Voice input" className="mb-2 space-y-2 rounded-2xl border border-hair bg-panel p-3">
       <p className="leading-relaxed text-muted">Record up to one minute. Transcribe sends the recording to this bot's configured speech provider. Review and edit the transcript before sending your message.</p>
       <div className="flex flex-wrap items-center gap-2">
         {phase === 'idle' && <button type="button" className={buttonClass} disabled={disabled} onClick={() => void start()}><Mic size={14} />Start recording</button>}

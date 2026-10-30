@@ -1,8 +1,5 @@
-import React from 'react';
-import { Bot, Compass, BookOpen, SquareCheck, Shapes, Settings } from 'lucide-react';
+import { MessageCircle, PanelsTopLeft, Lightbulb, SquareCheck, Shapes } from 'lucide-react';
 import { useChat } from '../context/ChatContext';
-import { BottomDock } from './BottomDock/BottomDock';
-import type { DockItemConfig } from './BottomDock/types';
 
 interface MobileDockProps {
   currentMobileView?: 'bots' | 'chat';
@@ -10,48 +7,22 @@ interface MobileDockProps {
   onOpenActivity?: () => void;
   onNavigate?: () => void;
 }
-
-const items: DockItemConfig[] = [
-  { id: 'bots', label: 'Bots', icon: <Bot size={20} strokeWidth={2} /> },
-  { id: 'activity', label: 'Activity', icon: <Compass size={20} strokeWidth={2} /> },
-  { id: 'idea', label: 'Workshop', icon: <BookOpen size={20} strokeWidth={2} /> },
-  { id: 'goals', label: 'Goals', icon: <SquareCheck size={20} strokeWidth={2} /> },
-  { id: 'library', label: 'Library', icon: <Shapes size={20} strokeWidth={2} /> },
-  { id: 'settings', label: 'Settings', icon: <Settings size={20} strokeWidth={2} /> },
+const items = [
+  { id: 'chat', label: 'Chat', icon: MessageCircle },
+  { id: 'activity', label: 'Activity', icon: PanelsTopLeft },
+  { id: 'idea', label: 'Workshop', icon: Lightbulb },
+  { id: 'goals', label: 'Goals', icon: SquareCheck },
+  { id: 'library', label: 'Library', icon: Shapes },
 ];
-
-export const MobileDock: React.FC<MobileDockProps> = ({
-  onNavigateBots,
-  onOpenActivity,
-  onNavigate,
-}) => {
+export function MobileDock({ onOpenActivity, onNavigate }: MobileDockProps) {
   const { activeNav, setActiveNav } = useChat();
-
-  const handleDockChange = (id: string) => {
-    onNavigate?.();
-    if (id === 'bots') {
-      if (onNavigateBots) onNavigateBots();
-      setActiveNav('chat');
-    } else if (id === 'activity') {
-      setActiveNav('activity');
-      if (onOpenActivity) onOpenActivity();
-    } else {
-      setActiveNav(id);
-    }
-  };
-
-  const activeId = items.some(item => item.id === activeNav)
-    ? activeNav
-    : ['chat', 'search', 'groups'].includes(activeNav) ? 'bots' : '';
-
-  return (
-    <div className="md:hidden flex justify-center items-center w-full shrink-0" style={{ paddingBottom: 'max(4px, env(safe-area-inset-bottom))' }}>
-      <BottomDock
-        items={items}
-        activeId={activeId}
-        onChange={handleDockChange}
-        showSearch={false}
-      />
-    </div>
-  );
-};
+  return <nav className="hob-mobile-dock md:hidden" aria-label="Mobile navigation">
+    {items.map(({ id, label, icon: Icon }) => {
+      const active = activeNav === id || (id === 'chat' && ['search', 'groups'].includes(activeNav));
+      return <button key={id} type="button" title={label} aria-label={label} aria-current={active ? 'page' : undefined}
+        onClick={() => { onNavigate?.(); setActiveNav(id); if (id === 'activity') onOpenActivity?.(); }}>
+        <Icon size={25} strokeWidth={1.9} />
+      </button>;
+    })}
+  </nav>;
+}

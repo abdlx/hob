@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { conversationDate } from '../services/conversation-date';
 import { apiFetch } from '../services/api';
 import { useChat } from '../context/ChatContext';
-import { Plus, Search, MessageSquare, X, Pencil } from 'lucide-react';
+import { Plus, Search, MessageSquare, X, Pencil, Settings } from 'lucide-react';
 
 export const ChatsDrawer: React.FC = () => {
   const {
@@ -14,6 +14,7 @@ export const ChatsDrawer: React.FC = () => {
     toggleLeftDrawer,
     isCreatingConversation,
     refresh,
+    setActiveNav,
   } = useChat();
 
   const [search, setSearch] = useState('');
@@ -155,6 +156,11 @@ export const ChatsDrawer: React.FC = () => {
             );
           })}
         </div>
+        <footer className="hob-conversation-sidebar-footer shrink-0 border-t border-hair p-3.5">
+          <button type="button" onClick={() => { toggleLeftDrawer(); setActiveNav('settings'); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-sm text-ink hover:bg-neutral">
+            <Settings size={21} strokeWidth={1.8} />Settings
+          </button>
+        </footer>
       </div>
     </div>
   );

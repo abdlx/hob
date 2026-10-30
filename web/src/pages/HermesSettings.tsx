@@ -13,7 +13,7 @@ import { HermesMemorySettings } from '../components/HermesMemorySettings';
 import { HermesLearningSettings } from '../components/HermesLearningSettings';
 import { HermesConfigEditor } from '../components/HermesConfigEditor';
 import type { HermesConfigSchema } from '../components/HermesConfigEditor';
-import { Search, SlidersHorizontal } from 'lucide-react';
+import { Search, SlidersHorizontal, Grid2X2, KeyRound, Hand, MessageCircle, MonitorSmartphone, Bell, Paintbrush, Brain, Bot, CalendarClock, ChevronRight, ArrowLeft } from 'lucide-react';
 import { preference, savePreference, searchSettings, settingsSection, settingsSections } from '../services/settings-navigation';
 import type { SettingsSection } from '../services/settings-navigation';
 import { AppearanceSettings } from '../components/AppearanceSettings';
@@ -21,6 +21,7 @@ import { HermesPluginsSettings } from '../components/HermesPluginsSettings';
 import { HermesAutonomySettings } from '../components/HermesAutonomySettings';
 import { HermesGoals, HermesWorkshop } from './HermesWorkspace';
 import { BotPreferences } from '../components/BotPreferences';
+import { NotificationSettings } from '../components/NotificationSettings';
 
 interface Profile { name: string; display_name?: string; description?: string; model?: string; provider?: string; state?: string }
 
@@ -29,20 +30,29 @@ export function HermesSettings() {
   const [section, setSection] = useState(() => settingsSection(preference('hob:settings-section', 'models')));
   const [visited, setVisited] = useState<Set<SettingsSection>>(() => new Set([section]));
   const [search, setSearch] = useState('');
+  const [mobileCategory, setMobileCategory] = useState(false);
   const matches = searchSettings(search);
   const current = settingsSections.find(item => item.id === section)!;
-  return <div className="settings-workspace grid gap-5 lg:grid-cols-[200px_minmax(0,1fr)]">
+  const openCategory = (id: SettingsSection) => { setVisited(previous => new Set([...previous, id])); setSection(id); setMobileCategory(true); savePreference('hob:settings-section', id); };
+  const groups = [
+    [{ title: 'Connectors', id: 'integrations', icon: Grid2X2 }, { title: 'Secure credentials store', id: 'models', icon: KeyRound }, { title: 'Permissions', id: 'learning', icon: Hand }, { title: 'Messaging channels', id: 'channels', icon: MessageCircle }, { title: 'Tools & devices', id: 'tools', icon: MonitorSmartphone }],
+    [{ title: 'Notifications', id: 'general', icon: Bell }, { title: 'Appearance', id: 'general', icon: Paintbrush }, { title: 'Memory & history', id: 'memory', icon: Brain }, { title: 'Agents & bots', id: 'agents', icon: Bot }, { title: 'Automation', id: 'automation', icon: CalendarClock }],
+  ] as const;
+  return <div className={`hob-settings-root ${mobileCategory ? 'hob-settings-detail' : ''}`}>
+    <div className="hob-settings-directory md:hidden">{groups.map((group, index) => <div className="hob-settings-group" key={index}>{group.map(({ title, id, icon: Icon }) => <button key={title} onClick={() => openCategory(id)}><Icon size={24} strokeWidth={1.7} /><span>{title}</span><ChevronRight size={20} /></button>)}</div>)}</div>
+    <button className="hob-settings-back md:hidden" onClick={() => setMobileCategory(false)}><ArrowLeft size={18} />Settings</button>
+    <div className="settings-workspace grid gap-5 lg:grid-cols-[200px_minmax(0,1fr)]">
     <aside className="min-w-0 lg:sticky lg:top-0 lg:self-start">
       <div className="relative mb-3"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" /><input aria-label="Find settings category" className={`${inputClass} pl-9`} placeholder="Find settings…" value={search} onChange={event => setSearch(event.target.value)} /></div>
       <nav aria-label="Settings categories" className="flex gap-1 overflow-x-auto pb-2 lg:flex-col lg:overflow-visible">
-        {matches.map(item => <button key={item.id} aria-current={section === item.id ? 'page' : undefined} className={`shrink-0 rounded-lg px-3 py-2 text-left text-xs transition-colors ${section === item.id ? 'bg-accent-soft text-accent font-semibold' : 'text-soft hover:bg-hover hover:text-ink'}`} onClick={() => { setVisited(previous => new Set([...previous, item.id])); setSection(item.id); savePreference('hob:settings-section', item.id); }}><span className="block whitespace-nowrap">{item.title}</span><span className="mt-1 hidden text-[10px] font-normal leading-relaxed opacity-80 lg:block">{item.description}</span></button>)}
+        {matches.map(item => <button key={item.id} aria-current={section === item.id ? 'page' : undefined} className={`shrink-0 rounded-lg px-3 py-2 text-left text-xs transition-colors ${section === item.id ? 'bg-accent-soft text-accent font-semibold' : 'text-soft hover:bg-hover hover:text-ink'}`} onClick={() => openCategory(item.id)}><span className="block whitespace-nowrap">{item.title}</span><span className="mt-1 hidden text-[10px] font-normal leading-relaxed opacity-80 lg:block">{item.description}</span></button>)}
       </nav>
       {matches.length === 0 && <p className="py-2 text-xs text-muted">No matching category. Search all native fields in Advanced configuration.</p>}
     </aside>
     <div className="min-w-0"><div className="mb-5 flex items-start gap-3"><SlidersHorizontal size={18} className="mt-0.5 text-muted" /><div><h2 className="text-base font-semibold text-ink">{current.title}</h2><p className="mt-1 text-xs text-muted">{current.description}</p></div></div>
       <ProfileSettings key={profile} profile={profile} setProfile={value => { setVisited(new Set([section])); setProfile(value); }} section={section} visited={visited} />
     </div>
-  </div>;
+  </div></div>;
 }
 
 function ProfileSettings({ profile, setProfile, section, visited }: { profile: string; setProfile: (value: string) => void; section: SettingsSection; visited: Set<SettingsSection> }) {
@@ -138,7 +148,7 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
     <Field label="Bot"><select className={inputClass} disabled={busy || loading} value={profile} onChange={event => { loadSequence.current++; setProfile(event.target.value); setSnapshot(null); setSecret(''); setProvider(''); setModel(''); setBaseUrl(''); setEndpointName(''); setEndpointSecret(''); setModelConfirmation(''); }}>
       <option value="default">Main</option>{profiles.filter(item => item.name !== 'default' && (!item.state || item.state === 'active')).map(item => <option key={item.name} value={item.name}>{item.display_name || item.name}</option>)}
     </select></Field>
-    {section === 'general' && <div className="space-y-5"><AppearanceSettings /><BotPreferences key={profile} profile={profile} /></div>}
+    {section === 'general' && <div className="space-y-5"><AppearanceSettings /><NotificationSettings /><BotPreferences key={profile} profile={profile} /></div>}
     {visited.has('models') && <div hidden={section !== 'models'} className="space-y-5">
     <HermesSavedProviders key={profile} profile={profile} botName={profiles.find(item => item.name === profile)?.display_name || (profile === 'default' ? 'Main' : profile)} revision={configRevision} busy={busy || loading} onConnected={load} onChooseModel={value => {
       setProvider(value); setModel(''); setKey(providerCredentialName(credentials, value)); setSecret(''); setBaseUrl(''); setEndpointName(''); setEndpointSecret(''); setModelConfirmation('');
