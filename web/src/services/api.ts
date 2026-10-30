@@ -1,4 +1,5 @@
-import type { AgentProfile, AgentListItem, ChatMessage, ChatSession, SecurityApproval, SystemStats, TaskItem } from '../types/chat';
+import type { ActivityFeed, AgentProfile, AgentListItem, ChatMessage, ChatSession, SecurityApproval, SystemStats, TaskItem } from '../types/chat';
+import { activityFeed } from './activity.ts';
 import { readTurnStream } from './stream.ts';
 
 const baseUrl = (import.meta.env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
@@ -61,6 +62,7 @@ class ChatApiClient {
   getAgentProfile = () => this.request<AgentProfile>('/api/agent');
   updateAgentProfile = (updates: Partial<AgentProfile>) => this.request<AgentProfile>('/api/agent', { method: 'PATCH', body: JSON.stringify(updates) });
   getTasks = () => this.request<TaskItem[]>('/api/tasks');
+  getTaskFeed = async () => activityFeed(await this.request<TaskItem[] | ActivityFeed>('/api/tasks?format=timeline'));
   getSecurityApprovals = () => this.request<SecurityApproval[]>('/api/security/approvals');
   getSystemStats = () => this.request<SystemStats>('/api/stats');
   resolveSecurityApproval = (id: string, decision: 'approved' | 'rejected') => this.request<void>(`/api/security/approvals/${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify({ decision }) });

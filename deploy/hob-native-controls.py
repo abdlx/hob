@@ -1,15 +1,17 @@
-"""Versioned review and schedule previews for the qualified Hermes runtime.
+"""Versioned reviews, schedule previews and read-only Activity provenance.
 
 Mounted only by the checksum-guarded compatibility installer. Native stores,
 appliers and scheduler remain the owners; this module adds a JSON projection.
 """
 import hashlib
+from datetime import datetime, timezone
 import json
 import os
 import re
 import stat
 import threading
 import time
+import sqlite3
 from pathlib import Path
 from typing import Optional
 
@@ -314,3 +316,112 @@ async def schedule_preview(body: dict, profile: Optional[str] = None):
         except (ValueError, TypeError):
             raise HTTPException(400, "Hermes rejected this schedule")
     return await scoped(profile, work)
+
+
+def _read_activity_file(filename, limit):
+    """Bounded independent-file read. No repair/normalization side effects."""
+    filename = Path(filename)
+    for parent in [filename, *filename.parents]:
+        if parent.is_symlink():
+            raise ValueError("Linked activity source")
+    fd = os.open(filename, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    with os.fdopen(fd, "rb") as stream:
+        before = os.fstat(stream.fileno())
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > limit:
+            raise ValueError("Invalid activity source")
+        data = stream.read(limit + 1)
+        after = os.fstat(stream.fileno())
+        if len(data) > limit or (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            raise ValueError("Activity source changed during read")
+    return data
+
+
+def _activity_inventory(home, jobs_file):
+    # list_jobs() may normalize/repair malformed files. Browsing Activity must
+    # not repair a scheduler store or treat a failed read as an empty inventory.
+    home, jobs_file = Path(home).resolve(), Path(jobs_file).absolute()
+    if jobs_file != home / "cron" / "jobs.json":
+        return None
+    try:
+        data = json.loads(_read_activity_file(jobs_file, 4 * 1024 * 1024))
+        jobs = data.get("jobs") if isinstance(data, dict) else None
+        if not isinstance(jobs, list) or any(not isinstance(job, dict) or not isinstance(job.get("id"), str) or not job["id"] or job["id"] == "unknown" for job in jobs):
+            return None
+        # Includes disabled/paused jobs. Never infer deletion from a filtered list.
+        return {job["id"] for job in jobs}
+    except FileNotFoundError:
+        # A verified absent file in the owner's independent cron directory is
+        # an empty disk inventory. An unreadable/linked/missing directory is not.
+        parent = jobs_file.parent
+        try:
+            return set() if parent.is_dir() and not parent.is_symlink() and parent.resolve() == parent else None
+        except OSError:
+            return None
+    except (OSError, ValueError, UnicodeError):
+        return None
+
+
+def _activity_terminal_execution(home, job_id, execution_id):
+    if not job_id or not execution_id:
+        return None
+    filename = Path(home) / "cron" / "executions.db"
+    try:
+        if any(parent.is_symlink() for parent in [filename, *filename.parents]) or not filename.is_file() or filename.stat().st_nlink != 1:
+            return None
+        # The ledger's normal connection initializes/migrates its schema. Keep
+        # this projection strictly read-only and bind BOTH job and execution.
+        from contextlib import closing
+        with closing(sqlite3.connect(filename.resolve().as_uri() + "?mode=ro", uri=True)) as db:
+            row = db.execute("SELECT status FROM executions WHERE id=? AND job_id=?", (execution_id, job_id)).fetchone()
+            return row[0] if row and row[0] in {"completed", "failed", "unknown"} else None
+    except (OSError, sqlite3.Error):
+        return None
+
+
+def scheduled_activity_snapshot(profile, offset=0, limit=100):
+    from hermes_constants import get_hermes_home
+    from hermes_cli.web_server_sessions import _open_session_db_for_profile
+    from cron.jobs import _current_cron_store
+    home = Path(get_hermes_home()).resolve()
+    db = _open_session_db_for_profile(profile, read_only=True)
+    try:
+        if Path(db.db_path).resolve().parent != home:
+            raise HTTPException(503, "Scheduler history belongs to another profile")
+        rows = db.list_sessions_rich(sources=["cron"], limit=limit, offset=offset, order_by_last_active=True, compact_rows=True)
+        statuses = db.session_lifecycle_statuses([row["id"] for row in rows])
+        inventory = _activity_inventory(home, _current_cron_store().jobs_file)
+        observed = datetime.now(timezone.utc).isoformat()
+        items = []
+        for row in rows:
+            if row.get("source") != "cron":
+                raise HTTPException(503, "Scheduler history returned another source")
+            identity_error = False
+            try:
+                identity = db.cron_run_identity(row["id"]) or {}
+            except Exception:
+                identity, identity_error = {}, True
+            job_id, execution_id = identity.get("cron_job_id"), identity.get("cron_execution_id")
+            if job_id in ("", "unknown"):
+                job_id = None
+            job_state = "unavailable" if identity_error else "unlinked" if not job_id else "unavailable" if inventory is None else "present" if job_id in inventory else "deleted"
+            lifecycle = statuses.get(row["id"], "empty")
+            terminal = _activity_terminal_execution(home, job_id, execution_id)
+            status = terminal or ({"complete": "completed", "error": "failed", "interrupted": "interrupted"}.get(lifecycle, "unknown") if row.get("ended_at") is not None else "unknown")
+            items.append({"sessionId": row["id"], "title": str(row.get("title") or "Scheduled run")[:500],
+                "timestamp": row.get("last_active") or row.get("started_at"), "status": status,
+                "origin": {"kind": "scheduled-job", "profile": profile, "sessionId": row["id"],
+                    "jobId": job_id, "executionId": execution_id, "jobState": job_state,
+                    "historical": row.get("ended_at") is not None, "observedAt": observed, "inventoryStatus": "verified" if inventory is not None else "unavailable",
+                    "nativeStatus": terminal or lifecycle, "statusSource": "execution-ledger" if terminal else "session-lifecycle"}})
+        return {"items": items, "nextOffset": offset + len(rows) if len(rows) == limit else None}
+    finally:
+        db.close()
+
+
+@router.get("/api/hob/activity")
+async def scheduled_activity(profile: Optional[str] = None, offset: int = 0, limit: int = 100):
+    if not isinstance(profile, str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", profile) or profile == "all":
+        raise HTTPException(400, "Scheduler history requires one explicit profile")
+    if type(offset) is not int or offset < 0 or offset > 1000000 or type(limit) is not int or not 1 <= limit <= 100:
+        raise HTTPException(400, "Use a bounded scheduler history page")
+    return await scoped(profile, lambda: scheduled_activity_snapshot(profile, offset, limit))

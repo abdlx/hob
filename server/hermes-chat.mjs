@@ -4,6 +4,7 @@ import { avatarUrl } from './hermes-avatars.mjs';
 import { messageContentText } from './hermes-content.mjs';
 import { HermesRunJournal, TERMINAL_RUNS, runFingerprint } from './hermes-run-journal.mjs';
 import { createHermesChatPreviews } from './hermes-chat-previews.mjs';
+import { hermesActivityFeed } from './hermes-activity.mjs';
 
 function iso(value) {
   const date = new Date(typeof value === 'number' ? value * 1000 : value);
@@ -134,13 +135,14 @@ export function createHermesChatRoutes(client, bots, journal = new HermesRunJour
     }
     if (url.pathname === '/api/tasks' && method === 'GET') {
       await reconcile(profile);
-      json(res, 200, (await sessionRows(profile)).map(item => ({ id: hermesSessionKey(profile, item.id), title: item.title || item.id,
+      const items = (await sessionRows(profile)).map(item => ({ id: hermesSessionKey(profile, item.id), title: item.title || item.id,
         subtitle: item.preview || '', timestamp: iso(item.last_active || item.started_at),
         status: (() => {
           const run = journal.get(hermesSessionKey(profile, item.id));
           if (!run) return item.ended_at ? 'completed' : 'pending';
           return ['admitting', 'unknown', 'unavailable'].includes(run.status) ? 'unknown' : TERMINAL_RUNS.has(run.status) ? run.status : 'in_progress';
-        })() }))); return true;
+        })() }));
+      json(res, 200, url.searchParams.get('format') === 'timeline' ? await hermesActivityFeed(client, profile, items) : items); return true;
     }
     if (url.pathname === '/api/stats' && method === 'GET') {
       const start = performance.now();

@@ -262,7 +262,8 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
     runtime: hermes ? 'hermes' : 'openclaw',
   };
 
-  const server = http.createServer(async (req, res) => {
+  const requests = new Set();
+  const serve = async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'same-origin');
     res.setHeader('X-Frame-Options', 'DENY');
@@ -601,17 +602,22 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
       if (!res.headersSent) json(res, status, { error: message, ...(error.code ? { code: error.code } : {}) });
       else { sendEvent(res, 'error', { message }); res.end(); }
     }
+  };
+  const server = http.createServer((req, res) => {
+    const work = serve(req, res);
+    requests.add(work);
+    void work.finally(() => requests.delete(work)).catch(() => undefined);
   });
   server.requestTimeout = 30000;
   server.headersTimeout = 15000;
   let runPoll;
-  let pollingRuns = false;
+  let runPollWork;
   if (hermesChat && runJournal) server.once('listening', () => {
-    const poll = async () => {
-      if (pollingRuns) return;
-      pollingRuns = true;
-      try { await Promise.allSettled([hermesChat.reconcile(), ...(canonicalChat ? [canonicalChat.reconcile()] : [])]); }
-      finally { pollingRuns = false; }
+    const poll = () => {
+      if (runPollWork) return runPollWork;
+      runPollWork = Promise.allSettled([hermesChat.reconcile(), ...(canonicalChat ? [canonicalChat.reconcile()] : [])])
+        .finally(() => { runPollWork = null; });
+      return runPollWork;
     };
     runPoll = setInterval(() => { void poll(); }, 5000);
     runPoll.unref();
@@ -621,7 +627,24 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   const pushTimer = setInterval(() => { void mobile.flush().catch(() => console.warn('Mobile notification delivery could not be checked.')); }, 10000); pushTimer.unref();
   server.once('close', () => { clearInterval(pushTimer); nativeSessions?.off('event', mobileEvent); mobile.close(); });
   server.once('listening', () => botRelay?.start());
-  server.once('close', () => { botRelay?.close(); canonicalChat?.close(); nativeSessions?.close(); browserRoutes?.close(); agentComputerRoutes?.close(); });
+  let backgroundClose;
+  const stopBackground = () => {
+    if (backgroundClose) return backgroundClose;
+    clearInterval(runPoll);
+    backgroundClose = Promise.allSettled([() => botRelay?.close(), () => canonicalChat?.close(), () => nativeSessions?.close(), () => browserRoutes?.close(), () => agentComputerRoutes?.close()]
+      .map(close => Promise.resolve().then(close)));
+    return backgroundClose;
+  };
+  server.once('close', () => { void stopBackground(); });
+  const closed = new Promise(resolve => server.once('close', resolve));
+  // HTTP close does not join its async handlers or observer writes. A restart
+  // must finish these before opening the same independent journal again.
+  server.drain = async () => {
+    const background = stopBackground(); // Close upgraded viewer sockets before waiting for HTTP close.
+    await closed;
+    await Promise.allSettled([...requests, runPollWork, background]);
+    await runJournal?.flush();
+  };
   server.on('close', () => { for (const res of streams) res.end(); streams.clear(); });
   // Viewer streams are WebSockets, so they never reach the request handler above.
   // Anything that is not a browser stream is refused here rather than left open.

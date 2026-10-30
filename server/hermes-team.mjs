@@ -145,6 +145,10 @@ export class HermesTeam {
     }
     this.#db.prepare('INSERT INTO runtime_sessions VALUES (?,?,?,?)').run(profile, session, kind, assignment);
   }
+  sessionKind(profile, session) {
+    this.#active(profile);
+    return this.#db.prepare('SELECT kind FROM runtime_sessions WHERE profile=? AND session=?').get(profile, session)?.kind === 'relay' ? 'relay' : 'session';
+  }
   core() { return this.#db.prepare('SELECT revision,content,digest,committed FROM core_versions ORDER BY revision DESC LIMIT 1').get() || { revision: 0, content: '', digest: hash('') }; }
   history() { return this.#db.prepare('SELECT revision,content,digest,committed FROM core_versions ORDER BY revision DESC LIMIT 50').all(); }
   #active(profile) {

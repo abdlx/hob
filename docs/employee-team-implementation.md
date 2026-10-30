@@ -48,6 +48,20 @@ Hosted groups are recognized by Hermes' bound room execution policy, never a mes
 
 The adapter suppresses automatic background memory/skill review at both enqueue and execution, external provider retention/recall, and external context engines. Ordinary mode remains unchanged. Explicit builtin private-memory writes are **not yet classified or gated for session-only facts**, so this work does not establish A7. Native compaction/rotation, alternate inference paths, title helpers, middleware and actual process/tool permissions still need qualification before activation. No user-facing activation control or native-qualified status has been added.
 
+## Scheduler Activity provenance
+
+The authenticated timeline now combines its existing session feed with a separate, profile-scoped native scheduler-history projection. The native session store supplies job/execution identity; a bound execution-ledger terminal outcome takes precedence over native message-lifecycle classification. Unclosed runs with no authoritative terminal result remain unknown. A conflicting scheduler response cannot turn a recorded failed outcome into success.
+
+Job existence is checked against the same profile's complete on-disk inventory, including disabled jobs. This path uses bounded independent-file reads and strict canonical validation instead of invoking native job-list auto-repair. A verified absent job, an unavailable/corrupt/linked inventory, and a legacy record without a usable job ID remain distinct. The observed UTC time and status source accompany each record. Reading Activity never acknowledges a failure or rewrites native history.
+
+The main timeline and agent inspector show these labels and any incomplete-history warning. Only a historical failure with a verified deleted job leaves the current-attention list; its original failed row remains in history. Existing, unlinked and unavailable failures stay discoverable. An unavailable empty feed says Activity is incomplete, rather than claiming there was no work.
+
+The initial scheduler page is bounded to 100 runs; its native endpoint exposes offset pagination. The timeline response includes the next scheduled offset, but UI pagination remains pending. This is a bounded recent-history view, not proof that every historical run was inspected. The two original orphan entries have not been located on the user's deployment, so that specific incident is not claimed resolved.
+
+The local integration probe uses the actual pinned native `SessionDB`, cron-store router and profile ContextVars with temporary scheduler failures. It checks that browsing leaves session/inventory bytes unchanged, including during inventory corruption, and that a second profile with the same job ID reads its own inventory. The web database opener is an explicit seam; HTTP scope is checked separately. Full live/Linux scheduler acceptance remains pending.
+
+Full-suite validation also exposed a shutdown race: async observers could still atomically replace the journal after HTTP close while a replacement app opened it. The app now tracks request/poller cleanup, closes viewer resources, and exposes a drain barrier; shutdown joins queued journal writes before the process exits. The journal's file identity and hardlink checks remain intact.
+
 ## Remaining qualification work
 
 The backend deliberately reports `qualification.live: false`. Current local evidence does not establish all twelve acceptance tests:
@@ -64,7 +78,7 @@ The backend deliberately reports `qualification.live: false`. Current local evid
 | A8 shared media | Not implemented. Existing per-bot media boundaries remain. |
 | A9 delayed results | Existing durable exchanges and wait/reconciliation behavior remain; team-specific live/restart qualification is still required. |
 | A10 reminders/phone | Pending channel selection, explicit account connection, and actual device evidence. |
-| A11 orphan job failures | Pending authoritative scheduler-job provenance. No historical failures were dismissed or relabeled without that evidence. |
+| A11 orphan job failures | Local native-store, HTTP, UI and mobile contracts now cover scheduler IDs, verified deletion, unavailable/unlinked states, preserved failures and read-only annotation. Full Linux/live acceptance and identification of the two original deployment records remain pending. |
 | A12 external facts | Source/time/staleness instructions are included. Consistent native result metadata and real answer acceptance remain pending. |
 
 Paid-execution restrictions must also be enforced at the actual model/tool execution owners before team tasks qualify under the confirmed no-paid-lane policy. Roles and messaging require the remaining operator choices. Production version/image verification and deployment are separate work; no production writes or deployment were performed here.
@@ -77,4 +91,6 @@ Use `npm test` in server/, `npm test`, `npm run lint`, `npm run build`, and `npm
 
 Local evidence for this runtime checkpoint: full backend suite 482 passed / 2 platform skips; deployment suite 38 passed; existing native-control unit suite 11 passed; team adapter suite with the exact pinned source 9 passed. Focused chat/relay admission, team-state and startup checks also passed after the final edits. No web UI changed in this checkpoint. Docker/Linux and live device acceptance remain unexecuted locally.
 
-Activity investigation found that canonical `session.list` deliberately excludes scheduler histories. The pinned native `SessionDB.cron_run_identity()` can return authoritative job/execution IDs, while plain session absence cannot establish job deletion. A11 still needs a separate profile-scoped scheduler-history projection with explicit inventory-failure handling; no historical failures have been relabeled during this checkpoint.
+The Activity projection supplements canonical `session.list`, which deliberately excludes scheduler histories. The pinned native `SessionDB.cron_run_identity()` supplies authoritative job/execution IDs; plain session absence is never used to establish job deletion. `deploy/test-native-activity-pinned.py` exercises the projection against that native store, using only temporary fixture state. CI runs this probe against the pristine digest-pinned base image.
+
+Activity checkpoint evidence: full backend suite 488 passed / 2 platform skips; web unit suite 64 passed; browser suite 51 passed; deployment suite 38 passed; native-control unit suite 17 passed / 1 Windows symlink-creation skip. Web lint/build passed. The actual pinned native-store probe passed locally with independent profiles, and its equivalent is wired into Linux image CI. The initial full backend run exposed the journal restart race described above; it passed after the drain fix. No live production records were changed by these checks.

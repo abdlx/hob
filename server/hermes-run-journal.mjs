@@ -62,6 +62,7 @@ export class HermesRunJournal {
 
   get(key) { return structuredClone(this.#records.find(item => item.key === key)); }
   list(profile) { return structuredClone(this.#records.filter(item => !profile || item.profile === profile)); }
+  flush() { return this.#queue; }
 
   async #mutate(change) {
     const work = this.#queue.then(async () => {

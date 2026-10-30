@@ -3,6 +3,7 @@ import { HermesError, hermesProfile, hermesResource, hermesSessionKey, hermesNat
 import { messageContentText } from './hermes-content.mjs';
 import { TERMINAL_RUNS, runFingerprint } from './hermes-run-journal.mjs';
 import { createHermesAttachments } from './hermes-attachments.mjs';
+import { hermesActivityFeed } from './hermes-activity.mjs';
 
 const iso = value => {
   const date = new Date(typeof value === 'number' ? value * 1000 : value);
@@ -197,12 +198,13 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     }
     if (url.pathname === '/api/tasks' && method === 'GET') {
       await reconcile(profile);
-      json(res, 200, (await sessions(profile)).map(session => {
+      const items = (await sessions(profile)).map(session => {
         const run = journal.get(session.id);
         return { id: session.id, title: session.title, timestamp: session.createdAt, subtitle: session.lastMessageSnippet,
           status: !run ? 'pending' : ['admitting', 'unknown', 'unavailable'].includes(run.status) ? 'unknown'
             : TERMINAL_RUNS.has(run.status) ? run.status : 'in_progress' };
-      })); return true;
+      });
+      json(res, 200, url.searchParams.get('format') === 'timeline' ? await hermesActivityFeed(client, profile, items, team) : items); return true;
     }
     if (url.pathname === '/api/agent' && method === 'GET') {
       const agent = await httpChat.agentProfile(profile);

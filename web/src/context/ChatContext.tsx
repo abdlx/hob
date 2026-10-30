@@ -11,7 +11,7 @@ import { preference, savePreference } from '../services/settings-navigation';
 
 interface ChatContextValue {
   messages: ChatMessage[]; sessions: ChatSession[]; activeSessionId: string;
-  agent: AgentProfile | null; tasks: TaskItem[]; approvals: SecurityApproval[]; stats: SystemStats | null;
+  agent: AgentProfile | null; tasks: TaskItem[]; activityWarnings: string[]; approvals: SecurityApproval[]; stats: SystemStats | null;
   agents: AgentListItem[]; selectAgent: (id: string, options?: { stayOnPage?: boolean }) => Promise<void>;
   activeTab: RightPanelTab; isRightPanelOpen: boolean; isLeftDrawerOpen: boolean; isLoading: boolean;
   isBotsSidebarOpen: boolean; toggleBotsSidebar: () => void; setBotsSidebarOpen: (open: boolean) => void;
@@ -49,6 +49,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [agent, setAgent] = useState<AgentProfile | null>(null);
   const [agents, setAgents] = useState<AgentListItem[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [activityWarnings, setActivityWarnings] = useState<string[]>([]);
   const [approvals, setApprovals] = useState<SecurityApproval[]>([]);
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [activeTab, setActiveTab] = useState<RightPanelTab>('tasks');
@@ -115,12 +116,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     if (isPreview) return;
     const selectedProfile = chatApi.getProfile();
     const api = chatApi.forProfile(selectedProfile), epoch = viewEpochRef.current, sequence = ++refreshSequenceRef.current;
-    const results = await Promise.allSettled([api.getSessions(), api.getAgentProfile(), api.getTasks(), api.getSecurityApprovals(), api.getSystemStats(), loadAgents()]);
+    const results = await Promise.allSettled([api.getSessions(), api.getAgentProfile(), api.getTaskFeed(), api.getSecurityApprovals(), api.getSystemStats(), loadAgents()]);
     if (selectedProfile !== chatApi.getProfile() || viewEpochRef.current !== epoch || refreshSequenceRef.current !== sequence) return;
     const [sess, profile, activity, pending, system] = results;
     if (sess.status === 'fulfilled') setSessions(sess.value);
     if (profile.status === 'fulfilled') { setAgent(profile.value); setConnected(profile.value.status !== 'disconnected'); }
-    if (activity.status === 'fulfilled') setTasks(activity.value);
+    if (activity.status === 'fulfilled') { setTasks(activity.value.items); setActivityWarnings(activity.value.warnings); }
     if (pending.status === 'fulfilled') setApprovals(pending.value);
     if (system.status === 'fulfilled') setStats(system.value);
     const failed = results.find(result => result.status === 'rejected');
@@ -282,7 +283,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setIsLoading(false); setError(null); operationErrorRef.current = false;
     setIsPreparing(true);
     sessionRef.current = '';
-    setActiveSessionId(''); setMessages([]); setSessions([]); setApprovals([]); setTasks([]); setStats(null); setAgent(null);
+    setActiveSessionId(''); setMessages([]); setSessions([]); setApprovals([]); setTasks([]); setActivityWarnings([]); setStats(null); setAgent(null);
     try {
       chatApi.setProfile(id);
       await refresh();
@@ -415,7 +416,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return () => { clearTimeout(timer); window.removeEventListener('hob:open-conversation', receive); };
   }, [isPreparing, selectAgent, selectSession]);
 
-  return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, agents, selectAgent, tasks, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isBotsSidebarOpen, toggleBotsSidebar, setBotsSidebarOpen, isLoading, activeNav, error, connected, isPreparing, isCreatingConversation, activityFilter, setActivityFilter, groups, loadGroups, selectedGroupId, setSelectedGroupId, setActiveNav, sendMessage, selectSession, createNewSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, getComposerDraft, setComposerDraft, subscribeComposerDraft, clearError: () => { operationErrorRef.current = false; workRef.current.clearError(sessionRef.current); setError(null); } }}>{children}</ChatContext.Provider>;
+  return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, agents, selectAgent, tasks, activityWarnings, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isBotsSidebarOpen, toggleBotsSidebar, setBotsSidebarOpen, isLoading, activeNav, error, connected, isPreparing, isCreatingConversation, activityFilter, setActivityFilter, groups, loadGroups, selectedGroupId, setSelectedGroupId, setActiveNav, sendMessage, selectSession, createNewSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, getComposerDraft, setComposerDraft, subscribeComposerDraft, clearError: () => { operationErrorRef.current = false; workRef.current.clearError(sessionRef.current); setError(null); } }}>{children}</ChatContext.Provider>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

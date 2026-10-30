@@ -77,6 +77,46 @@ async function fixture(page: Page) {
 
 test.use({ viewport: { width: 393, height: 800 } });
 
+test('Activity preserves failed scheduler history while distinguishing deleted, unavailable and unlinked jobs', async ({ page }) => {
+  const { expectNoHorizontalScroll } = await import('./mobile-layout');
+  const state = await fixture(page);
+  const titles = ['Removed scheduler run', 'Current failed job', 'Inventory outage run', 'Unlinked legacy failure'];
+  const kinds = ['deleted', 'present', 'unavailable', 'unlinked'];
+  let outageOnly = false;
+  await page.route('**/api/tasks**', async route => {
+    if (outageOnly) return route.fulfill({ json: { items: [], warnings: ['Task history is unavailable.'] } });
+    if (route.request().headers()['x-hob-profile'] === 'orbit') return route.fulfill({ json: { items: [], warnings: [] } });
+    return route.fulfill({ json: { items: titles.map((title, index) => ({ id: `scheduled-${index}`, title, timestamp: '2026-10-30T10:00:00Z', status: 'failed',
+      origin: { kind: 'scheduled-job', profile: 'default', sessionId: `run-${index}`, jobId: index === 3 ? null : `job-${index}`,
+        historical: true, jobState: kinds[index], inventoryStatus: index === 2 ? 'unavailable' : 'verified', observedAt: '2026-10-30T10:01:00Z' } })),
+      warnings: ['Some scheduler history is unavailable; the timeline may be incomplete.'] } });
+  });
+  await page.setViewportSize({ width: 320, height: 760 });
+  await page.goto('/activity');
+  await expect(page.getByText('Historical run · Job deleted', { exact: true })).toBeVisible();
+  await expect(page.getByText('Historical run · Job status unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByText('Historical run · Unlinked historical entry', { exact: true })).toBeVisible();
+  await expect(page.getByText('Failed', { exact: true })).toHaveCount(4);
+  await expect(page.getByText(/Some scheduler history is unavailable/)).toBeVisible();
+  await expectNoHorizontalScroll(page);
+  await page.getByRole('button', { name: 'Needs attention', exact: true }).click();
+  await expect(page.getByText('Removed scheduler run', { exact: true })).toHaveCount(0);
+  for (const title of titles.slice(1)) await expect(page.getByText(title, { exact: true })).toBeVisible();
+  await page.goto('/chat');
+  await page.getByRole('button', { name: 'Open agent details and activity', exact: true }).click();
+  const panel = page.locator('.hob-agent-panel');
+  await expect(panel.getByText('Historical run · Job deleted', { exact: true })).toBeVisible();
+  await expect(panel.getByText('Failed', { exact: true })).toHaveCount(4);
+  await expectNoHorizontalScroll(page);
+  await page.screenshot({ path: 'test-results/activity-job-provenance-mobile.png' });
+  outageOnly = true;
+  await page.goto('/activity');
+  await expect(page.getByText('Activity is incomplete', { exact: true })).toBeVisible();
+  await expect(page.getByText('No bot activity yet', { exact: true })).toHaveCount(0);
+  expect(state.errors).toEqual([]);
+  expect(state.writes).toEqual([]);
+});
+
 test('workspace pages use compact toolbars without bot avatars or the old header gap', async ({ page }) => {
   const state = await fixture(page);
   for (const viewport of [{ width: 393, height: 800 }, { width: 1440, height: 960 }]) {

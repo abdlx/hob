@@ -48,6 +48,8 @@ In **Settings → Plugins & integrations**, browse app tiles and open a tile for
 
 The coordinator's **Settings → Memory & history → Shared team core & documents** includes an opt-in employee-team preview: review and approve core revisions, restore a historical revision as a new proposal, synchronize eligible shared text documents, and optionally require workers to route requests through the coordinator. These controls do not make the employee team live: native context/privacy, artifact handoffs, paid-execution restrictions, and device acceptance remain pending. See the [implementation checkpoint](docs/employee-team-implementation.md).
 
+Activity preserves scheduled runs' original outcomes. Historical failures for verified deleted jobs stay in history; existing jobs, unavailable status checks, and unlinked legacy entries have distinct labels. Incomplete scheduler history produces a visible warning. These annotations do not acknowledge failures, delete records, or mark work successful.
+
 ## Contents
 
 - [Android and iPhone app](mobile/README.md)

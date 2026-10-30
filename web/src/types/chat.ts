@@ -56,6 +56,25 @@ export interface TaskItem {
   status: TaskStatus;
   group?: string; // e.g. "Today", "Yesterday"
   agentId?: string; // Owning bot, when the server attributes it
+  origin?: {
+    kind: 'session' | 'relay' | 'scheduled-job' | 'group';
+    profile: string;
+    sessionId: string;
+    jobId?: string | null;
+    executionId?: string | null;
+    jobState?: 'present' | 'deleted' | 'unavailable' | 'unlinked';
+    historical?: boolean;
+    observedAt?: string;
+    inventoryStatus?: 'verified' | 'unavailable';
+    nativeStatus?: string;
+    statusSource?: 'execution-ledger' | 'session-lifecycle';
+  };
+}
+
+export interface ActivityFeed {
+  items: TaskItem[];
+  warnings: string[];
+  nextScheduledOffset?: number | null;
 }
 
 export interface ChatSession {

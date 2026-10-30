@@ -6,7 +6,8 @@ import { useRuntime } from '../context/RuntimeContext';
 import { AgentAvatar } from '../components/AgentAvatar';
 import { buttonClass, CardList, CardRow, EmptyState, Notice, sectionLabelClass, Skeleton, StatusPill } from '../components/WorkspaceUI';
 import { errorText } from '../components/workspaceUtils';
-import type { TaskItem } from '../types/chat';
+import type { ActivityFeed, TaskItem } from '../types/chat';
+import { activityFeed, activityNeedsAttention, activityOriginLabel } from '../services/activity';
 
 interface ActivityEntry extends TaskItem {
   botId: string;
@@ -38,12 +39,11 @@ const timeLabel = (value: string) => {
 };
 
 const entryKey = (entry: ActivityEntry) => `${entry.botId}:${entry.id}`;
-const needsAttention = (status: TaskItem['status']) => status === 'failed' || status === 'interrupted';
-
-const matchStatus = (status: TaskItem['status'], filter: StatusFilter) => {
+const matchStatus = (item: TaskItem, filter: StatusFilter) => {
+  const status = item.status;
   if (filter === 'all') return true;
   if (filter === 'running') return status === 'in_progress' || status === 'pending';
-  if (filter === 'attention') return needsAttention(status);
+  if (filter === 'attention') return activityNeedsAttention(item);
   if (filter === 'done') return status === 'completed';
   return true;
 };
@@ -62,6 +62,7 @@ export function ActivityView() {
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [lastUpdated, setLastUpdated] = useState(0);
   const [now, setNow] = useState(() => Date.now());
@@ -107,25 +108,32 @@ export function ActivityView() {
         })
       );
       setError('');
+      setWarnings([]);
       setLoading(false);
       setLastUpdated(Date.now());
       return;
     }
     if (roster.length === 0) {
+      setWarnings([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
       let collected: ActivityEntry[] = [];
+      const feedWarnings: string[] = [];
       if (runtime === 'hermes') {
         const results = await Promise.allSettled(
           roster.map(async (bot) => {
-            const items = await apiFetch<TaskItem[]>('/api/tasks', { headers: { 'X-Hob-Profile': bot.id } });
-            return items.map((item) => ({ ...item, botId: bot.id, botName: bot.name, avatarUrl: bot.avatarUrl }));
+            const feed = activityFeed(await apiFetch<TaskItem[] | ActivityFeed>('/api/tasks?format=timeline', { headers: { 'X-Hob-Profile': bot.id } }));
+            return { items: feed.items.map((item) => ({ ...item, botId: bot.id, botName: bot.name, avatarUrl: bot.avatarUrl })),
+              warnings: feed.warnings.map(warning => `${bot.name}: ${warning}`) };
           })
         );
-        collected = results.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
+        collected = results.flatMap((result) => (result.status === 'fulfilled' ? result.value.items : []));
+        results.forEach((result, index) => {
+          feedWarnings.push(...(result.status === 'fulfilled' ? result.value.warnings : [`${roster[index].name}: Activity is unavailable; the timeline may be incomplete.`]));
+        });
         const failure = results.find((result) => result.status === 'rejected');
         if (collected.length === 0 && failure?.status === 'rejected') throw failure.reason;
       } else {
@@ -142,6 +150,7 @@ export function ActivityView() {
       }
       collected.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
       setEntries(collected);
+      setWarnings([...new Set(feedWarnings)]);
       setError('');
       setLastUpdated(Date.now());
     } catch (err) {
@@ -172,7 +181,7 @@ export function ActivityView() {
   const visible = useMemo(
     () =>
       entries.filter(
-        (entry) => (!activityFilter || entry.botId === activityFilter) && matchStatus(entry.status, statusFilter)
+        (entry) => (!activityFilter || entry.botId === activityFilter) && matchStatus(entry, statusFilter)
       ),
     [entries, activityFilter, statusFilter]
   );
@@ -181,7 +190,7 @@ export function ActivityView() {
 
   // When showing everything, pin the failures that likely need a human first,
   // and keep them out of the date groups so nothing appears twice.
-  const attention = useMemo(() => (statusFilter === 'all' ? visible.filter((entry) => needsAttention(entry.status)) : []), [visible, statusFilter]);
+  const attention = useMemo(() => (statusFilter === 'all' ? visible.filter(activityNeedsAttention) : []), [visible, statusFilter]);
   const attentionKeys = useMemo(() => new Set(attention.map(entryKey)), [attention]);
 
   const groups = useMemo(() => {
@@ -219,6 +228,7 @@ export function ActivityView() {
           <span className="font-medium text-muted truncate">{entry.botName}</span>
           {entry.subtitle && <span className="truncate">· {entry.subtitle}</span>}
         </div>
+        {activityOriginLabel(entry) && <p className="mt-1 text-[12px] text-faint break-words">{activityOriginLabel(entry)}</p>}
       </div>
       <div className="flex items-center gap-1 shrink-0 pt-0.5 text-[12px] text-faint">
         {timeLabel(entry.timestamp)}
@@ -305,6 +315,7 @@ export function ActivityView() {
       </div>
 
       {error && <Notice error>{error}</Notice>}
+      {warnings.length > 0 && <Notice>{warnings.join(' ')}</Notice>}
 
       {loading && entries.length === 0 ? (
         <CardList>
@@ -321,9 +332,9 @@ export function ActivityView() {
       ) : visible.length === 0 ? !error && (
         <EmptyState
           icon={<Inbox size={28} />}
-          title={filterBot ? `No activity for ${filterBot.name}` : statusFilter === 'all' ? 'No bot activity yet' : 'Nothing here right now'}
+          title={warnings.length ? 'Activity is incomplete' : filterBot ? `No activity for ${filterBot.name}` : statusFilter === 'all' ? 'No bot activity yet' : 'Nothing here right now'}
           description={
-            filterBot
+            warnings.length ? 'Try refreshing when task history is available.' : filterBot
               ? 'This bot has not recorded anything in the current view.'
               : statusFilter === 'all'
                 ? 'It will appear here as your bots work.'

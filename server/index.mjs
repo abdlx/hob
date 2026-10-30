@@ -128,7 +128,7 @@ const shutdown = async () => {
   server.close();
   server.closeAllConnections();
   await Promise.race([
-    browser.shutdown().catch(() => undefined),
+    Promise.allSettled([browser.shutdown(), server.drain()]),
     new Promise(resolve => { setTimeout(resolve, 25000); }),
   ]);
   await Promise.race([telemetry.flush(), new Promise(resolve => setTimeout(resolve, 1000))]);

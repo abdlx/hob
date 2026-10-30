@@ -13,12 +13,13 @@ import { createHobTelemetry } from '../hob-telemetry.mjs';
 
 async function fixture(t, { telemetry, team } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'hob-native-chat-'));
-  const shared = { sessions: new Map(), admissions: new Map(), calls: [], mode: 'complete', sequence: 0, generation: 5 };
+  const shared = { sessions: new Map(), admissions: new Map(), calls: [], mode: 'complete', sequence: 0, generation: 5, activity: { items: [], nextOffset: null } };
   const legacyCalls = [];
   const legacy = http.createServer(async (req, res) => {
     legacyCalls.push(req.url);
     const pathname = new URL(req.url, 'http://test').pathname.replace(/^\/p\/[^/]+/, '');
-    const value = pathname === '/api/profiles' ? { profiles: [{ name: 'default' }, { name: 'coder' }] }
+    const value = pathname === '/api/hob/activity' ? shared.activity
+      : pathname === '/api/profiles' ? { profiles: [{ name: 'default' }, { name: 'coder' }] }
       : pathname === '/api/health' ? { ok: true }
       : pathname === '/api/sessions' ? { data: [{ id: 'older-api', source: 'api', title: 'Existing API conversation' },
         { id: 'native-row', source: 'gui', title: 'Already in native feed' }] }
@@ -115,6 +116,7 @@ async function fixture(t, { telemetry, team } = {}) {
   }, async stop() {
     f.bridge.close(); f.client.stop(); f.app.closeAllConnections();
     await new Promise(resolve => f.app.close(resolve));
+    await f.app.drain();
   }, call(pathname, method = 'GET', body, profile = 'default') {
     return fetch(f.origin + pathname, { method, headers: { Cookie: f.cookie, 'X-Hob-Profile': profile,
       ...(body ? { Origin: f.origin, 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
@@ -131,6 +133,25 @@ async function fixture(t, { telemetry, team } = {}) {
   });
   return f;
 }
+
+test('authenticated Activity timeline reads same-bot scheduler history and refuses another bot provenance', async t => {
+  const f = await fixture(t);
+  const session = await f.create('coder');
+  await (await f.turn(session.id)).text();
+  f.shared.activity = { items: [{ sessionId: 'cron-run', title: 'Historical failure', timestamp: 1793358000, status: 'failed',
+    origin: { kind: 'scheduled-job', profile: 'coder', sessionId: 'cron-run', jobId: 'old-job', executionId: 'fire-1',
+      historical: true, jobState: 'deleted', inventoryStatus: 'verified', observedAt: '2026-10-30T13:40:00Z', statusSource: 'execution-ledger', nativeStatus: 'failed' } }], nextOffset: null };
+  const url = '/api/tasks?format=timeline';
+  assert.equal((await fetch(f.origin + url)).status, 401);
+  const feed = await (await f.call(url, 'GET', undefined, 'coder')).json();
+  assert.equal(feed.items.find(item => item.title === 'Historical failure').status, 'failed');
+  assert.equal(feed.items.find(item => item.title === 'Historical failure').origin.jobState, 'deleted');
+  assert.ok(f.legacyCalls.includes('/api/hob/activity?limit=100&profile=coder'));
+  f.shared.activity.items[0].origin.profile = 'default';
+  const refused = await (await f.call(url, 'GET', undefined, 'coder')).json();
+  assert.equal(refused.items.some(item => item.title === 'Historical failure'), false);
+  assert.match(refused.warnings[0], /incomplete/);
+});
 
 test('chat binds its trusted native owner before admission and records a local context refusal as failed', async t => {
   const bindings = [];

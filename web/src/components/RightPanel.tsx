@@ -22,11 +22,12 @@ import {
 import { useChat } from '../context/ChatContext';
 import { useRuntime } from '../context/RuntimeContext';
 import { apiFetch } from '../services/api';
+import { activityOriginLabel } from '../services/activity';
 import { AgentAvatar } from './AgentAvatar';
 import { MarkdownView } from './MarkdownView';
 import { DailyGoals } from '../pages/WorkspaceViews';
 import { HermesBrowser, HermesIdentity } from '../pages/HermesWorkspace';
-import { buttonClass, Field, inputClass, Notice, Skeleton } from './WorkspaceUI';
+import { buttonClass, Field, inputClass, Notice, Skeleton, StatusPill } from './WorkspaceUI';
 import { errorText } from './workspaceUtils';
 import { useToast } from '../context/ToastContext';
 import type { RightPanelTab } from '../types/chat';
@@ -502,7 +503,7 @@ function BrowserPanel() {
 }
 
 export function RightPanel() {
-  const { agent, connected, tasks, approvals, activeTab, setActiveTab, isRightPanelOpen, toggleRightPanel, resolveApproval } = useChat();
+  const { agent, connected, tasks, activityWarnings, approvals, activeTab, setActiveTab, isRightPanelOpen, toggleRightPanel, resolveApproval } = useChat();
   const [error, setError] = useState('');
   const [approvalBusy, setApprovalBusy] = useState<string | null>(null);
   const { toast } = useToast();
@@ -536,10 +537,11 @@ export function RightPanel() {
       </div>
       <div className="hob-agent-content" id="agent-tab-content" role="tabpanel" aria-labelledby={`agent-tab-${activeTab}`}>
         {activeTab === 'tasks' && <div className="hob-activity-list">
-          {!tasks.length && <><h3>Today</h3><p className="hob-empty-copy">{connected ? 'No activity yet. Tasks will appear here as your bot works.' : 'Activity is unavailable while your bot is offline.'}</p></>}
+          {activityWarnings.length > 0 && <Notice>{activityWarnings.join(' ')}</Notice>}
+          {!tasks.length && <><h3>Today</h3><p className="hob-empty-copy">{activityWarnings.length ? 'Activity is incomplete. Try refreshing when task history is available.' : connected ? 'No activity yet. Tasks will appear here as your bot works.' : 'Activity is unavailable while your bot is offline.'}</p></>}
           {[...groups].map(([label, entries]) => <section key={label}><h3>{label}</h3>{entries.map(task => <div className="hob-detail-row" key={task.id}>
             <span className={`hob-task-icon ${task.status === 'in_progress' ? 'is-running' : ''}`}>{task.status === 'in_progress' ? <LoaderCircle size={18} className="animate-spin motion-reduce:animate-none" /> : <Command size={21} />}</span>
-            <div><h4>{task.title}</h4>{task.subtitle && <p>{task.subtitle}</p>}<time>{Number.isNaN(Date.parse(task.timestamp)) ? task.timestamp : new Date(task.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div>
+            <div><h4>{task.title}</h4>{task.subtitle && <p>{task.subtitle}</p>}{task.origin?.kind === 'scheduled-job' && <><StatusPill status={task.status} /><p>{activityOriginLabel(task)}</p></>}<time>{Number.isNaN(Date.parse(task.timestamp)) ? task.timestamp : new Date(task.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div>
           </div>)}</section>)}
         </div>}
         {activeTab === 'security' && <div className="hob-approvals-list"><h3>Approvals history</h3>{error && <Notice error>{error}</Notice>}{!approvals.length && <p className="hob-empty-copy">No approvals yet.</p>}

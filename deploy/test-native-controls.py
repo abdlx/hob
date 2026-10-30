@@ -1,7 +1,9 @@
 """Exercise version binding and uncertain decisions without starting a model or runtime."""
 import importlib.util
+import asyncio
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 import types
@@ -170,6 +172,132 @@ class NativeReviewTests(unittest.TestCase):
             with self.assertRaises(Refusal):
                 controls.decide("memory", {**body, **change})
         self.assertFalse(self.applied)
+
+
+class NativeActivityTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="hob-native-activity-")
+        self.addCleanup(temporary.cleanup)
+        self.home = Path(temporary.name)
+        self.jobs = self.home / "cron" / "jobs.json"
+        self.jobs.parent.mkdir()
+        self.jobs.write_text(json.dumps({"jobs": [{"id": "paused-job", "enabled": False}]}), encoding="utf-8")
+        self.rows = [{"id": "run-1", "source": "cron", "title": "Historical failed reminder", "started_at": 100, "ended_at": 200}]
+        self.identity = {"cron_job_id": "deleted-job", "cron_execution_id": "fire-1"}
+        self.lifecycle = "error"
+        self.closed = False
+        owner = self
+        class Database:
+            db_path = owner.home / "state.db"
+            def list_sessions_rich(self, **kwargs):
+                owner.assertEqual(kwargs, {"sources": ["cron"], "limit": 100, "offset": 0, "order_by_last_active": True, "compact_rows": True})
+                return owner.rows
+            def session_lifecycle_statuses(self, ids):
+                return {key: owner.lifecycle for key in ids}
+            def cron_run_identity(self, _sid):
+                if isinstance(owner.identity, Exception):
+                    raise owner.identity
+                return owner.identity
+            def close(self):
+                owner.closed = True
+        self.database = Database()
+        def open_db(profile, *, read_only):
+            self.assertEqual(profile, "writer")
+            self.assertTrue(read_only)
+            return self.database
+        self.addCleanup(patch.stopall)
+        patch.dict(sys.modules, {
+            "hermes_constants": types.SimpleNamespace(get_hermes_home=lambda: self.home),
+            "hermes_cli": types.ModuleType("hermes_cli"),
+            "hermes_cli.web_server_sessions": types.SimpleNamespace(_open_session_db_for_profile=open_db),
+            "cron": types.ModuleType("cron"),
+            "cron.jobs": types.SimpleNamespace(_current_cron_store=lambda: types.SimpleNamespace(jobs_file=self.jobs)),
+        }).start()
+
+    def snapshot(self):
+        result = controls.scheduled_activity_snapshot("writer")
+        self.assertTrue(self.closed)
+        self.assertIsNone(result["nextOffset"])
+        return result["items"][0]
+
+    def test_verified_deletion_preserves_failed_history_and_paused_jobs_are_present(self):
+        original = self.jobs.read_bytes()
+        item = self.snapshot()
+        self.assertEqual(item["status"], "failed")
+        self.assertEqual(item["origin"]["jobState"], "deleted")
+        self.assertEqual(item["origin"]["profile"], "writer")
+        self.assertEqual(item["origin"]["executionId"], "fire-1")
+        self.assertTrue(item["origin"]["historical"])
+        self.assertEqual(self.jobs.read_bytes(), original)
+        self.identity["cron_job_id"] = "paused-job"
+        self.assertEqual(self.snapshot()["origin"]["jobState"], "present")
+
+    def test_inventory_outage_corruption_and_legacy_unlinked_are_distinct(self):
+        self.jobs.write_bytes(b'{"jobs": broken json')
+        before = self.jobs.read_bytes()
+        item = self.snapshot()
+        self.assertEqual(item["origin"]["jobState"], "unavailable")
+        self.assertEqual(item["status"], "failed")
+        self.assertEqual(self.jobs.read_bytes(), before)  # no native auto-repair
+        self.identity = None
+        self.assertEqual(self.snapshot()["origin"]["jobState"], "unlinked")
+        self.identity = {"cron_job_id": "unknown", "cron_execution_id": None}
+        self.assertEqual(self.snapshot()["origin"]["jobState"], "unlinked")
+        self.identity = RuntimeError("private native error")
+        self.assertEqual(self.snapshot()["origin"]["jobState"], "unavailable")
+        self.assertNotIn("private native error", json.dumps(self.snapshot()))
+
+    def test_absent_file_is_empty_only_inside_the_verified_owner_directory(self):
+        self.jobs.unlink()
+        self.assertEqual(self.snapshot()["origin"]["jobState"], "deleted")
+        self.jobs.parent.rmdir()
+        self.assertEqual(self.snapshot()["origin"]["jobState"], "unavailable")
+        self.assertIsNone(controls._activity_inventory(self.home, self.home.parent / "other" / "cron" / "jobs.json"))
+
+    def test_unclosed_runs_are_not_invented_failures_and_terminal_execution_binds_job(self):
+        self.rows[0]["ended_at"] = None
+        self.assertEqual(self.snapshot()["status"], "unknown")
+        filename = self.home / "cron" / "executions.db"
+        db = sqlite3.connect(filename)
+        db.executescript("CREATE TABLE executions(id TEXT,job_id TEXT,status TEXT); INSERT INTO executions VALUES('fire-1','different-job','failed');")
+        db.commit(); db.close()
+        self.assertIsNone(controls._activity_terminal_execution(self.home, "deleted-job", "fire-1"))
+        self.assertEqual(controls._activity_terminal_execution(self.home, "different-job", "fire-1"), "failed")
+        self.identity["cron_job_id"] = "different-job"
+        self.assertEqual(self.snapshot()["status"], "failed")
+        self.assertEqual(self.snapshot()["origin"]["statusSource"], "execution-ledger")
+
+    def test_wrong_profile_store_and_non_scheduler_rows_are_refused_and_closed(self):
+        self.database.db_path = self.home.parent / "other" / "state.db"
+        with self.assertRaises(Refusal):
+            self.snapshot()
+        self.assertTrue(self.closed)
+        self.database.db_path = self.home / "state.db"
+        self.rows[0]["source"] = "gui"
+        with self.assertRaises(Refusal):
+            self.snapshot()
+
+    def test_invalid_or_aggregate_profile_and_unbounded_pages_never_read(self):
+        for profile in (None, "all", "../other", "Writer"):
+            with self.assertRaises(Refusal):
+                asyncio.run(controls.scheduled_activity(profile))
+        for values in ((-1, 100), (0, 101), (1000001, 10)):
+            with self.assertRaises(Refusal):
+                asyncio.run(controls.scheduled_activity("writer", *values))
+        self.assertFalse(self.closed)
+
+    def test_linked_and_hardlinked_job_inventories_are_not_treated_as_verified(self):
+        other = self.home / "other-jobs.json"
+        other.write_text('{"jobs":[]}', encoding="utf-8")
+        self.jobs.unlink()
+        try:
+            self.jobs.symlink_to(other)
+        except OSError:
+            self.skipTest("Symlink creation requires Windows developer mode")
+        self.assertEqual(self.snapshot()["origin"]["jobState"], "unavailable")
+        self.jobs.unlink()
+        os.link(other, self.jobs)
+        self.assertEqual(self.snapshot()["origin"]["jobState"], "unavailable")
 
 
 if __name__ == "__main__":

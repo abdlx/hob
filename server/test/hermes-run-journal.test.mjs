@@ -30,6 +30,18 @@ test('unconfirmed admission survives restart with its original key and immutable
   await assert.rejects(restored.reserve(key, { ...submission, requestKey: 'other' }), /awaiting recovery/);
 }));
 
+test('shutdown flush joins queued atomic writes before another owner opens the journal', async () => fixture(async (root, journal) => {
+  const reservation = journal.reserve(key, submission);
+  const admission = journal.update(key, submission.requestKey, { runId: 'native-run', status: 'running' });
+  const settlement = journal.update(key, submission.requestKey, { status: 'failed' });
+  await journal.flush();
+  await Promise.all([reservation, admission, settlement]);
+  const reopened = await HermesRunJournal.open(root);
+  assert.equal(reopened.get(key).status, 'failed');
+  assert.equal(reopened.get(key).runId, 'native-run');
+  assert.equal(reopened.get(key).input, undefined);
+}));
+
 test('confirmed native run IDs persist while original prompt text is removed', async () => fixture(async (root, journal) => {
   await journal.reserve(key, submission);
   await journal.update(key, submission.requestKey, { runId: 'run-1', status: 'running' });
