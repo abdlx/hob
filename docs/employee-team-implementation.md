@@ -1,6 +1,6 @@
 # Employee-team implementation checkpoint
 
-30 October 2026. Local implementation after the [specification review](employee-team-spec-review.md). Foundations were pushed to `main` in `f307d479`; the runtime work described below is a subsequent local change. Not deployed or qualified as a live employee team. The original [supplied spec](employee-team-spec-original.md) remains unchanged as a historical input.
+30 October 2026. Implementation after the [specification review](employee-team-spec-review.md). Foundations (`f307d479`), the runtime adapter (`a1dbab3f`), Activity provenance (`f55402b0`) and nominated handoffs (`a38c0388`) have been pushed to `main`. Production deployment is unverified; the employee team is not qualified as live. The original [supplied spec](employee-team-spec-original.md) remains unchanged as a historical input.
 
 ## Operator decisions
 
@@ -80,7 +80,7 @@ The backend deliberately reports `qualification.live: false`. Current local evid
 
 | Acceptance area | Status |
 | --- | --- |
-| A1 independent artifact verification | Nominated snapshot transfer, exact-hash coordinator reviews, private/public metadata boundaries and crash-cache recovery are implemented/tested locally. A dedicated actual-user SSH probe is wired into Linux image CI. Full native-agent/live acceptance is still pending; no broad private-workspace read exception was added. |
+| A1 independent artifact verification | Nominated snapshot transfer, exact-hash coordinator reviews, private/public metadata boundaries and crash-cache recovery are tested. The actual-user SSH probe passed through the mandatory Linux user-mode first-run step at `a38c0388`. Full native-agent/live acceptance remains pending; no broad private-workspace read exception was added. |
 | A2 core distribution | Approved on-disk propagation/repair and disabled-adapter prompt refresh are tested, including replacement of a cached prompt. Live open-session runtime acceptance is pending. |
 | A3 approval enforcement | HTTP/relay approval boundaries are tested. Native process access to app-owned state still requires qualification under actual OS isolation. |
 | A4 shared documents | Bounded text copying, repair, pruning, exclusions and failure isolation are tested. Opaque binary admission and truly atomic core-plus-doc generation visibility remain pending. A bot can observe a per-file transition during sync; `synced` describes completed on-disk distribution, not a native prompt-generation guarantee. |
@@ -109,4 +109,6 @@ Activity checkpoint evidence: full backend suite 488 passed / 2 platform skips; 
 
 The pushed `f55402b0` checkpoint subsequently passed GitHub's supported-runtime server/web checks, both Linux image first-run modes (`shared` and `users`), and mobile validation. The handoff changes are subsequent work and require their own image evidence.
 
-Handoff checkpoint evidence: 499 backend tests passed / 2 platform skips; 64 web unit tests, 52 browser tests and 38 deployment tests passed; web lint/build passed. A Windows browser crash/recovery load test timed out during an unrestricted parallel build/test run, then passed unchanged in isolation and in the complete two-worker run. The standard server test command now uses the same two-worker limit as CI. The new OS-user artifact probe is pending image execution; these local checks do not establish full native-agent or live team acceptance.
+Handoff checkpoint evidence: 499 backend tests passed / 2 platform skips; 64 web unit tests, 52 browser tests and 38 deployment tests passed; web lint/build passed. A Windows browser crash/recovery load test timed out during an unrestricted parallel build/test run, then passed unchanged in isolation and in the complete two-worker run. The standard server test command now uses the same two-worker limit as CI. Linux image evidence is recorded below; the team still lacks full native-agent/live acceptance.
+
+The pushed `a38c0388` handoff checkpoint subsequently passed [Linux image/server/web validation](https://github.com/abdlx/hob/actions/runs/41089604124) and [mobile validation](https://github.com/abdlx/hob/actions/runs/41089604473). The successful user-mode first-run step invokes the new mandatory actual-SSH-user handoff probe, including Main's independent digest/content read and denied cross-workspace reads/snapshot writes. Raw job-log download returned HTTP 403 in this environment; the verified evidence is the exact checked-in smoke command and its successful CI step/job. Full native-agent/live employee-team acceptance remains incomplete.
