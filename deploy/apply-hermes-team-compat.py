@@ -12,6 +12,11 @@ SOURCES = {
     "agent/chat_completion_helpers.py": "8e4348884b780999fd33ddaecca688f1afcfe4f66940b5bac62c222383c41869",
     "agent/agent_runtime_helpers.py": "295bd0adcb698ddeb87966f77a79ef1c8016702641db401bfe692ffb63e0dd49",
     "run_agent.py": "2bd45c545c2cf0dec95702e71232f026b1265b54bf234a1c03c8cf83f5236f10",
+    "agent/turn_context_compaction.py": "5bff21fbe3a7064f0e12b61f336b717bc59ae0bab5f5384b775f0e99b4355bd1",
+    "agent/turn_preflight.py": "5909b32461c37fa50afd4b537f84e120f14bad22bbb9c5f0f197d9ec6bdfb0b4",
+    "agent/conversation_compression.py": "490af3443334af9dd8ec011b9d5d8f483ec4c13e88510d141fc76b52f93c6fa2",
+    "agent/turn_finalizer.py": "9000e17a4a0dba03b1d97cc10fe4184addcca685520ca0c9e6c6ef2cb97d1f25",
+    "agent/turn_request_assembly.py": "61b6a0022037d0dfb004f71e3b085b21d3b03e83bde5478b6ee67c8a0118723a",
 }
 
 
@@ -102,6 +107,53 @@ if _hob_block:
         out[key] = _entry(out[key], name, """from agent import hob_team_context as _hob_team
 if _hob_team.no_external_memory(self):
     return""")
+    # Team history is an archived transcript plus a request-local projection.
+    # Do not feed that archive to native summary/rotation or micro-compaction.
+    key = "agent/turn_context_compaction.py"
+    out[key] = _entry(out[key], "run_turn_start_compaction", """from agent import hob_team_context as _hob_team
+if _hob_team.enabled(agent):
+    return CompactionOutcome(messages=messages, active_system_prompt=active_system_prompt,
+        conversation_history=conversation_history, current_turn_user_idx=current_turn_user_idx)""")
+    key = "agent/turn_preflight.py"
+    out[key] = _entry(out[key], "run_preflight_compression", """from agent import hob_team_context as _hob_team
+if _hob_team.enabled(agent):
+    if provider_overflow_preflight or v._provider_overflow_recovery_pending:
+        raise _hob_team.TeamContextError('The provider rejected the bounded team request; native archive compression is unavailable.')
+    v.action, v.result = 'fallthrough', None
+    return v""")
+    out[key] = _entry(out[key], "compress_after_tool_results", """from agent import hob_team_context as _hob_team
+if _hob_team.enabled(agent):
+    return PostToolCompressionVerdict(end_turn=False, messages=messages,
+        active_system_prompt=active_system_prompt, conversation_history=conversation_history,
+        compression_attempts=compression_attempts, final_response=final_response,
+        turn_exit_reason=turn_exit_reason, current_turn_user_idx=current_turn_user_idx)""")
+    key = "agent/conversation_compression.py"
+    out[key] = _entry(out[key], "compress_context", """from agent import hob_team_context as _hob_team
+if _hob_team.enabled(agent):
+    raise _hob_team.TeamContextError('Team context uses a bounded session projection; native archive compression and rotation are unavailable.')""")
+    out[key] = _entry(out[key], "recover_rotated_compression_session", """from agent import hob_team_context as _hob_team
+if _hob_team.enabled(agent):
+    _hob_db = getattr(agent, '_session_db', None)
+    _hob_session = getattr(agent, 'session_id', None)
+    if _hob_db is not None and _hob_session and _session_was_rotated_by_compression(_hob_db, _hob_session):
+        raise _hob_team.TeamContextError('This session was rotated outside team context; a trusted session binding is required.')
+    return None""")
+    key = "agent/turn_finalizer.py"
+    out[key] = _entry(out[key], "_micro_compact_after_turn", """from agent import hob_team_context as _hob_team
+try:
+    _hob_skip_compaction = _hob_team.enabled(agent)
+except Exception:
+    # This cleanup runs immediately before archive persistence. Authority failure
+    # must suppress compaction without also losing the turn's durable transcript.
+    logger.warning('Team authority unavailable; skipped archive micro-compaction.')
+    return
+if _hob_skip_compaction:
+    return""")
+    key = "agent/turn_request_assembly.py"
+    out[key] = _replace(out[key], "    return AssembledRequest(\n", """    from agent import hob_team_context as _hob_team
+    _hob_team.check_request_budget(agent, api_messages, tools_for_api, effective_system)
+    return AssembledRequest(
+""")
     for text in out.values():
         ast.parse(text)
     return out

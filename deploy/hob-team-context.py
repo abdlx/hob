@@ -295,7 +295,7 @@ def bound_messages(agent, messages):
     if not turns:
         return system
     count = state["policy"]["sessionWindow"]
-    if not isinstance(count, int) or not 1 <= count <= 100:
+    if not isinstance(count, int) or isinstance(count, bool) or not 1 <= count <= 100:
         raise TeamContextError("Invalid team session window.")
     cut = max(0, len(turns) - count)
     from agent.model_metadata import estimate_request_tokens_rough
@@ -317,6 +317,36 @@ def bound_messages(agent, messages):
         if cut >= len(turns) - 1:
             raise TeamContextError("Current complete turn and required team context exceed the native model budget.")
         cut += 1
+
+
+def check_request_budget(agent, messages, tools, system_prompt=""):
+    """Check the final native wire copy, after prefills and cache decoration.
+
+    Never prune or persist here. The earlier projection chooses whole turns;
+    later middleware additions must also fit before a provider can be called.
+    """
+    state = _state(agent)
+    if state is None:
+        return
+    if state["kind"] == "unbound":
+        raise TeamContextError("Session has no trusted team context binding.")
+    count = state["policy"]["sessionWindow"]
+    if not isinstance(count, int) or isinstance(count, bool) or not 1 <= count <= 100:
+        raise TeamContextError("Invalid team session window.")
+    if sum(row.get("role") == "user" for row in messages) > count:
+        raise TeamContextError("Final team request exceeds the complete-turn window.")
+    from agent.model_metadata import estimate_request_tokens_rough
+    length = getattr(getattr(agent, "context_compressor", None), "context_length", None)
+    if not isinstance(length, int) or isinstance(length, bool) or length < 1:
+        raise TeamContextError("Native model context length is unknown.")
+    # The native builder normally embeds effective_system as a system row. Some
+    # transports carry it separately; account for it exactly once in either form.
+    separate_system = "" if any(row.get("role") == "system" for row in messages) else system_prompt or ""
+    tokens = estimate_request_tokens_rough(messages, system_prompt=separate_system, tools=tools)
+    if not isinstance(tokens, int) or isinstance(tokens, bool) or tokens < 0:
+        raise TeamContextError("Final team request budget is unavailable.")
+    if tokens > max(1, int(length * 0.75)):
+        raise TeamContextError("Final team request including middleware and tools exceeds the native model budget.")
 
 
 def _prepend(content, text):

@@ -71,7 +71,7 @@ class ContextTests(unittest.TestCase):
         native_prompt._timestamp_line = lambda agent: "Native clock"
         native_prompt._skills_prompt = lambda agent: "OWN_SKILLS_INDEX"
         metadata = types.ModuleType("agent.model_metadata")
-        metadata.estimate_request_tokens_rough = lambda rows, tools=None: len(json.dumps(rows)) // 4 + len(json.dumps(tools or [])) // 4
+        metadata.estimate_request_tokens_rough = lambda rows, tools=None, system_prompt="": len(json.dumps(rows)) // 4 + len(json.dumps(tools or [])) // 4 + len(system_prompt) // 4
         package = types.ModuleType("agent")
         package.hob_team_context = team
         patch.dict(sys.modules, {"agent": package, "agent.system_prompt": native_prompt, "agent.model_metadata": metadata}).start()
@@ -176,6 +176,27 @@ class ContextTests(unittest.TestCase):
         for rows in ([{"role": "user", "content": "Q"}, {"role": "tool", "tool_call_id": "missing", "content": "bad"}], self.history(1)[:-2]):
             with self.assertRaisesRegex(team.TeamContextError, "tool"):
                 team.bound_messages(self.agent, rows)
+
+    def test_final_request_budget_includes_middleware_tools_and_system_once(self):
+        rows = team.bound_messages(self.agent, self.history(25))
+        original = copy.deepcopy(rows)
+        team.check_request_budget(self.agent, rows, self.agent.tools, "Required system context")
+        self.assertEqual(rows, original)
+        with self.assertRaisesRegex(team.TeamContextError, "complete-turn window"):
+            team.check_request_budget(self.agent, rows + [{"role": "user", "content": "Late extra turn"}], [])
+        with self.assertRaisesRegex(team.TeamContextError, "middleware and tools"):
+            team.check_request_budget(self.agent, rows, [{"description": "X" * 100000}])
+        with self.assertRaisesRegex(team.TeamContextError, "middleware and tools"):
+            team.check_request_budget(self.agent, rows + [{"role": "assistant", "content": "X" * 100000}], [])
+        estimator = sys.modules["agent.model_metadata"].estimate_request_tokens_rough
+        with patch.object(sys.modules["agent.model_metadata"], "estimate_request_tokens_rough", wraps=estimator) as observed:
+            team.check_request_budget(self.agent, rows, [], "Required system context")
+            self.assertEqual(observed.call_args.kwargs["system_prompt"], "")
+            team.check_request_budget(self.agent, rows[1:], [], "Separate system")
+            self.assertEqual(observed.call_args.kwargs["system_prompt"], "Separate system")
+        self.agent.session_id = "unbound"
+        with self.assertRaisesRegex(team.TeamContextError, "trusted team context"):
+            team.check_request_budget(self.agent, [], [])
 
     def test_revoked_profiles_missing_authority_and_unqualified_transports_fail_closed(self):
         team.turn_start(self.agent)
@@ -290,6 +311,120 @@ class ContextTests(unittest.TestCase):
         self.assertIn("public-workspace", block[0])
         self.assertIsNone(function("agent/agent_init.py", "_init_memory")(self.agent, {}, False, "api"))
         self.assertIsNone(self.agent._memory_store)
+
+    @unittest.skipUnless(os.environ.get("HOB_QUALIFIED_RUNTIME"), "Exact pinned source checkout not supplied")
+    def test_native_compaction_owners_preserve_archive_and_refuse_overflow_rotation(self):
+        source_root = Path(os.environ["HOB_QUALIFIED_RUNTIME"])
+        revised = compat.revisions({name: (source_root / name).read_text(encoding="utf-8") for name in compat.SOURCES})
+
+        def function(relative, name, namespace=None):
+            tree = ast.parse(revised[relative])
+            node = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == name)
+            scope = namespace or {}
+            exec(compile(ast.Module(body=[node], type_ignores=[]), relative, "exec", flags=__future__.annotations.compiler_flag), scope)
+            return scope[name]
+
+        # The actual native function bodies must return before invoking native
+        # compressors, leases, summary providers, pruning or archive writes.
+        messages = self.history(25)
+        original = copy.deepcopy(messages)
+        outcome = lambda **kwargs: types.SimpleNamespace(**kwargs)
+        start = function("agent/turn_context_compaction.py", "run_turn_start_compaction", {"CompactionOutcome": outcome})
+        result = start(self.agent, messages=messages, system_message=None, active_system_prompt="system", conversation_history=messages,
+                       current_turn_user_idx=97, user_message="latest", effective_task_id="task")
+        self.assertIs(result.messages, messages)
+        self.assertIs(result.conversation_history, messages)
+        self.assertEqual(result.current_turn_user_idx, 97)
+        gate = function("agent/turn_preflight.py", "run_preflight_compression")
+        verdict = types.SimpleNamespace(action="continue", result="stale", _provider_overflow_recovery_pending=False)
+        kwargs = dict(compressor=object(), request_pressure_tokens=999999, provider_overflow_preflight=False, defer_preflight=None,
+                      moa_prepared_request=None, system_message=None, user_message="latest", max_compression_attempts=3, effective_task_id="task")
+        self.assertIs(gate(self.agent, verdict, **kwargs), verdict)
+        self.assertEqual((verdict.action, verdict.result), ("fallthrough", None))
+        for provider_overflow, pending in ((True, False), (False, True)):
+            verdict._provider_overflow_recovery_pending = pending
+            with self.assertRaisesRegex(team.TeamContextError, "provider rejected"):
+                gate(self.agent, verdict, **(kwargs | {"provider_overflow_preflight": provider_overflow}))
+        post = function("agent/turn_preflight.py", "compress_after_tool_results", {"PostToolCompressionVerdict": outcome})
+        result = post(self.agent, messages=messages, system_message=None, user_message="latest", active_system_prompt="system",
+                      conversation_history=messages, compression_attempts=0, max_compression_attempts=3, effective_task_id="task",
+                      final_response="done", turn_exit_reason="completed", current_turn_user_idx=97)
+        self.assertIs(result.messages, messages)
+        self.assertFalse(result.end_turn)
+        function("agent/turn_finalizer.py", "_micro_compact_after_turn")(self.agent, messages, "done", None, "task")
+        log = unittest.mock.Mock()
+        with patch.object(team, "enabled", side_effect=team.TeamContextError("authority disappeared")):
+            function("agent/turn_finalizer.py", "_micro_compact_after_turn")(self.agent, messages, "done", log, "task")
+        log.warning.assert_called_once_with("Team authority unavailable; skipped archive micro-compaction.")
+        compress = function("agent/conversation_compression.py", "compress_context")
+        for options in ({}, {"force": True}, {"trigger": "gateway_hygiene"}, {"trigger": "overflow", "bypass_cooldown": True}):
+            with self.assertRaisesRegex(team.TeamContextError, "archive compression and rotation"):
+                compress(self.agent, messages, "system", **options)
+        recover = function("agent/conversation_compression.py", "recover_rotated_compression_session", {"_session_was_rotated_by_compression": lambda *args: True})
+        self.assertIsNone(recover(self.agent))
+        self.agent._session_db = object()
+        with self.assertRaisesRegex(team.TeamContextError, "rotated outside team context"):
+            recover(self.agent)
+        self.assertEqual(messages, original)
+        self.assertEqual(self.agent.session_id, "user-1")
+
+        # Execute the complete patched native request assembler with explicit
+        # transport/sanitizer seams. A late prefill must fail at its final guard,
+        # even though the original projected history fits comfortably.
+        def module(name, **values):
+            result = types.ModuleType(name)
+            result.__dict__.update(values)
+            return result
+
+        noop = lambda *args, **kwargs: None
+        identity = lambda agent, rows, *args, **kwargs: rows
+        native_modules = {
+            "agent.conversation_loop": module("agent.conversation_loop", _CODEX_INCOMPLETE_NUDGE="nudge",
+                _apply_context_engine_selection=identity, _canonicalize_api_tool_calls=noop,
+                _clone_message_for_send=copy.deepcopy, _midturn_request_pressure_tokens=lambda a, m, s, t: t,
+                _pressure_with_real_floor=lambda compressor, value: value),
+            "agent.anthropic_thinking_replay": module("agent.anthropic_thinking_replay", apply_rejected_thinking_suppression=noop),
+            "agent.context_compressor": module("agent.context_compressor", evict_stale_outbound_tool_images=noop),
+            "agent.image_eviction_policy": module("agent.image_eviction_policy", outbound_retired_image_ids=lambda agent: set()),
+            "agent.agent_runtime_helpers": module("agent.agent_runtime_helpers", consume_pending_sanitizer_heal_notice=lambda: None),
+            "agent.turn_context": module("agent.turn_context", _agent_stale_thinking_on_wire=lambda agent: False),
+        }
+        metadata = sys.modules["agent.model_metadata"]
+        metadata.estimate_messages_tokens_rough = lambda rows, **kwargs: metadata.estimate_request_tokens_rough(rows)
+        metadata.estimate_native_anthropic_messages_tokens_rough = metadata.estimate_messages_tokens_rough
+        assembly = function("agent/turn_request_assembly.py", "assemble_api_request", {
+            "build_api_messages": lambda agent, rows, **kwargs: (team.bound_messages(agent, rows), "Required system context"),
+            "_sanitize_messages_surrogates": noop, "anchored_context_tokens": lambda *args: None,
+            "AssembledRequest": lambda *args: types.SimpleNamespace(messages=args[1]),
+        })
+        self.agent.prefill_messages = []
+        self.agent.api_mode = "chat_completions"
+        self.agent.provider = "fixture"
+        self.agent._use_prompt_caching = False
+        self.agent._sanitize_api_messages = lambda rows: rows
+        self.agent._drop_thinking_only_and_merge_users = lambda rows, **kwargs: rows
+        assembly_kwargs = dict(messages=messages, current_turn_user_idx=97, _ext_prefetch_cache="", _plugin_user_context="",
+                               moa_config=None, active_system_prompt="Required system context", original_user_message="latest",
+                               pending_moa_prepared_request=None, request_logger=None)
+        with patch.dict(sys.modules, native_modules):
+            result = assembly(self.agent, **assembly_kwargs)
+            self.assertEqual(sum(row["role"] == "user" for row in result.messages), 20)
+            self.agent.prefill_messages = [{"role": "assistant", "content": "LATE_PREFILL_" * 10000}]
+            with self.assertRaisesRegex(team.TeamContextError, "middleware and tools"):
+                assembly(self.agent, **assembly_kwargs)
+        self.assertEqual(messages, original)
+
+        # Prove ordinary mode reaches the original native implementation rather
+        # than accidentally applying a team-only shortcut.
+        self.policy["nativeContext"] = False
+        self.db.execute("UPDATE settings SET value=?", (json.dumps(self.policy),))
+        self.db.commit()
+        self.agent._hob_team_enabled = False
+        legacy = unittest.mock.Mock(side_effect=RuntimeError("legacy compressor reached"))
+        native = function("agent/conversation_compression.py", "compress_context", {"_begin_compression_attempt": legacy})
+        with self.assertRaisesRegex(RuntimeError, "legacy compressor reached"):
+            native(self.agent, messages, "system")
+        legacy.assert_called_once()
 
 
 if __name__ == "__main__":
