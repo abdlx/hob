@@ -69,12 +69,17 @@ test('employee-team mode denies worker-to-worker aliases before any native admis
 });
 
 test('team assignments require the exact fields and native completion alone does not verify results', async () => {
-  const { call, runtime, relay } = fixture({ policy: () => ({ coordinatorOnly: true }) });
+  const bindings = [];
+  const { call, runtime, relay } = fixture({ policy: () => ({ coordinatorOnly: true }), registerSession(...args) {
+    assert.equal(runtime.at(-1).route, '/api/sessions'); // Bound before native execution can begin.
+    bindings.push(args);
+  } });
   try {
     await refuses(call('/send', { method: 'POST', token: MAIN, input: { to: 'writer', message: 'Free-form task' } }), 400, 'TEAM_TASK_FORMAT');
     assert.equal(runtime.length, 0);
     const result = await call('/send', { method: 'POST', token: MAIN, input: { to: 'writer', message: teamAssignment, waitMs: 30 } });
     assert.equal(result.body.teamTask.id, 'plan-1');
+    assert.deepEqual(bindings, [['writer', 'relay-writer-1', 'relay', teamAssignment]]);
     assert.equal(result.body.status, 'completed');
     assert.equal(result.body.teamVerification, 'unproven');
     assert.match(result.body.teamResultError, /pinned TASK reply/);

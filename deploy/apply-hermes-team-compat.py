@@ -1,0 +1,133 @@
+"""Install team hooks only onto the exact runtime pinned by the image."""
+import ast
+import hashlib
+from pathlib import Path
+
+
+SOURCES = {
+    "agent/agent_init.py": "29be7ec99508cb1d82685a4d535b63977dd671a43b4bef910426291d40df4da5",
+    "agent/conversation_loop.py": "5a2b1973189300f0f07a990e39c6f5ddf200288aaec1032205685bef3437e4bf",
+    "agent/system_prompt.py": "f804c92ddc7197ad2483960f07d7c2545c163644085b1821ce22bdad8c7f8597",
+    "agent/turn_context.py": "800fdfe776113120cdd0f0d454f5e7f1c68c4573fcf985980b5e6a873ec22a04",
+    "agent/chat_completion_helpers.py": "8e4348884b780999fd33ddaecca688f1afcfe4f66940b5bac62c222383c41869",
+    "agent/agent_runtime_helpers.py": "295bd0adcb698ddeb87966f77a79ef1c8016702641db401bfe692ffb63e0dd49",
+    "run_agent.py": "2bd45c545c2cf0dec95702e71232f026b1265b54bf234a1c03c8cf83f5236f10",
+}
+
+
+def _entry(source, name, body):
+    matches = [node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.FunctionDef) and node.name == name]
+    if len(matches) != 1:
+        raise RuntimeError("Expected one qualified team hook: " + name)
+    node = matches[0]
+    first = node.body[0]
+    doc = isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str)
+    line = first.end_lineno if doc else first.lineno - 1
+    indent = " " * (node.col_offset + 4)
+    lines = source.splitlines(keepends=True)
+    lines.insert(line, "".join(indent + value + "\n" for value in body.splitlines()))
+    return "".join(lines)
+
+
+def _replace(source, before, after):
+    if source.count(before) != 1:
+        raise RuntimeError("Expected one qualified team call site.")
+    return source.replace(before, after)
+
+
+def revisions(sources):
+    out = dict(sources)
+    key = "agent/agent_init.py"
+    out[key] = _replace(out[key], "    agent._iters_since_skill = 0\n", """    agent._iters_since_skill = 0
+    from agent import hob_team_context as _hob_team
+    if _hob_team.prepare_memory(agent):
+        return
+""")
+    out[key] = _replace(out[key], "    # External memory provider plugin (one at a time, alongside built-in): memory.provider.\n", """    if _hob_team.no_external_memory(agent):
+        agent._memory_manager = None
+        return
+    # External memory provider plugin (one at a time, alongside built-in): memory.provider.
+""")
+    out[key] = _entry(out[key], "_select_context_engine", """from agent import hob_team_context as _hob_team
+if _hob_team.enabled():
+    return None""")
+    key = "agent/system_prompt.py"
+    out[key] = _entry(out[key], "build_system_prompt_parts", """from agent import hob_team_context as _hob_team
+_hob_parts = _hob_team.prompt_parts(agent, system_message)
+if _hob_parts is not None:
+    return _hob_parts""")
+    key = "agent/conversation_loop.py"
+    out[key] = _entry(out[key], "_restore_or_build_system_prompt", """from agent import hob_team_context as _hob_team
+if _hob_team.refresh_prompt(agent, system_message):
+    _persist_system_prompt(agent, 'Team prompt persistence failed', persist_tools=True)
+    return""")
+    key = "agent/turn_context.py"
+    out[key] = _entry(out[key], "build_turn_context", """from agent import hob_team_context as _hob_team
+_hob_team.turn_start(agent, moa_active=moa_active)""")
+    out[key] = _replace(out[key], "    if agent._cached_system_prompt is None:\n", "    if _hob_team.enabled(agent) or agent._cached_system_prompt is None:\n")
+    for name, result in (("_tick_memory_nudge", "False"), ("_collect_pre_llm_call_context", "''"), ("_memory_turn_start_and_prefetch", "''"), ("_merge_gateway_notes", "plugin_user_context")):
+        out[key] = _entry(out[key], name, f"""from agent import hob_team_context as _hob_team
+if _hob_team.enabled(agent):
+    return {result}""")
+    out[key] = _replace(out[key], "    stage_skills_index_note(agent, active_system_prompt, messages)\n", "    if not _hob_team.enabled(agent):\n        stage_skills_index_note(agent, active_system_prompt, messages)\n")
+    out[key] = _entry(out[key], "build_api_messages", """from agent import hob_team_context as _hob_team
+_hob_group = _hob_team.group_messages(agent, messages)
+if _hob_group is not None:
+    return _hob_group""")
+    out[key] = _replace(out[key], "    return api_messages, effective_system\n", """    api_messages = _hob_team.bound_messages(agent, api_messages)
+    return api_messages, effective_system
+""")
+    key = "agent/chat_completion_helpers.py"
+    # This fallback creates its own request instead of calling build_api_messages.
+    out[key] = _entry(out[key], "_iteration_summary_api_messages", """from agent import hob_team_context as _hob_team
+_hob_group = _hob_team.group_messages(agent, messages)
+if _hob_group is not None:
+    return _hob_group[0]""")
+    tree = ast.parse(out[key])
+    function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_iteration_summary_api_messages")
+    returns = [node for node in ast.walk(function) if isinstance(node, ast.Return) and isinstance(node.value, ast.Name) and node.value.id == "api_messages"]
+    if len(returns) != 1:
+        raise RuntimeError("Expected one qualified summary request return.")
+    lines = out[key].splitlines(keepends=True)
+    lines[returns[0].lineno - 1] = "    return _hob_team.bound_messages(agent, api_messages)\n"
+    out[key] = "".join(lines)
+    key = "agent/agent_runtime_helpers.py"
+    out[key] = _entry(out[key], "_pre_tool_block_message", """from agent import hob_team_context as _hob_team
+_hob_block = _hob_team.tool_block(agent, function_name)
+if _hob_block:
+    return _hob_block, function_args""")
+    key = "run_agent.py"
+    # Check both enqueue and execution so an already queued idle review cannot bypass it.
+    for name in ("_spawn_background_review", "_spawn_background_review_now", "shutdown_memory_provider", "commit_memory_session", "_sync_external_memory_for_turn"):
+        out[key] = _entry(out[key], name, """from agent import hob_team_context as _hob_team
+if _hob_team.no_external_memory(self):
+    return""")
+    for text in out.values():
+        ast.parse(text)
+    return out
+
+
+def install(root, expected=None):
+    root = Path(root)
+    expected = SOURCES if expected is None else expected
+    source = {}
+    # Validate the entire set before mutating anything, including repeat installs.
+    for relative, digest in expected.items():
+        target = root / relative
+        if target.is_symlink() or not target.is_file():
+            raise RuntimeError("Missing qualified team source: " + relative)
+        raw = target.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != digest:
+            raise RuntimeError("Team source differs from the qualified upstream commit: " + relative)
+        source[relative] = raw.decode("utf-8")
+    helper = root / "agent/hob_team_context.py"
+    if helper.exists() or helper.is_symlink():
+        raise RuntimeError("Refusing to replace an existing team context module.")
+    updated = revisions(source)
+    helper_bytes = Path(__file__).with_name("hob-team-context.py").read_bytes()
+    ast.parse(helper_bytes)
+    for relative, text in updated.items():
+        (root / relative).write_bytes(text.encode("utf-8"))
+    helper.write_bytes(helper_bytes)
+    helper.chmod(0o444)
+    return {relative: hashlib.sha256(text.encode("utf-8")).hexdigest() for relative, text in updated.items()} | {"agent/hob_team_context.py": hashlib.sha256(helper_bytes).hexdigest()}

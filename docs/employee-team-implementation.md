@@ -1,12 +1,13 @@
 # Employee-team implementation checkpoint
 
-30 October 2026. Local implementation after the [specification review](employee-team-spec-review.md). Not deployed, not qualified as a live employee team. The original [supplied spec](employee-team-spec-original.md) remains unchanged as a historical input.
+30 October 2026. Local implementation after the [specification review](employee-team-spec-review.md). Foundations were pushed to `main` in `f307d479`; the runtime work described below is a subsequent local change. Not deployed or qualified as a live employee team. The original [supplied spec](employee-team-spec-original.md) remains unchanged as a historical input.
 
 ## Operator decisions
 
 The user confirmed these initial defaults during implementation:
 
 - Requested native session window: 20 complete turns. **Stored as a requested setting; not enforced by this patch.**
+- A dormant native adapter now implements this requested window on supported API wire requests. `nativeContext` remains false and cannot be enabled through the dashboard/API yet; ordinary chats retain their existing native behavior.
 - Injected team core budget: 4,000 Unicode code points, including its managed wrapper. Enforced at proposal and approval time.
 - Every core promotion requires an authenticated operator approval. No autonomous ordinary-fact promotion.
 - No paid lane. This patch enables none, but does not yet enforce restrictions on existing configured providers/tools.
@@ -31,6 +32,22 @@ Role-to-bot mapping and messaging channel remain unset. No bots were created, re
 
 The fresh database has both document sharing and coordinator-only relay disabled. Saving those options is an explicit dashboard operator action, not a consequence of creating a bot or reading this spec.
 
+## Native adapter in progress
+
+The exact upstream commit pinned by the Docker image (`7e9eb8d9a30f4a9bb9f8ecaf816b4b0ffdf47357`) was fetched and inspected separately from the older ignored local Hermes snapshot. `deploy/apply-hermes-team-compat.py` checks all seven target source digests before modifying them. Unknown, partial and repeated installations are refused. The image's compatibility manifest includes the installed hook/helper digests.
+
+The disabled adapter adds trusted profile/session metadata in app-owned state. Chat admission binds the native profile and session before submitting a prompt; relay admission binds the receiver, new session and original assignment before starting its run. A later dashboard follow-up cannot replace a relay binding. Public roles remain unassigned: existing bot descriptions are not implicitly published as group role cards.
+
+Startup creates this authority before launching scheduled native work. Only the runtime receives its exact database path; dashboard credentials and the app state-directory environment remain excluded. A configured authority that disappears is refused even by a fresh agent. Corrupt SQLite bytes stop startup and are preserved for repair.
+
+On supported direct/relay turns, hooks bypass cached prompts and rebuild roster, approved Essential core, own role notes, own USER.md and MEMORY.md under their configured native budgets. Reference-only core content stays excluded. Missing/revoked authority, profile changes, unbound sessions, oversized required context and unknown budgets produce an explicit refusal. The current adapter refuses Codex app-server and MoA transports rather than claiming their alternate request builders are covered.
+
+Wire requests retain at most 20 complete user turns, reducing whole turns further under the native model budget. Tool calls/results remain paired. A bounded extractive excerpt of the older prefix is reconstructed from the same supplied session history; it is not saved into private memory or a shared summary cache. Canonical archived messages remain unchanged. This excerpt is an interim summary implementation and does not yet capture all decisions, artifacts and open items required for useful long-running task handoff.
+
+Hosted groups are recognized by Hermes' bound room execution policy, never a message label. They cannot reuse a known private session binding. Group prompt construction skips private files, private skill indexes, plugin context, cached/ephemeral prompt additions and injected API sidecars. Those renderer contracts are tested independently; actual group execution is refused at turn entry until a separate public workspace and tool scope are implemented. Private MCP schemas and native side effects need isolation too; filtering prompt text alone is insufficient.
+
+The adapter suppresses automatic background memory/skill review at both enqueue and execution, external provider retention/recall, and external context engines. Ordinary mode remains unchanged. Explicit builtin private-memory writes are **not yet classified or gated for session-only facts**, so this work does not establish A7. Native compaction/rotation, alternate inference paths, title helpers, middleware and actual process/tool permissions still need qualification before activation. No user-facing activation control or native-qualified status has been added.
+
 ## Remaining qualification work
 
 The backend deliberately reports `qualification.live: false`. Current local evidence does not establish all twelve acceptance tests:
@@ -38,20 +55,26 @@ The backend deliberately reports `qualification.live: false`. Current local evid
 | Acceptance area | Status |
 | --- | --- |
 | A1 independent artifact verification | Assignment/reply correlation exists; nominated cross-bot artifact transfer and Main's independent verification are still pending. No private-workspace read exception was added. |
-| A2 core distribution | Approved on-disk propagation and repair are tested. Effective next-turn native prompt refresh, including open sessions, is pending. |
+| A2 core distribution | Approved on-disk propagation/repair and disabled-adapter prompt refresh are tested, including replacement of a cached prompt. Live open-session runtime acceptance is pending. |
 | A3 approval enforcement | HTTP/relay approval boundaries are tested. Native process access to app-owned state still requires qualification under actual OS isolation. |
 | A4 shared documents | Bounded text copying, repair, pruning, exclusions and failure isolation are tested. Opaque binary admission and truly atomic core-plus-doc generation visibility remain pending. A bot can observe a per-file transition during sync; `synced` describes completed on-disk distribution, not a native prompt-generation guarantee. |
 | A5 privacy | Existing dashboard jail remains. Full native filesystem/terminal/provider isolation must be proven against the shipped Linux runtime. |
 | A6 coordinator-only relay | Covered locally, including aliases, pre-admission denial, normal-mode compatibility, and coordinator-bound requests. |
-| A7 session-only memory/context | Pending native enforcement. The managed instructions describe the rule but cannot enforce native memory writes, external recall, cached system prompts, session compaction or private group context. |
+| A7 session-only memory/context | Disabled native adapter has local contracts and source-level hook probes for prompt refresh, bounded wire history, group prompt filtering and automatic retention suppression. Explicit memory writes, native compaction/rotation and full group process/tool isolation remain pending. |
 | A8 shared media | Not implemented. Existing per-bot media boundaries remain. |
 | A9 delayed results | Existing durable exchanges and wait/reconciliation behavior remain; team-specific live/restart qualification is still required. |
 | A10 reminders/phone | Pending channel selection, explicit account connection, and actual device evidence. |
 | A11 orphan job failures | Pending authoritative scheduler-job provenance. No historical failures were dismissed or relabeled without that evidence. |
 | A12 external facts | Source/time/staleness instructions are included. Consistent native result metadata and real answer acceptance remain pending. |
 
-Paid-execution restrictions must also be enforced at the actual model/tool execution owners before team tasks qualify under the confirmed no-paid-lane policy. Roles and messaging require the remaining operator choices. Production version/image verification and deployment are separate work; no production writes, deployment, or push were performed here.
+Paid-execution restrictions must also be enforced at the actual model/tool execution owners before team tasks qualify under the confirmed no-paid-lane policy. Roles and messaging require the remaining operator choices. Production version/image verification and deployment are separate work; no production writes or deployment were performed here.
 
 ## Verification
 
 Use `npm test` in server/, `npm test`, `npm run lint`, `npm run build`, and `npm run test:e2e` in web/. The new team tests cover exact approvals, unauthorized bot actions, persistence, source/destination isolation, repaired edits, safe pruning, stale status, rollback-as-new-proposal, and explicit UI review. Browser tests use declared API fixtures; they do not execute live bot tasks or establish native/device acceptance.
+
+`python deploy/test-team-context.py` runs adapter contracts with explicit native prompt/estimator stubs. Set `HOB_QUALIFIED_RUNTIME` to a clean checkout of the pinned commit to additionally execute critical patched upstream function bodies and the complete image compatibility installer against the verified source. CI includes that source-level probe using the pristine digest-pinned base image. These probes are not full native Linux execution or live-device evidence.
+
+Local evidence for this runtime checkpoint: full backend suite 482 passed / 2 platform skips; deployment suite 38 passed; existing native-control unit suite 11 passed; team adapter suite with the exact pinned source 9 passed. Focused chat/relay admission, team-state and startup checks also passed after the final edits. No web UI changed in this checkpoint. Docker/Linux and live device acceptance remain unexecuted locally.
+
+Activity investigation found that canonical `session.list` deliberately excludes scheduler histories. The pinned native `SessionDB.cron_run_identity()` can return authoritative job/execution IDs, while plain session absence cannot establish job deletion. A11 still needs a separate profile-scoped scheduler-history projection with explicit inventory-failure handling; no historical failures have been relabeled during this checkpoint.

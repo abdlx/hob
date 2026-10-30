@@ -122,6 +122,7 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
         try {
           const created = await client.runtime('/api/sessions', { profile: receiver.name, method: 'POST', body: { title: `${record.fromName} → ${record.toName} · ${record.id.slice(0, 8)}` } });
           const sessionId = created?.session?.id ?? created?.id; hermesResource(sessionId);
+          team?.registerSession?.(receiver.name, sessionId, 'relay', record.message);
           exchanges.update(record.id, { sessionId });
           const delegation = team?.policy().coordinatorOnly && record.to !== 'default'
             ? 'If another bot is needed, ask the coordinator (default); do not message another worker.'

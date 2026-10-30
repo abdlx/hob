@@ -3,6 +3,7 @@ import test from 'node:test';
 import { mkdtemp, mkdir, readFile, writeFile, unlink, rm, symlink } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { HermesTeam, coreBlock } from '../hermes-team.mjs';
 import { HermesBotNetwork } from '../hermes-bot-network.mjs';
 
@@ -11,7 +12,7 @@ async function fixture(t) {
   const workspaceRoot = path.join(root, 'workspaces'), stateDir = path.join(root, 'state');
   const roster = ['default', 'writer', 'editor'].map(name => ({ name, displayName: name === 'default' ? 'Coordinator label' : name, state: 'active' }));
   await mkdir(path.join(workspaceRoot, 'main', 'shared'), { recursive: true });
-  const team = new HermesTeam({ stateDir, workspaceRoot, roster: () => roster });
+  const team = new HermesTeam({ stateDir, workspaceRoot, roster: () => roster, nativeHome: path.join(root, 'native') });
   const network = new HermesBotNetwork({ team, workspaceRoot, roster: async () => ({ profiles: roster }), credential: () => 'a'.repeat(64), relayUrl: 'http://127.0.0.1:3000/api/hermes/bot-relay' });
   t.after(async () => {
     team.close();
@@ -28,6 +29,29 @@ async function fixture(t) {
   };
   return { root, workspaceRoot, stateDir, roster, team, network, settings, publish, file: (...parts) => path.join(workspaceRoot, ...parts) };
 }
+
+test('native context remains disabled; trusted profile and session bindings cannot be reassigned', async t => {
+  const { team, stateDir, root, roster, settings } = await fixture(t);
+  assert.equal(team.policy().nativeContext, false);
+  assert.throws(() => settings({ nativeContext: true }));
+  team.registerSession('writer', 'direct-chat');
+  assert.throws(() => team.registerSession('writer', 'direct-chat', 'relay', 'replacement task'), /another team context/);
+  team.registerSession('writer', 'relay-chat', 'relay', 'original task');
+  team.registerSession('writer', 'relay-chat'); // A dashboard follow-up does not downgrade relay ownership.
+  assert.throws(() => team.registerSession('writer', 'relay-chat', 'relay', 'replacement task'), /another team context/);
+  const db = new DatabaseSync(path.join(stateDir, 'employee-team.sqlite'), { readOnly: true });
+  try {
+    assert.equal(db.prepare('SELECT assignment FROM runtime_sessions WHERE session=?').get('relay-chat').assignment, 'original task');
+    const profile = JSON.parse(db.prepare('SELECT value FROM runtime_profiles WHERE profile=?').get('writer').value);
+    assert.equal(profile.home, path.join(root, 'native', 'profiles', 'writer'));
+    assert.equal(profile.workspace, path.join(root, 'workspaces', 'bots', 'writer'));
+    assert.equal(profile.roster.find(bot => bot.id === 'default').name, 'Coordinator label');
+    assert.equal(profile.role, '');
+    roster[1].state = 'archived'; team.refreshRuntimeProfiles();
+    assert.equal(db.prepare('SELECT 1 FROM runtime_profiles WHERE profile=?').get('writer'), undefined);
+    assert.throws(() => team.registerSession('writer', 'new-chat'), /not active/);
+  } finally { db.close(); }
+});
 
 test('team distribution is opt-in and does not claim runtime qualification', async t => {
   const { team, network, file } = await fixture(t);

@@ -8,6 +8,7 @@ import { prepareHermesRuntime } from './prepare-hermes-runtime.mjs';
 import { HermesBotIsolation, isolationMode, prepareBotIsolation } from '../server/hermes-isolation.mjs';
 import { mcpOAuthOrigin } from '../server/hermes-mcp-oauth.mjs';
 import { hobEnv, hobLocalHome } from '../server/hob-config.mjs';
+import { HermesTeam } from '../server/hermes-team.mjs';
 
 async function listenerCredentials(filename) {
   const candidate = { version: 1, apiKey: randomBytes(32).toString('hex'), dashboardToken: randomBytes(32).toString('hex') };
@@ -63,6 +64,10 @@ export async function bootstrapHermes(env = process.env) {
   for (const directory of [home, stateDir, workspace]) await mkdir(directory, { recursive: true, mode: 0o700 });
   const credentials = await listenerCredentials(join(stateDir, 'listener-auth.json'));
   await seedHermesConfig(home, workspace);
+  // The native process can start scheduled work before the app finishes booting.
+  // Create authority before launching either process; defaults enable no team work.
+  const teamAuthority = new HermesTeam({ stateDir, workspaceRoot: executionRoot, nativeHome: home, roster: () => [] });
+  teamAuthority.close();
 
   // A process-wide CDP override would send every bot to the same cookie jar.
   if (mode !== 'users') {
@@ -76,12 +81,15 @@ export async function bootstrapHermes(env = process.env) {
     GATEWAY_MULTIPLEX_PROFILES: 'true', HERMES_DASHBOARD: '0' };
   // Environment separation does not replace an execution sandbox.
   const runtimeEnv = without(shared, /^(?:HOB_|HERMES_DASHBOARD_)/);
+  // A path to read-only context authority, never dashboard credentials. The
+  // native Python owner reads it; isolated tool subprocesses retain OS jails.
+  runtimeEnv.HERMES_HOB_TEAM_STATE_DB = join(stateDir, 'employee-team.sqlite');
   // Keep native write policy while including the separately protected workspace.
   if (mode === 'users') runtimeEnv.HERMES_WRITE_SAFE_ROOT = home + ':' + executionRoot;
   // Keep foreground ownership with our supervisor, including in an s6 image.
   // The explicit profile also prevents a sticky CLI selection redirecting Main.
   runtimeEnv.HERMES_GATEWAY_EXTERNAL_SUPERVISOR = '1';
-  const dashboardEnv = { ...without(shared, /^(?:HOB_|HERMES_DASHBOARD_)/),
+  const dashboardEnv = { ...without(shared, /^(?:HOB_|HERMES_DASHBOARD_|HERMES_HOB_TEAM_STATE_DB$)/),
     HERMES_DASHBOARD_SESSION_TOKEN: credentials.dashboardToken };
   if (mode === 'users') dashboardEnv.HERMES_DASHBOARD_FILES_ROOT = executionRoot;
   const publicOrigin = mcpOAuthOrigin(env.HOB_PUBLIC_URL);

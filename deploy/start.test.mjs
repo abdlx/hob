@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { DatabaseSync } from 'node:sqlite';
 import { link, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, relative } from 'node:path';
@@ -58,13 +59,34 @@ test('fresh startup provisions three services and private local listener credent
 test('runtime environment excludes dashboard authority and application login/session credentials', async () => {
   await fixture(async env => {
     const { processes: [dashboard, runtime, app] } = await bootstrap({
-      ...env, HERMES_DASHBOARD_SESSION_TOKEN: 'do-not-inherit', HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: 'do-not-inherit',
+      ...env, HERMES_DASHBOARD_SESSION_TOKEN: 'do-not-inherit', HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: 'do-not-inherit', HERMES_HOB_TEAM_STATE_DB: 'untrusted-path',
     });
     for (const key of ['HOB_PASSWORD', 'HOB_SESSION_SECRET', 'HERMES_DASHBOARD_SESSION_TOKEN', 'HERMES_DASHBOARD_BASIC_AUTH_PASSWORD', 'HOB_STATE_DIR', 'HOB_EXPO_ACCESS_TOKEN']) {
       assert.equal(runtime.env[key], undefined, key);
     }
     assert.equal(dashboard.env.HOB_PASSWORD, undefined);
     assert.equal(app.env.HOB_PASSWORD, env.HOB_PASSWORD);
+    assert.equal(runtime.env.HERMES_HOB_TEAM_STATE_DB, join(env.HOB_STATE_DIR, 'employee-team.sqlite'));
+    assert.equal(dashboard.env.HERMES_HOB_TEAM_STATE_DB, undefined);
+    const db = new DatabaseSync(runtime.env.HERMES_HOB_TEAM_STATE_DB, { readOnly: true });
+    try {
+      const policy = JSON.parse(db.prepare('SELECT value FROM settings WHERE id=1').get().value);
+      assert.equal(policy.nativeContext, false);
+      assert.equal(policy.sessionWindow, 20);
+      assert.equal(policy.coreBudget, 4000);
+      assert.equal(policy.ordinaryPromotions, 'user');
+    } finally { db.close(); }
+  });
+});
+
+test('a corrupt team authority fails startup without replacing its bytes', async () => {
+  await fixture(async env => {
+    await bootstrap(env);
+    const filename = join(env.HOB_STATE_DIR, 'employee-team.sqlite');
+    const invalid = Buffer.from('not a sqlite database');
+    await writeFile(filename, invalid);
+    await assert.rejects(bootstrap(env), /database/);
+    assert.deepEqual(await readFile(filename), invalid);
   });
 });
 

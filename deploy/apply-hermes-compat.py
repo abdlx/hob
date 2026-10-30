@@ -14,6 +14,8 @@ instead of the optional supervisor's independently attached launch page.
 """
 import ast
 import hashlib
+import importlib.util
+import json
 import os
 from pathlib import Path
 import sys
@@ -139,11 +141,18 @@ def patch_browser_eval(filename, expected=BROWSER_SHA256):
 
 if __name__ == "__main__":
     root = Path(sys.argv[1] if len(sys.argv) > 1 else "/opt/hermes")
+    team_spec = importlib.util.spec_from_file_location("hob_team_compat", Path(__file__).with_name("apply-hermes-team-compat.py"))
+    team_compat = importlib.util.module_from_spec(team_spec)
+    team_spec.loader.exec_module(team_compat)
+    team_digests = team_compat.install(root)
     digest = patch_heartbeat(root / "gateway/run_goals.py")
     controls_digest = patch_controls(root / "hermes_cli/web_routers/skills.py")
     timezone_digest = patch_timezone(root / "hermes_time.py")
     browser_digest = patch_browser_eval(root / "tools/browser_tool.py")
     manifest = root / "hob-compat.json"
-    manifest.write_text('{"upstream":"7e9eb8d9a30f4a9bb9f8ecaf816b4b0ffdf47357","patch":"native-local-heartbeat-v1","sha256":"' + digest + '","controls_sha256":"' + controls_digest + '","timezone_sha256":"' + timezone_digest + '","browser_eval_sha256":"' + browser_digest + '"}\n')
+    manifest.write_text(json.dumps({"upstream": "7e9eb8d9a30f4a9bb9f8ecaf816b4b0ffdf47357",
+        "patch": "native-local-heartbeat-v1", "sha256": digest, "controls_sha256": controls_digest,
+        "timezone_sha256": timezone_digest, "browser_eval_sha256": browser_digest,
+        "team_context_v1": team_digests}) + "\n")
     os.chmod(manifest, 0o444)
     print("Applied pinned native-local-heartbeat-v1 compatibility fix (" + digest + ")")

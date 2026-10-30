@@ -26,7 +26,7 @@ const failureReason = receipt => {
 };
 
 /** Translate custom chat UX into the one native session/FIFO owner, without exposing raw RPC. */
-export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpChat, attachmentSecret = randomUUID(), onCompleted, recoverCompleted = false, telemetry }) {
+export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpChat, attachmentSecret = randomUUID(), onCompleted, recoverCompleted = false, telemetry, team }) {
   const attachments = createHermesAttachments({ bridge, client, secret: attachmentSecret });
   const observed = new Set();
   const prompts = new Map();
@@ -124,7 +124,10 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
   };
   const admit = async (owner, key, run, content) => {
     const finish = telemetry?.start(owner.profile, 'turn.admission');
+    let submitted = false;
     try {
+      team?.registerSession(owner.profile, owner.sessionId);
+      submitted = true;
       const accepted = await rpc(owner, 'prompt.submit', { submission_id: run.requestKey, text: content,
         ...(run.attachments?.length ? { attachments: run.attachments } : {}) });
       hermesResource(accepted.admission_id);
@@ -134,8 +137,8 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
       finish?.('ok', { runId: accepted.admission_id });
       return accepted;
     } catch (error) {
-      finish?.('unknown');
-      await journal.update(key, run.requestKey, { status: ['invalid_params', 'permission_denied', 'not_found', 'admission_conflict', 'profile_mismatch'].includes(error.code) ? 'failed' : 'unknown' });
+      finish?.(submitted ? 'unknown' : 'refused');
+      await journal.update(key, run.requestKey, { status: !submitted || ['invalid_params', 'permission_denied', 'not_found', 'admission_conflict', 'profile_mismatch'].includes(error.code) ? 'failed' : 'unknown' });
       throw error;
     }
   };

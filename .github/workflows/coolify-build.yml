@@ -104,6 +104,14 @@ jobs:
           node-version: '24.21.0'
       - name: Build the single image from this checkout
         run: docker build --build-arg HOB_GIT_COMMIT="$GITHUB_SHA" --build-arg HOB_GIT_REF="$GITHUB_REF_NAME" --tag hob:ci .
+      - name: Execute team adapter tests against exact pinned native sources
+        # The installer checks the upstream digests itself. Keep a pristine copy
+        # from the pinned base image for the optional source-level hook probes.
+        shell: bash
+        run: |
+          native_base=$(sed -n 's/^ARG HERMES_IMAGE=//p' Dockerfile)
+          test -n "$native_base"
+          docker run --rm --entrypoint /opt/hermes/.venv/bin/python -v "$PWD/deploy:/hob-team-tests:ro" -e HOB_QUALIFIED_RUNTIME=/opt/hermes "$native_base" /hob-team-tests/test-team-context.py
       - name: Verify first boot, sandboxed browser, and persistence
         env:
           HOB_SMOKE_IMAGE: hob:ci

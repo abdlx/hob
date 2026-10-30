@@ -11,7 +11,7 @@ import { HermesRunJournal } from '../hermes-run-journal.mjs';
 import { createHermesCanonicalChatRoutes } from '../hermes-canonical-chat.mjs';
 import { createHobTelemetry } from '../hob-telemetry.mjs';
 
-async function fixture(t, { telemetry } = {}) {
+async function fixture(t, { telemetry, team } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'hob-native-chat-'));
   const shared = { sessions: new Map(), admissions: new Map(), calls: [], mode: 'complete', sequence: 0, generation: 5 };
   const legacyCalls = [];
@@ -107,7 +107,7 @@ async function fixture(t, { telemetry } = {}) {
     const url = `http://127.0.0.1:${legacy.address().port}`;
     f.client = new HermesClient({ runtimeUrl: url, dashboardUrl: url, apiKey: 'synthetic-runtime', dashboardToken: 'synthetic-settings' });
     f.bridge = new Bridge(); f.journal = await HermesRunJournal.open(root);
-    f.app = createApp({ gateway: f.client, nativeSessions: f.bridge, runJournal: f.journal, password: 'synthetic-login', telemetry });
+    f.app = createApp({ gateway: f.client, nativeSessions: f.bridge, runJournal: f.journal, password: 'synthetic-login', telemetry, team });
     await new Promise(resolve => f.app.listen(0, '127.0.0.1', resolve));
     f.origin = `http://127.0.0.1:${f.app.address().port}`;
     const login = await fetch(f.origin + '/api/auth/login', { method: 'POST', headers: { Origin: f.origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'synthetic-login' }) });
@@ -131,6 +131,25 @@ async function fixture(t, { telemetry } = {}) {
   });
   return f;
 }
+
+test('chat binds its trusted native owner before admission and records a local context refusal as failed', async t => {
+  const bindings = [];
+  let refuse = false;
+  const f = await fixture(t, { team: { registerSession(...args) {
+    if (refuse) throw new HermesError(403, 'Team context refused.', 'TEAM_CONTEXT_REFUSED');
+    bindings.push(args);
+  } } });
+  const session = await f.create('coder');
+  const response = await f.turn(session.id, 'Use the current bot context');
+  assert.ok(response.ok);
+  assert.deepEqual(bindings, [['coder', parseHermesSessionKey(session.id).sessionId]]);
+  const previous = f.shared.calls.filter(call => call.method === 'prompt.submit').length;
+  refuse = true;
+  const refused = await f.create('coder');
+  assert.equal((await f.turn(refused.id)).status, 403);
+  assert.equal(f.shared.calls.filter(call => call.method === 'prompt.submit').length, previous);
+  assert.equal(f.journal.list('coder').find(run => run.key === refused.id).status, 'failed');
+});
 
 test('performance diagnostics require login and enrolled scope, and correlate admission to native settlement', async t => {
   const telemetry = createHobTelemetry();

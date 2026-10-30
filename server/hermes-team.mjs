@@ -18,7 +18,7 @@ const secretContent = /-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:sk-(?:proj-)?[A-Z
 export const containsTeamCredentials = value => secretContent.test(String(value || ''));
 const hash = value => createHash('sha256').update(value).digest('hex');
 const fail = (message, status = 400, code = 'INVALID_TEAM_REQUEST') => new HermesError(status, message, code);
-const defaults = { revision: 0, coordinatorOnly: false, shareDocuments: false, coreBudget: 4000, sessionWindow: 20, ordinaryPromotions: 'user' };
+const defaults = { revision: 0, coordinatorOnly: false, shareDocuments: false, coreBudget: 4000, sessionWindow: 20, ordinaryPromotions: 'user', nativeContext: false };
 
 // Native privacy/context qualification is deliberately separate from these controls.
 // An operator enabling document distribution is not an attestation that the team is live.
@@ -87,8 +87,8 @@ function validateCore(content, budget, revision) {
 
 /** Approved revisions are immutable. Raw workspace edits can only become proposals. */
 export class HermesTeam {
-  #db; #root; #roster; #now; #draftError = '';
-  constructor({ stateDir, workspaceRoot, roster, now = Date.now }) {
+  #db; #root; #home; #roster; #now; #draftError = '';
+  constructor({ stateDir, workspaceRoot, roster, nativeHome = process.env.HERMES_HOME, now = Date.now }) {
     if (!workspaceRoot || typeof roster !== 'function') throw new Error('Team workspaces and enrolled roster are required.');
     let filename = ':memory:';
     if (stateDir) {
@@ -99,16 +99,52 @@ export class HermesTeam {
       if (!entry.isFile() || entry.isSymbolicLink() || entry.nlink !== 1) throw new Error('Invalid employee team database.');
       chmodSync(filename, 0o600);
     }
-    this.#db = new DatabaseSync(filename); this.#root = workspaceRoot; this.#roster = roster; this.#now = now;
-    this.#db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
+    this.#db = new DatabaseSync(filename); this.#root = workspaceRoot; this.#home = nativeHome; this.#roster = roster; this.#now = now;
+    try {
+      this.#db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS proposals (id TEXT PRIMARY KEY, base INTEGER NOT NULL, content TEXT NOT NULL, digest TEXT NOT NULL, author TEXT NOT NULL, evidence TEXT NOT NULL, status TEXT NOT NULL, created INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS core_versions (revision INTEGER PRIMARY KEY, content TEXT NOT NULL, digest TEXT NOT NULL, proposal TEXT NOT NULL, committed INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS sync_state (profile TEXT PRIMARY KEY, value TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS document_manifests (profile TEXT PRIMARY KEY, value TEXT NOT NULL);`);
-    this.#db.prepare('INSERT OR IGNORE INTO settings VALUES (1,?)').run(JSON.stringify(defaults));
+      CREATE TABLE IF NOT EXISTS document_manifests (profile TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS runtime_profiles (profile TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS runtime_sessions (profile TEXT NOT NULL, session TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('user','relay')), assignment TEXT NOT NULL, PRIMARY KEY(profile,session));`);
+      this.#db.prepare('INSERT OR IGNORE INTO settings VALUES (1,?)').run(JSON.stringify(defaults));
+    } catch (error) { this.#db.close(); throw error; }
   }
-  policy() { return JSON.parse(this.#db.prepare('SELECT value FROM settings WHERE id=1').get().value); }
+  policy() { return { ...defaults, ...JSON.parse(this.#db.prepare('SELECT value FROM settings WHERE id=1').get().value) }; }
+  refreshRuntimeProfiles() {
+    if (!this.#home) return;
+    const active = this.#roster().filter(bot => bot.state === 'active');
+    // Public team roles require their own operator mapping. A bot description is
+    // not permission to publish its private role notes into a group context.
+    const roster = active.map(bot => ({ id: hermesProfile(bot.name), name: bot.displayName || bot.display_name || bot.name, role: '' }));
+    if (containsTeamCredentials(JSON.stringify(roster))) {
+      if (this.policy().nativeContext) throw fail('Potential credentials in the public bot roster must be removed before native team context can be published.');
+      this.#db.exec('DELETE FROM runtime_profiles'); return;
+    }
+    this.#db.exec('BEGIN IMMEDIATE');
+    try {
+      this.#db.exec('DELETE FROM runtime_profiles');
+      const insert = this.#db.prepare('INSERT INTO runtime_profiles VALUES (?,?)');
+      for (const bot of roster) insert.run(bot.id, JSON.stringify({ ...bot, roster,
+        home: path.resolve(this.#home, ...(bot.id === 'default' ? [] : ['profiles', bot.id])),
+        workspace: path.resolve(this.#root, ...(bot.id === 'default' ? ['main'] : ['bots', bot.id])) }));
+      this.#db.exec('COMMIT');
+    } catch (error) { this.#db.exec('ROLLBACK'); throw error; }
+  }
+  registerSession(profile, session, kind = 'user', assignment = '') {
+    this.#active(profile);
+    if (typeof session !== 'string' || !session || session.length > 512 || !['user', 'relay'].includes(kind) || typeof assignment !== 'string' || assignment.length > 64000) throw fail('Invalid native team session binding.');
+    this.refreshRuntimeProfiles();
+    const previous = this.#db.prepare('SELECT kind,assignment FROM runtime_sessions WHERE profile=? AND session=?').get(profile, session);
+    if (previous) {
+      if (kind === 'user') return; // Operator follow-up cannot turn an exchange into a different context.
+      if (previous.kind !== kind || previous.assignment !== assignment) throw fail('Native session already has another team context.', 409);
+      return;
+    }
+    this.#db.prepare('INSERT INTO runtime_sessions VALUES (?,?,?,?)').run(profile, session, kind, assignment);
+  }
   core() { return this.#db.prepare('SELECT revision,content,digest,committed FROM core_versions ORDER BY revision DESC LIMIT 1').get() || { revision: 0, content: '', digest: hash('') }; }
   history() { return this.#db.prepare('SELECT revision,content,digest,committed FROM core_versions ORDER BY revision DESC LIMIT 50').all(); }
   #active(profile) {
@@ -181,6 +217,7 @@ export class HermesTeam {
     this.#db.prepare('INSERT OR REPLACE INTO sync_state VALUES (?,?)').run(profile, JSON.stringify({ ...previous, ...value, at: this.#now() }));
   }
   async snapshot() {
+    this.refreshRuntimeProfiles();
     const policy = this.policy(), core = this.core(), files = new Map(), skipped = [];
     if (!policy.revision && !core.revision) return undefined;
     if (policy.shareDocuments) {
