@@ -646,3 +646,65 @@ test('every settings category fits a narrow phone without horizontal panel scrol
   }
   expect(state.errors).toEqual([]);
 });
+
+test('team core review requires an explicit approval and reports incomplete distribution on a phone', async ({ page }) => {
+  const { expectNoHorizontalScroll } = await import('./mobile-layout');
+  const state = await fixture(page), writes: { path: string; body: Record<string, unknown> }[] = [];
+  let incomplete = false;
+  const team = {
+    policy: { revision: 0, coordinatorOnly: false, shareDocuments: false, coreBudget: 4000, sessionWindow: 20, ordinaryPromotions: 'user' },
+    core: { revision: 0, content: '' },
+    proposals: [] as { id: string; base: number; digest: string; content: string; evidence: string; author: string }[],
+    bots: [{ id: 'default', name: 'Main', revision: 0, status: 'not synchronized' }],
+  };
+  await page.route('**/api/hermes/team**', async route => {
+    const request = route.request(), path = new URL(request.url()).pathname;
+    const json = (value: unknown) => route.fulfill({ json: value });
+    if (request.method() === 'GET' && path.endsWith('/history')) return json({ revisions: [{ revision: 1, content: team.core.content, committed: Date.parse('2026-10-30T10:00:00Z') }] });
+    if (request.method() === 'GET') return json(team);
+    const body = request.postDataJSON(); writes.push({ path, body });
+    if (path.endsWith('/proposals')) {
+      const proposal = { ...body, id: 'proposal-1', digest: 'a'.repeat(64), author: 'user' };
+      team.proposals = [proposal]; return json(proposal);
+    }
+    if (path.endsWith('/decisions')) {
+      expect(body).toEqual({ id: 'proposal-1', base: 0, digest: 'a'.repeat(64), decision: 'approve', confirm: true });
+      team.core = { revision: 1, content: team.proposals[0].content }; team.proposals = [];
+      team.bots[0] = { ...team.bots[0], revision: 1, status: 'synced' };
+    }
+    if (path.endsWith('/settings')) {
+      expect(Object.keys(body).sort()).toEqual(['confirm', 'coordinatorOnly', 'coreBudget', 'revision', 'sessionWindow', 'shareDocuments']);
+      team.policy = { ...team.policy, ...body, revision: team.policy.revision + 1 };
+    }
+    return json({ ...team, sync: { updated: incomplete ? [] : ['default'], failed: incomplete ? [{ name: 'Main', error: 'Fixture sync failure' }] : [] } });
+  });
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto('/settings');
+  await page.locator('.hob-settings-directory').getByRole('button', { name: 'Memory & history', exact: true }).click();
+  const controls = page.getByRole('region', { name: 'Shared team core and documents' });
+  await controls.getByRole('button', { name: 'Open team controls' }).click();
+  await expect(controls.getByText('Published core · revision 0')).toBeVisible();
+  await expect(controls.getByText(/20-turn session window is not active/)).toBeVisible();
+  await controls.getByLabel('Proposed team core').fill('Checked project fact.');
+  await controls.getByLabel('Promotion evidence').fill('Verified deliverable receipt.');
+  await controls.getByRole('button', { name: 'Stage core proposal' }).click();
+  const approve = controls.getByRole('button', { name: 'Approve and distribute core' });
+  await expect(approve).toBeDisabled(); expect(team.core.revision).toBe(0);
+  await controls.getByRole('checkbox', { name: 'I reviewed this exact core change and its evidence.' }).check();
+  await approve.click();
+  await expect(controls.getByText('Published core · revision 1')).toBeVisible();
+  await controls.getByRole('button', { name: 'Load core revision history' }).click();
+  await controls.getByRole('button', { name: 'Restore revision 1 as a proposal' }).click();
+  await expect(controls.getByLabel('Proposed team core')).toHaveValue('Checked project fact.');
+  expect(writes.length).toBe(2); // Restoring only prepares a draft; it cannot bypass approval.
+  await controls.getByRole('checkbox', { name: 'Route worker requests through the coordinator' }).check();
+  await controls.getByRole('button', { name: 'Save team distribution settings' }).click();
+  await expect(controls.getByText('Saved and synchronized. This does not mark the employee team live.')).toBeVisible();
+  incomplete = true;
+  await controls.getByRole('button', { name: 'Reconcile core draft and synchronize' }).click();
+  await expect(controls.getByRole('alert')).toContainText('change was saved, but synchronization failed');
+  await expectNoHorizontalScroll(page);
+  await page.screenshot({ path: 'test-results/employee-team-core-review-mobile.png' });
+  expect(writes.map(write => write.path)).toEqual(['/api/hermes/team/proposals', '/api/hermes/team/decisions', '/api/hermes/team/settings', '/api/hermes/team/sync']);
+  expect(state.errors).toEqual([]);
+});

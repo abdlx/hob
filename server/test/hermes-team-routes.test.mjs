@@ -1,0 +1,46 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
+import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { createApp } from '../app.mjs';
+import { HermesTeam } from '../hermes-team.mjs';
+import { HermesBotNetwork } from '../hermes-bot-network.mjs';
+
+test('only dashboard authentication can approve core; bot identity cannot be supplied in the request body', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'hob-team-http-')), workspaceRoot = path.join(root, 'workspaces');
+  await mkdir(path.join(workspaceRoot, 'main'), { recursive: true });
+  const roster = [{ name: 'default', state: 'active' }, { name: 'writer', state: 'active' }];
+  const team = new HermesTeam({ stateDir: path.join(root, 'state'), workspaceRoot, roster: () => roster });
+  const network = new HermesBotNetwork({ team, workspaceRoot, roster: async () => ({ profiles: roster }), credential: () => 'a'.repeat(64), relayUrl: 'http://localhost/api/hermes/bot-relay' });
+  const bots = { roster: () => roster, authenticate: async token => token === 'a'.repeat(64) ? roster[0] : token === 'b'.repeat(64) ? roster[1] : null, syncSharedNetwork: () => network.sync() };
+  const gateway = new EventEmitter(); gateway.connected = true;
+  const app = createApp({ gateway, hermes: gateway, bots, team, password: 'test-password', accessToken: '', sessionSecret: 'synthetic-secret', stateDir: path.join(root, 'state') });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  t.after(async () => {
+    app.closeAllConnections(); await new Promise(resolve => app.close(resolve)); team.close();
+    assert.equal(path.dirname(root), tmpdir()); assert.ok(path.basename(root).startsWith('hob-team-http-'));
+    await rm(root, { recursive: true, force: true });
+  });
+  const origin = `http://127.0.0.1:${app.address().port}`;
+  const call = (url, value, headers = {}) => fetch(origin + url, { method: value ? 'POST' : 'GET', headers: { ...(value ? { 'Content-Type': 'application/json' } : {}), ...headers }, ...(value ? { body: JSON.stringify(value) } : {}) });
+  assert.equal((await call('/api/hermes/team')).status, 401);
+  const main = { Authorization: `Bearer ${'a'.repeat(64)}` }, worker = { Authorization: `Bearer ${'b'.repeat(64)}` };
+  assert.equal((await call('/api/hermes/team', undefined, main)).status, 401);
+  const input = { content: 'Durable verified project fact.', base: 0, evidence: 'Checked artifact' };
+  assert.equal((await call('/api/hermes/bot-relay/team/core', input, worker)).status, 403);
+  assert.equal((await call('/api/hermes/bot-relay/team/core', { ...input, author: 'user' }, main)).status, 400);
+  const proposed = await call('/api/hermes/bot-relay/team/core', input, main); assert.equal(proposed.status, 201);
+  const proposal = await proposed.json();
+  const decision = { id: proposal.id, base: 0, digest: proposal.digest, decision: 'approve', confirm: true };
+  assert.equal((await call('/api/hermes/bot-relay/team/decisions', decision, main)).status, 404);
+  assert.equal((await call('/api/hermes/team/decisions', decision, main)).status, 401);
+  assert.equal(team.core().revision, 0);
+  const login = await call('/api/auth/login', { password: 'test-password' });
+  const user = { Cookie: login.headers.get('set-cookie').split(';')[0] };
+  assert.equal((await call('/api/hermes/team/decisions', decision, { ...user, Origin: 'https://other.invalid' })).status, 403);
+  const approved = await call('/api/hermes/team/decisions', decision, user); assert.equal(approved.status, 200);
+  const status = await approved.json(); assert.equal(status.core.revision, 1); assert.deepEqual(status.sync.failed, []);
+  assert.equal((await call('/api/hermes/team/decisions', decision, user)).status, 409);
+});

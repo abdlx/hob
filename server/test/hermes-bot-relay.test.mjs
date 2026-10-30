@@ -7,7 +7,7 @@ const MAIN = 'a'.repeat(64);
 const WRITER = 'b'.repeat(64);
 const EDITOR = 'c'.repeat(64);
 
-function fixture() {
+function fixture(team, output = 'the finished answer') {
   const roster = [
     { name: 'default', displayName: 'Main', display_name: 'Main', state: 'active' },
     { name: 'writer', displayName: 'Scribe', display_name: 'Scribe', state: 'active', description: 'Writes docs.' },
@@ -36,10 +36,10 @@ function fixture() {
     async *events(runId, { profile }) {
       events.push({ runId, profile });
       yield { event: 'message.delta', delta: 'partial ' };
-      yield { event: 'run.completed', output: 'the finished answer' };
+      yield { event: 'run.completed', output };
     },
   };
-  const relay = createHermesBotRelay({ client, bots });
+  const relay = createHermesBotRelay({ client, bots, team });
   const call = async (path, { method = 'GET', token, input } = {}) => {
     let status, payload;
     const req = { method, headers: token ? { authorization: `Bearer ${token}` } : {} };
@@ -55,6 +55,43 @@ function fixture() {
 
 const refuses = (promise, status, code) => assert.rejects(promise,
   error => error.status === status && (code ? error.code === code : true));
+
+const teamAssignment = 'TASK plan-1 — Prepare a plan\nOUTCOME: A checked plan file\nCONSTRAINTS: No external messages\nOUTPUT: artifacts/plan.md\nDEADLINE: none\nCORE REFS: none';
+
+test('employee-team mode denies worker-to-worker aliases before any native admission', async () => {
+  const { call, runtime, relay } = fixture({ policy: () => ({ coordinatorOnly: true }) });
+  try {
+    for (const to of ['editor', 'Editor']) await refuses(call('/send', { method: 'POST', token: WRITER, input: { to, message: 'Bypass coordinator' } }), 403, 'TEAM_COORDINATOR_REQUIRED');
+    assert.equal(runtime.length, 0);
+    const request = await call('/send', { method: 'POST', token: WRITER, input: { to: 'default', message: 'Need a coordination decision', waitMs: 20 } });
+    assert.equal(request.status, 200);
+  } finally { await relay.close(); }
+});
+
+test('team assignments require the exact fields and native completion alone does not verify results', async () => {
+  const { call, runtime, relay } = fixture({ policy: () => ({ coordinatorOnly: true }) });
+  try {
+    await refuses(call('/send', { method: 'POST', token: MAIN, input: { to: 'writer', message: 'Free-form task' } }), 400, 'TEAM_TASK_FORMAT');
+    assert.equal(runtime.length, 0);
+    const result = await call('/send', { method: 'POST', token: MAIN, input: { to: 'writer', message: teamAssignment, waitMs: 30 } });
+    assert.equal(result.body.teamTask.id, 'plan-1');
+    assert.equal(result.body.status, 'completed');
+    assert.equal(result.body.teamVerification, 'unproven');
+    assert.match(result.body.teamResultError, /pinned TASK reply/);
+    assert.doesNotMatch(runtime.find(item => item.route === '/v1/runs').body.input, /If you delegate further/);
+  } finally { await relay.close(); }
+});
+
+test('team relay blocks credential canaries and withholds sensitive output instead of sharing it', async () => {
+  const { call, runtime, relay } = fixture({ policy: () => ({ coordinatorOnly: true }) }, 'api_key=synthetic-secret-value-0123456789');
+  try {
+    await refuses(call('/send', { method: 'POST', token: MAIN, input: { to: 'writer', message: teamAssignment.replace('No external messages', 'api_key=synthetic-secret-value-0123456789') } }), 400);
+    assert.equal(runtime.length, 0);
+    const result = await call('/send', { method: 'POST', token: MAIN, input: { to: 'writer', message: teamAssignment, waitMs: 20 } });
+    assert.match(result.body.reply, /Result withheld/); assert.doesNotMatch(result.body.reply, /synthetic-secret-value/);
+    assert.equal(result.body.teamVerification, 'unproven');
+  } finally { await relay.close(); }
+});
 
 test('relay roster exposes the active display names and marks Main', async () => {
   const { call } = fixture();

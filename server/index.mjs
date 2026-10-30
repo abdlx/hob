@@ -12,6 +12,7 @@ import { cdpTransportMode } from './browser-launcher.mjs';
 import { botRelayUrl } from './hermes-bot-network.mjs';
 import { HermesBotIsolation, isolationMode } from './hermes-isolation.mjs';
 import { createHobTelemetry } from './hob-telemetry.mjs';
+import { HermesTeam } from './hermes-team.mjs';
 
 Object.assign(process.env, hobEnv());
 
@@ -54,7 +55,9 @@ const browser = await BrowserManager.open({
   stateDir: process.env.HOB_STATE_DIR,
   options: { telemetry, ...(Number.isFinite(idleMs) && idleMs >= 0 ? { idleMs } : {}), ...(isolation ? { spawnBrowser: isolation.spawnBrowser.bind(isolation) } : {}) },
 });
+const team = new HermesTeam({ stateDir: process.env.HOB_STATE_DIR, workspaceRoot: process.env.HOB_WORKSPACE_ROOT || path.join(process.env.HERMES_HOME, 'workspaces'), roster: () => registry.list() });
 const bots = new HermesBots({
+  team,
   registry, isolation,
   client: new HermesClient(clientOptions),
   workspaceRoot: process.env.HOB_WORKSPACE_ROOT || path.join(process.env.HERMES_HOME, 'workspaces'),
@@ -67,7 +70,7 @@ const gateway = new HermesClient({ ...clientOptions, profileAccess: profile => r
 const runJournal = await HermesRunJournal.open(process.env.HOB_STATE_DIR);
 const nativeSessions = new HermesSessionBridge({ telemetry, profileAccess: profile => registry.token(profile) });
 const exchanges = await HermesExchanges.open(process.env.HOB_STATE_DIR);
-const server = createApp({ gateway, bots, browser, runJournal, nativeSessions, exchanges, telemetry, ...(process.env.HOB_STATIC_DIR ? { staticDir: process.env.HOB_STATIC_DIR } : {}) });
+const server = createApp({ gateway, bots, browser, runJournal, nativeSessions, exchanges, telemetry, team, ...(process.env.HOB_STATIC_DIR ? { staticDir: process.env.HOB_STATIC_DIR } : {}) });
 gateway.start();
 const port = Number(process.env.HOB_PORT || 3000);
 const build = `${process.env.HOB_GIT_COMMIT || 'unknown'} (${process.env.HOB_GIT_REF || 'unknown'})`;
@@ -99,6 +102,19 @@ const bindBrowsers = async (attempt = 1) => {
   timer.unref?.();
 };
 void bindBrowsers();
+let teamReconciliation;
+const reconcileTeam = () => {
+  if (teamReconciliation) return;
+  if (!team.policy().revision && !team.core().revision) return;
+  teamReconciliation = (async () => {
+    await team.discoverDraft();
+    const result = await bots.syncSharedNetwork();
+    if (result.failed.length) console.warn(`Employee-team sync incomplete for ${result.failed.length} bot(s). Check Settings for details.`);
+  })().catch(() => console.warn('Employee-team source reconciliation failed. No new core was approved.'))
+    .finally(() => { teamReconciliation = undefined; });
+};
+// Reconciliation catches source edits, missed watcher events, restarts and edited copies.
+const teamTimer = setInterval(reconcileTeam, 30000); teamTimer.unref();
 // A signal must finish the graceful browser stop — that close is what flushes cookies
 // and storage to the profile — but it must also finish inside the supervisor's window:
 // `deploy/start.mjs` escalates to SIGKILL at 30 s, so wait at most 25 s and then leave.
@@ -106,6 +122,7 @@ let stopping = false;
 const shutdown = async () => {
   if (stopping) return;
   stopping = true;
+  clearInterval(teamTimer);
   nativeSessions.close();
   gateway.stop();
   server.close();

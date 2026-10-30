@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { HermesError, hermesResource, hermesProfile, hermesSessionKey } from './hermes-client.mjs';
 import { HermesExchanges } from './hermes-exchanges.mjs';
 import { createHermesWakeups } from './hermes-wakeups.mjs';
+import { parseTeamTask, parseTeamReply } from './hermes-team-protocol.mjs';
+import { containsTeamCredentials } from './hermes-team.mjs';
 
 const BASE = '/api/hermes/bot-relay';
 const terminal = new Set(['completed', 'failed', 'cancelled', 'interrupted']);
@@ -12,7 +14,7 @@ const summary = record => ({ ...record, completed: record.status === 'completed'
   sessionKey: record.sessionId ? hermesSessionKey(record.to, record.sessionId) : null });
 
 /** Each handoff has its own native session and durable correlation record. */
-export function createHermesBotRelay({ client, bots, exchanges = new HermesExchanges(), journal, bridge, onWake }) {
+export function createHermesBotRelay({ client, bots, exchanges = new HermesExchanges(), journal, bridge, onWake, team }) {
   const observers = new Map(), admissions = new Map(), controllers = new Set();
   let closed = false, timer, sweep;
   const participant = reference => bots.roster().filter(bot => bot.state === 'active')
@@ -20,6 +22,13 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
   const notify = record => client.emit?.('event', { event: 'bot.exchange', payload: { id: record.id, from: record.from, to: record.to, status: record.status } });
   const patch = async (id, value) => {
     const before = exchanges.get(id);
+    if (before.teamControlled && typeof value.reply === 'string' && containsTeamCredentials(value.reply)) value = { ...value, reply: '[Result withheld: potential credentials were detected. Ask the worker for a non-sensitive result.]', teamVerification: 'unproven' };
+    if (before.teamTask && terminal.has(value.status)) {
+      try {
+        const result = parseTeamReply(value.reply ?? before.reply, before.teamTask.id);
+        value = { ...value, teamResult: result, teamVerification: value.status === 'completed' && result.title === 'DONE' && result.fields.VERIFICATION.toLowerCase() !== 'none' ? 'self-reported' : 'unproven' };
+      } catch { value = { ...value, teamVerification: 'unproven', teamResultError: 'The native output did not satisfy the pinned TASK reply format. Inspect it before reporting completion.' }; }
+    }
     const record = exchanges.update(id, value);
     if (before.status !== record.status) notify(record);
     if (terminal.has(record.status) && !closed) queueMicrotask(() => { void tick(); });
@@ -83,8 +92,11 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
   const send = async (sender, input) => {
     const receiver = participant(input.to);
     if (!receiver) throw new HermesError(404, 'That bot is not active in this dashboard.', 'BOT_NOT_FOUND');
+    if (team?.policy().coordinatorOnly && sender.name !== 'default' && receiver.name !== 'default') throw new HermesError(403, 'Employee-team workers must route requests through the coordinator.', 'TEAM_COORDINATOR_REQUIRED');
     if (receiver.name === sender.name) throw invalid('Send the message to another bot.');
     if (typeof input.message !== 'string' || !input.message.trim() || input.message.length > 64000) throw invalid('Enter a message under 64,000 characters.');
+    if (team?.policy().coordinatorOnly && containsTeamCredentials(input.message)) throw invalid('Potential credentials cannot be sent through employee-team messages.');
+    const teamTask = team?.policy().coordinatorOnly && sender.name === 'default' ? parseTeamTask(input.message) : null;
     const waitMs = input.waitMs === undefined ? 120000 : input.waitMs;
     if (typeof waitMs !== 'number' || !Number.isFinite(waitMs) || waitMs < 0 || waitMs > 600000) throw invalid('Choose a relay wait between zero and ten minutes.');
     const requestKey = input.requestId ?? randomUUID();
@@ -104,14 +116,17 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
     if (!existing && !admission) {
       if (exchanges.pending().filter(record => record.to === receiver.name).length >= 8) throw new HermesError(429, 'This bot already has eight active handoffs. Wait for a result before sending more work.', 'RELAY_BUSY');
       const record = exchanges.create({ requestKey, from: sender.name, fromName: label(sender), to: receiver.name, toName: label(receiver), message: input.message, sourceSession, ancestry, parentExchangeId: parent?.id || null,
-        wakeOnComplete: Boolean(bridge), relayHelpers: Object.fromEntries([sender.name, 'default'].map(name => [name, bots.relayHelper?.(name) || '.hob/talk.mjs'])) });
+        ...(team?.policy().coordinatorOnly ? { teamControlled: true } : {}), ...(teamTask ? { teamTask, teamVerification: 'unproven' } : {}), wakeOnComplete: Boolean(bridge), relayHelpers: Object.fromEntries([sender.name, 'default'].map(name => [name, bots.relayHelper?.(name) || '.hob/talk.mjs'])) });
       notify(record);
       admission = (async () => {
         try {
           const created = await client.runtime('/api/sessions', { profile: receiver.name, method: 'POST', body: { title: `${record.fromName} → ${record.toName} · ${record.id.slice(0, 8)}` } });
           const sessionId = created?.session?.id ?? created?.id; hermesResource(sessionId);
           exchanges.update(record.id, { sessionId });
-          const prompt = `[HOB relay from ${record.fromName} (${record.from})]\nExchange: ${record.id}. Complete this request with your own tools and reply with the result. Your reply returns to the caller automatically; do not message the caller to return it. If you delegate further, use node .hob/talk.mjs send <bot> <message> --parent ${record.id}. Share only context needed for the work.\n\n${record.message}`;
+          const delegation = team?.policy().coordinatorOnly && record.to !== 'default'
+            ? 'If another bot is needed, ask the coordinator (default); do not message another worker.'
+            : `If you delegate further, use node .hob/talk.mjs send <bot> <message> --parent ${record.id}.`;
+          const prompt = `[HOB relay from ${record.fromName} (${record.from})]\nExchange: ${record.id}. Complete this request with your own tools and reply with the result. Your reply returns to the caller automatically; do not message the caller to return it. ${delegation} Share only context needed for the work.\n\n${record.message}`;
           if (journal) await journal.reserve(hermesSessionKey(record.to, sessionId), { input: prompt, requestKey: record.id, credentialBinding: await client.credentialBinding(record.to) });
           const run = await client.runtime('/v1/runs', { profile: record.to, method: 'POST', idempotencyKey: record.id, body: { session_id: sessionId, input: prompt } });
           hermesResource(run?.run_id);
@@ -138,6 +153,11 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
     const sender = await bots.authenticate(/^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization || '')?.[1]);
     if (!sender) throw new HermesError(401, 'A bot relay credential is required.', 'RELAY_UNAUTHORIZED');
     const tail = url.pathname.slice(BASE.length);
+    if (team && tail === '/team/core' && req.method === 'POST') {
+      const value = await body(req);
+      if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['content', 'base', 'evidence'].includes(key))) throw invalid('Unsupported core proposal fields.');
+      return json(res, 201, team.propose({ ...value, author: sender.name }));
+    }
     if (tail === '/roster' && req.method === 'GET') return json(res, 200, { self: sender.name,
       bots: bots.roster().filter(bot => bot.state === 'active').map(bot => ({ id: bot.name, name: label(bot), tags: bot.tags || [], description: text(bot.description), model: text(bot.model), main: bot.name === 'default', available: true })) });
     if (tail === '/send' && req.method === 'POST') {

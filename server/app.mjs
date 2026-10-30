@@ -14,6 +14,7 @@ import { createHermesSetupRoutes } from './hermes-setup.mjs';
 import { createHermesGroups } from './hermes-groups.mjs';
 import { createHermesMcpOAuth } from './hermes-mcp-oauth.mjs';
 import { createHermesBotRelay } from './hermes-bot-relay.mjs';
+import { createHermesTeamRoutes } from './hermes-team-routes.mjs';
 import { createBrowserRoutes } from './browser-routes.mjs';
 import { createAgentComputerRoutes } from './agent-computer-routes.mjs';
 import { MobileDevices } from './mobile-devices.mjs';
@@ -114,7 +115,7 @@ async function browserImage(stateDir, filename) {
   } finally { await handle?.close(); await rootHandle.close(); }
 }
 
-export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gateway : undefined, bots, browser, runJournal, nativeSessions, exchanges, telemetry, password = hobEnv().HOB_PASSWORD, accessToken = hobEnv().HOB_ACCESS_TOKEN, sessionSecret = hobEnv().HOB_SESSION_SECRET, publicUrl = hobEnv().HOB_PUBLIC_URL, secureCookies = hobEnv().HOB_SECURE_COOKIES === 'true', stateDir = process.env.OPENCLAW_STATE_DIR, viewerTicketTtlMs, sessionNow = Date.now, staticDir = fileURLToPath(new URL('../web/dist', import.meta.url)) }) {
+export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gateway : undefined, bots, browser, runJournal, nativeSessions, exchanges, telemetry, team, password = hobEnv().HOB_PASSWORD, accessToken = hobEnv().HOB_ACCESS_TOKEN, sessionSecret = hobEnv().HOB_SESSION_SECRET, publicUrl = hobEnv().HOB_PUBLIC_URL, secureCookies = hobEnv().HOB_SECURE_COOKIES === 'true', stateDir = process.env.OPENCLAW_STATE_DIR, viewerTicketTtlMs, sessionNow = Date.now, staticDir = fileURLToPath(new URL('../web/dist', import.meta.url)) }) {
   const configured = Boolean(password || accessToken);
   const secret = sessionSecret || createHash('sha256').update(`hob-session:${password || accessToken || randomBytes(32).toString('hex')}`).digest();
   const fingerprint = createHash('sha256').update(`${password || ''}:${accessToken || ''}`).digest('base64url');
@@ -162,7 +163,8 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat, attachmentSecret: secret, onCompleted: notifyCompleted, recoverCompleted: Boolean(artifacts), telemetry }) : null;
   // The relay authenticates each bot with its own relay-scoped credential, not the
   // dashboard session, so it is mounted before the `/api/*` login gate.
-  const botRelay = hermes && bots ? createHermesBotRelay({ client: hermes, bots, exchanges, journal: runJournal, bridge: nativeSessions, onWake: key => canonicalChat?.watch(key) }) : null;
+  const botRelay = hermes && bots ? createHermesBotRelay({ client: hermes, bots, exchanges, journal: runJournal, bridge: nativeSessions, team, onWake: key => canonicalChat?.watch(key) }) : null;
+  const teamRoutes = team && bots ? createHermesTeamRoutes({ team, bots }) : null;
   // The managed browser is only meaningful with a bot roster to scope it to.
   const browserRoutes = browser && bots ? createBrowserRoutes({
     browser, json, body, startEvents, sendEvent,
@@ -323,6 +325,10 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
       if (route.startsWith('/api/')) {
         if (!authenticated(req)) throw new HttpError(401, 'Sign in to hob.');
         renewCookie(req, res);
+        if (route === '/api/hermes/team' || route.startsWith('/api/hermes/team/')) {
+          if (!teamRoutes) throw new HttpError(503, 'Employee-team controls are unavailable on this server.');
+          return await teamRoutes(req, res, url, { json, body });
+        }
         if (route.startsWith('/api/mobile/')) {
           const deviceId = mobile.authenticate(req.headers.authorization);
           if (!deviceId) throw new HttpError(401, 'Sign in from the mobile app.');

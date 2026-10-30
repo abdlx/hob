@@ -250,7 +250,7 @@ export class HermesBots {
   #metadata = new Map();
   #settingUp = new Set();
   #identityQueue = Promise.resolve();
-  constructor({ registry, client, workspaceRoot, browser, network, relayUrl, isolation }) {
+  constructor({ registry, client, workspaceRoot, browser, network, relayUrl, isolation, team }) {
     this.#registry = registry; this.#client = client; this.#browser = browser; this.#isolation = isolation;
     this.#workspaceRoot = path.resolve(workspaceRoot, 'bots');
     this.#network = network ?? (relayUrl ? new HermesBotNetwork({
@@ -258,6 +258,7 @@ export class HermesBots {
       credential: name => this.#registry.relayToken(name),
       workspaceRoot: path.resolve(workspaceRoot),
       relayUrl, fileMode: isolation ? 0o640 : 0o600,
+      team,
     }) : null);
   }
   /**
@@ -405,6 +406,7 @@ export class HermesBots {
     const network = this.#network ? await this.#network.sync() : { updated: [], failed: [] };
     return { updated: network.updated, failed: [...failed, ...network.failed] };
   }
+  syncSharedNetwork() { return this.#network?.sync() ?? Promise.resolve({ updated: [], failed: [] }); }
   /** Serialize personality writes with identity edits, so an editor cannot erase the identity. */
   saveSoul(name, content) {
     const work = this.#identityQueue.then(async () => {

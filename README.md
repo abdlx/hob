@@ -46,6 +46,8 @@ Hermes source is vendored only as a reference. The image applies checksum-guarde
 
 In **Settings → Plugins & integrations**, browse app tiles and open a tile for its full details and install controls. In **Settings → Automation**, select a bot's native conversation to start a goal or configure a heartbeat, including pause, resume and clear. Scheduled tasks use Hermes's own scheduler; `0 9 * * *` runs daily at 9 AM in the bot's configured timezone. Background handoff results are delivered to the caller and Main through Hermes's **Bot Chat**, while each exchange keeps its own transcript.
 
+The coordinator's **Settings → Memory & history → Shared team core & documents** includes an opt-in employee-team preview: review and approve core revisions, restore a historical revision as a new proposal, synchronize eligible shared text documents, and optionally require workers to route requests through the coordinator. These controls do not make the employee team live: native context/privacy, artifact handoffs, paid-execution restrictions, and device acceptance remain pending. See the [implementation checkpoint](docs/employee-team-implementation.md).
+
 ## Contents
 
 - [Android and iPhone app](mobile/README.md)
@@ -385,6 +387,7 @@ When a backend is unavailable, hob surfaces the failure instead of presenting a 
 - [End-to-end test notes](server/e2e/README.md)
 - [Frontend notes](web/README.md)
 - [Brand and logo notes](web/public/brand/README.md)
+- [Employee-team implementation checkpoint](docs/employee-team-implementation.md)
 
 ## Contributing
 

@@ -4,6 +4,8 @@ import { constants } from 'node:fs';
 import { lstat, mkdir, open, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { hermesProfile } from './hermes-client.mjs';
+import { CORE_START, CORE_END, coreBlock } from './hermes-team.mjs';
+import { TASK_FORMAT, REPLY_FORMAT } from './hermes-team-protocol.mjs';
 
 // HOB's bot-to-bot network is intentionally made of two ordinary files in each
 // bot's own workspace: a small relay client and a managed block in AGENTS.md.
@@ -89,6 +91,7 @@ try {
     console.error('Relay request: ' + lastRequestId);
     const body = await call('/send', { method: 'POST', body: JSON.stringify({ to: args[0], message: args.slice(1).join(' '), waitMs, requestId: lastRequestId, sourceSession: process.env.HERMES_UI_SESSION_ID || process.env.HERMES_SESSION_ID || undefined, parentExchangeId }) });
     console.log('Exchange: ' + body.id + ' (' + body.status + ')');
+    if (body.teamTask) console.log('Team result verification: ' + (body.teamVerification || 'unproven') + '. Native completion is not independent verification. Check the result and saved files before reporting success.');
     if (typeof body.reply === 'string' && body.reply.trim()) console.log(body.reply);
     else console.log('Message accepted by ' + (body.toName || body.to) + '. Read its status with: node .hob/talk.mjs status ' + body.id + '. The exchange is also visible in both bot chats.');
   } else if (command === 'status') {
@@ -106,7 +109,7 @@ try {
 `;
 }
 
-const managedBlock = (self, roster) => {
+const managedBlock = (self, roster, coordinatorOnly = false) => {
   const main = self.name === 'default';
   const lines = [
     START,
@@ -127,10 +130,12 @@ const managedBlock = (self, roster) => {
     '',
     main
       ? 'You may message any active bot. Delegate clear, self-contained work, include the outcome you need, and wait for the reply before reporting success. Treat a bot reply as that bot’s own work, not as your own.'
+      : coordinatorOnly ? 'You may message only the coordinator (stable id: `default`). Ask the coordinator for work needing another bot. Return assigned results through your normal reply; never send a circular completion message.'
       : 'You may contact any active teammate directly when its role fits the work. Keep the main coordinator (`default`) informed of blockers and results. Return results to the calling bot through your normal reply; never start a circular exchange.',
     'Each send creates a separate, inspectable exchange and native conversation. The recipient receives only the context you send. For further delegation from an exchange, include --parent <exchange-id> from its request. Never delegate back to an ancestor. Do not claim a timed-out exchange failed; use node .hob/talk.mjs status <exchange-id> to check it. Use independent tasks for parallel delegation. For recurring work, use Hermes native scheduled jobs; no schedule exists until Hermes confirms it.',
     'The relay is a real message to another bot, which acts with its own tools, workspace, memory and approvals. Never claim another bot completed work without its reply. Do not send secrets, credentials, or tokens through bot messages.',
     'Save final deliverables under artifacts/ in your assigned workspace. Copy completed scratch outputs there before reporting delivery, and link the actual saved file. Keep intermediate files separate. Match the user’s requested language in replies and conversation titles; use the conversation language for Roman Urdu and mixed-language chats, and do not import another bot or project’s language preference.',
+    ...(coordinatorOnly ? ['', 'Employee-team assignments and replies use these exact fields, in order. Indent multiline continuations by two spaces. A worker OUTPUT is relative to its own workspace; ask the coordinator to publish a nominated artifact.', '```text', TASK_FORMAT, '```', '```text', REPLY_FORMAT, '```', 'A session-only fact stays in that session, including its summary. Do not write it to private memory, shared docs or core. Propose eligible core changes to the coordinator; only a user-approved revision is distributed. A DONE reply is self-reported until the coordinator verifies the actual files and result. Attribute worker results by their configured names. External facts require source and observation time; label stale observations stale.'] : []),
     END,
   ];
   return lines.join('\n');
@@ -173,9 +178,10 @@ export class HermesBotNetwork {
   #relayUrl;
   #credential;
   #fileMode;
+  #team;
   #queue = Promise.resolve();
 
-  constructor({ roster, workspaceRoot, relayUrl, credential, fileMode = 0o600 }) {
+  constructor({ roster, workspaceRoot, relayUrl, credential, fileMode = 0o600, team }) {
     if (typeof roster !== 'function') throw new Error('A bot roster reader is required.');
     if (typeof workspaceRoot !== 'string' || !workspaceRoot) throw new Error('A bot workspace root is required.');
     let endpoint;
@@ -188,6 +194,7 @@ export class HermesBotNetwork {
     this.#credential = credential;
     if (![0o600, 0o640].includes(fileMode)) throw new Error("Invalid managed helper mode.");
     this.#fileMode = fileMode;
+    this.#team = team;
   }
 
   workspace(name) {
@@ -207,18 +214,26 @@ export class HermesBotNetwork {
     const roster = profiles.filter(bot => !bot.state || bot.state === 'active');
     const updated = [];
     const failed = [];
+    let shared;
+    try { shared = await this.#team?.snapshot(); }
+    catch {
+      for (const bot of roster) this.#team.recordSync(bot.name, { status: 'failed', error: 'Shared source could not be read safely. The last complete revision may be stale.' });
+      return { updated, failed: roster.map(bot => ({ name: bot.name, error: 'Shared source could not be read safely. No new revision was distributed.' })) };
+    }
     for (const bot of roster) {
       try {
-        await this.#write(bot, roster);
+        await this.#write(bot, roster, shared);
+        if (shared) this.#team.recordSync(bot.name, { revision: shared.core.revision, digest: shared.digest, status: 'synced', skipped: shared.skipped });
         updated.push(bot.name);
       } catch (error) {
+        if (shared) this.#team.recordSync(bot.name, { revision: shared.core.revision, digest: shared.digest, status: 'failed', error: 'This bot did not finish synchronization. Retry after repairing its managed files.' });
         failed.push({ name: bot.name, error: error.message });
       }
     }
     return { updated, failed };
   }
 
-  async #write(bot, roster) {
+  async #write(bot, roster, shared) {
     const workspace = this.workspace(bot.name);
     const hidden = path.join(workspace, '.hob');
     const token = await this.#credential(bot.name);
@@ -248,9 +263,13 @@ export class HermesBotNetwork {
       }
       const filename = path.join(targetWorkspace, 'AGENTS.md');
       const existing = await readAgents(filename);
+      for (const [start, end] of [[START, END], [CORE_START, CORE_END]]) {
+        const starts = existing.split(start).length - 1, ends = existing.split(end).length - 1;
+        if (starts !== ends || starts > 1 || starts && existing.indexOf(end) < existing.indexOf(start)) throw new Error('Repair malformed managed blocks in AGENTS.md before synchronization.');
+      }
       await atomicWrite(path.join(targetHidden, 'relay.json'), JSON.stringify({ version: 1, token }) + '\n', this.#fileMode);
       await atomicWrite(path.join(targetHidden, 'talk.mjs'), talkClient(this.#relayUrl), this.#fileMode);
-      const block = managedBlock(bot, roster);
+      const block = managedBlock(bot, roster, shared?.policy.coordinatorOnly);
       let next;
       if (existing.includes(START) && existing.includes(END)) {
         // Function replacement keeps `$&` in authored identity text literal.
@@ -258,7 +277,15 @@ export class HermesBotNetwork {
       } else {
         next = existing.trimEnd() ? `${existing.trimEnd()}\n\n${block}\n` : `${block}\n`;
       }
-      await atomicWrite(filename, next, this.#fileMode);
+      if (shared) {
+        // Managed instructions precede authored role notes, which remain byte-for-byte intact.
+        const notes = existing.replace(/<!-- HOB:BOT-ROSTER:START -->[\s\S]*?<!-- HOB:BOT-ROSTER:END -->/, '')
+          .replace(/<!-- HOB:TEAM-CORE:START -->[\s\S]*?<!-- HOB:TEAM-CORE:END -->/, '');
+        next = `${block}\n\n${coreBlock(shared.core)}${shared.core.revision ? '\n\n' : ''}${notes}`;
+        this.#team.recordSync(bot.name, { revision: shared.core.revision, digest: shared.digest, status: 'syncing' });
+        await this.#team.copyDocuments(bot.name, targetWorkspace, shared);
+      }
+      if (next !== existing) await atomicWrite(filename, next, this.#fileMode);
     } finally { await Promise.all(handles.map(handle => handle.close())); }
   }
 }
