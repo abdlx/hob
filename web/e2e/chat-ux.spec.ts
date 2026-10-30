@@ -177,7 +177,7 @@ test('a notification opens its verified conversation from the mobile bot directo
   const state = await fixture(page);
   await page.goto('/chat');
   await page.getByRole('button', { name: 'Open navigation' }).click();
-  await page.getByRole('dialog', { name: 'Navigation' }).getByRole('button', { name: 'Bots', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Conversations', exact: true }).getByRole('button', { name: 'Bots', exact: true }).click();
   await expect(page.getByRole('listitem').filter({ has: page.getByText('Main', { exact: true }) })).toBeVisible();
   await page.evaluate(() => {
     window.__hobPendingConversation = { profile: 'default', sessionKey: 'ux-session' };

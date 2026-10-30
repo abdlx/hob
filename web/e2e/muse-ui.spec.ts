@@ -6,6 +6,7 @@ const orbitAvatar = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http
 const image = readFileSync(new URL('../public/brand/hob-mark.png', import.meta.url)).toString('base64');
 async function fixture(page: Page) {
   const errors: string[] = [], writes: string[] = [];
+  const sessions = [{ id: 'reference-session', agentId: 'default', title: 'HyperFrames test', transport: 'canonical', createdAt: '2026-10-30T09:00:00Z' }];
   const jobs = [
     { id: 'study', name: 'ACCA FA1 and MA1 7-week study push', prompt: 'Pace is now at risk: keep making progress through November 6.', schedule: '0 9 * * *', enabled: true, next_run_at: '2026-10-31T09:08:00+05:00' },
     { id: 'film', name: 'Watermelon Hulk vs. Banana prison mess hall film', prompt: 'Part 2 prompt pack is built and Clip 1 accepted as generated.', schedule: '0 10 * * *', enabled: true },
@@ -22,7 +23,16 @@ async function fixture(page: Page) {
     if (path === '/api/events') return route.fulfill({ contentType: 'text/event-stream', body: 'event: connection\ndata: {"connected":true}\n\n' });
     if (path === '/api/agents') return json({ agents: [{ id: 'default', name: 'Aster', avatarUrl: '/brand/hob-mark.png' }, { id: 'orbit', name: 'Orbit', avatarUrl: orbitAvatar }] });
     if (path === '/api/agent') { const orbit = request.headers()['x-hob-profile'] === 'orbit'; return json({ id: orbit ? 'orbit' : 'default', name: orbit ? 'Orbit' : 'Aster', status: 'connected', avatarUrl: orbit ? orbitAvatar : '/brand/hob-mark.png' }); }
-    if (path === '/api/sessions') return json([{ id: 'reference-session', agentId: request.headers()['x-hob-profile'] || 'default', title: 'HyperFrames test', transport: 'canonical', createdAt: '2026-10-30T09:00:00Z' }]);
+    if (path === '/api/sessions') {
+      const profile = request.headers()['x-hob-profile'] || 'default';
+      if (request.method() === 'POST') {
+        const session = { id: 'created-session', agentId: profile, title: request.postDataJSON().title, transport: 'canonical', createdAt: '2026-10-30T10:00:00Z' };
+        sessions.unshift(session);
+        return json(session);
+      }
+      return json(sessions.map(session => ({ ...session, agentId: profile })));
+    }
+    if (path === '/api/sessions/created-session/messages') return json([]);
     if (path.endsWith('/messages')) return json([{ id: 'reply', role: 'assistant', content: 'What this proves: the render works end to end here, with frame-accurate animation and encoding.\n\nWhat it doesn’t prove: anything about a real production film. This is a small test with generic text.\n\nWhat next?', timestamp: '2026-10-30T09:18:00Z' }]);
     if (path.endsWith('/run')) return json({ run: null });
     if (path === '/api/tasks') return json([
@@ -36,6 +46,8 @@ async function fixture(page: Page) {
     if (path === '/api/hermes/groups') return json({ groups: [] });
     if (path === '/api/hermes/exchanges') return json({ exchanges: [], nextBefore: null });
     if (path === '/api/hermes/workspace/jobs') return json(jobs);
+    if (path === '/api/hermes/workspace/skills') return json([]);
+    if (path === '/api/hermes/workspace/reviews/skills') return json({ items: [], nextOffset: null });
     if (path.endsWith('/study/pause')) { jobs[0].enabled = false; return json({ ok: true }); }
     if (path === '/api/hermes/workspace/learning') return json({ nodes: [] });
     if (path === '/api/hermes/workspace/soul') return json({ content: '# Soul\nBe thoughtful and helpful.' });
@@ -65,6 +77,75 @@ async function fixture(page: Page) {
 
 test.use({ viewport: { width: 393, height: 800 } });
 
+test('the new conversation action creates one session and the unified sidebar lists it', async ({ page }) => {
+  const state = await fixture(page);
+  await page.goto('/chat');
+  const create = page.getByRole('button', { name: 'New conversation', exact: true });
+  await expect(create).toBeEnabled();
+  await expect(create).toHaveCount(1);
+  await create.click();
+  await expect(page.getByRole('heading', { name: 'What can I help you with?' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Open navigation' }).click();
+  const sidebar = page.getByRole('dialog', { name: 'Conversations', exact: true });
+  await expect(sidebar).toHaveCount(1);
+  await expect(sidebar.getByRole('button', { name: 'New Chat', exact: true })).toHaveCount(0);
+  await expect(sidebar.getByText('New Conversation', { exact: true })).toBeVisible();
+  expect(state.writes).toEqual(['POST /api/sessions']);
+  expect(state.errors).toEqual([]);
+});
+
+test('one bottom bar keeps the same bounds across every tab and chat mounts only one composer', async ({ page }) => {
+  const state = await fixture(page);
+  await page.goto('/chat');
+  const dock = page.getByRole('navigation', { name: 'Mobile navigation' });
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeEnabled();
+  for (const viewport of [{ width: 393, height: 800 }, { width: 320, height: 740 }]) {
+    await page.setViewportSize(viewport);
+    const original = (await dock.boundingBox())!;
+    for (const label of ['Activity', 'Workshop', 'Goals', 'Library', 'Chat']) {
+      await dock.getByRole('button', { name: label, exact: true }).click();
+      await expect(dock.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-current', 'page');
+      await expect(page.locator('.hob-mobile-dock')).toHaveCount(1);
+      const bounds = (await dock.boundingBox())!;
+      expect(bounds.height).toBe(72);
+      expect(bounds.y).toBe(original.y);
+      expect(bounds.y + bounds.height).toBe(viewport.height);
+      expect(bounds.width).toBe(viewport.width);
+    }
+    await expect(page.locator('textarea[aria-label="Message"]')).toHaveCount(1);
+  }
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Keep this draft through a layout change');
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await expect(page.locator('textarea[aria-label="Message"]')).toHaveCount(1);
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Keep this draft through a layout change');
+  await page.getByRole('button', { name: 'Show bots', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Create new bot', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'New Bot', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Manage in Settings', exact: true })).toHaveCount(0);
+  expect(state.errors).toEqual([]);
+});
+
+test('settings exposes every original category once using grouped rows', async ({ page }) => {
+  const state = await fixture(page);
+  await page.goto('/settings');
+  const categories = page.getByRole('navigation', { name: 'Settings categories' });
+  await expect(categories.getByRole('button')).toHaveCount(11);
+  for (const label of ['General', 'Models & providers', 'Agents & bots', 'Tools & computer', 'Plugins & integrations', 'Skills', 'Memory & history', 'Learning & approvals', 'Automation', 'Channels & messaging', 'Advanced configuration']) {
+    await expect(categories.getByRole('button', { name: label, exact: true })).toHaveCount(1);
+  }
+  await expect(page.getByRole('button', { name: 'Connectors', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Secure credentials store', exact: true })).toHaveCount(0);
+  await page.screenshot({ path: 'test-results/settings-original-categories-mobile.png' });
+  await categories.getByRole('button', { name: 'General', exact: true }).click();
+  await expect(categories).toBeHidden();
+  await expect(page.getByRole('group', { name: 'Color theme' })).toBeVisible();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(categories).toBeVisible();
+  await expect(categories.getByRole('button')).toHaveCount(11);
+  expect(state.errors).toEqual([]);
+});
+
 test('each screen uses the selected bot identity and the avatar sits in front of its tag', async ({ page }) => {
   const state = await fixture(page);
   await page.goto('/chat');
@@ -80,7 +161,7 @@ test('each screen uses the selected bot identity and the avatar sits in front of
       && imageBounds.bottom > tagBounds.top && imageBounds.bottom <= nameBounds.top;
   })).toBe(true);
   await page.getByRole('button', { name: 'Open navigation' }).click();
-  await page.getByRole('dialog', { name: 'Navigation' }).getByRole('button', { name: 'Bots', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Conversations', exact: true }).getByRole('button', { name: 'Bots', exact: true }).click();
   await page.getByRole('listitem').filter({ has: page.getByText('Orbit', { exact: true }) }).click();
   await expect(profile).toHaveText('Orbit');
   await expect(profile.locator('img')).toHaveAttribute('src', orbitAvatar);
@@ -147,6 +228,7 @@ test('artifact and media tabs support previews, overflow tools, scrolling and na
   await page.goto('/library');
   await expect(page.getByRole('tab', { name: 'Artifacts', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('button', { name: 'Open agent details and activity', exact: true })).toBeVisible();
+  await expect(page.locator('button[aria-label="Preview FA1_Kaplan_Exam_Kit_2025-26.md"]')).toHaveCount(1);
   await page.screenshot({ path: 'test-results/muse-artifacts.png' });
   await page.getByRole('button', { name: 'Preview FA1_Kaplan_Exam_Kit_2025-26.md', exact: true }).filter({ visible: true }).click();
   await expect(page.getByRole('dialog').getByLabel('File contents')).toHaveText('# Study material');
@@ -172,15 +254,15 @@ test('settings directory opens appearance, returns home, and preserves the five-
   await expect(dock.getByRole('button')).toHaveCount(5);
   await expect(dock.getByRole('button', { name: 'Settings', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Open navigation' }).click();
-  const sidebar = page.getByRole('dialog', { name: 'Navigation' });
+  const sidebar = page.getByRole('dialog', { name: 'Conversations', exact: true });
   const sidebarSettings = sidebar.getByRole('button', { name: 'Settings', exact: true });
   await expect(sidebarSettings).toBeVisible();
   expect((await sidebarSettings.boundingBox())!.y).toBeGreaterThan(700);
   await page.screenshot({ path: 'test-results/muse-sidebar.png' });
   await sidebarSettings.click();
-  await expect(page.getByRole('button', { name: 'Connectors', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Plugins & integrations', exact: true })).toBeVisible();
   await page.goBack();
-  await page.getByRole('button', { name: 'Conversations', exact: true }).click();
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
   const conversations = page.getByRole('dialog', { name: 'Conversations', exact: true });
   const conversationSettings = conversations.getByRole('button', { name: 'Settings', exact: true });
   await expect(conversationSettings).toBeVisible();
@@ -199,13 +281,13 @@ test('settings directory opens appearance, returns home, and preserves the five-
   await botSettings.click();
   await expect(page).toHaveURL(/\/settings$/);
   await page.screenshot({ path: 'test-results/muse-settings.png' });
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.getByRole('button', { name: 'General', exact: true }).click();
   await expect(page.getByRole('group', { name: 'Color theme' })).toBeVisible();
   await page.getByRole('button', { name: 'Light', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.getByRole('button', { name: 'Dark', exact: true }).click();
-  await page.locator('.hob-settings-back').click();
-  await expect(page.getByRole('button', { name: 'Connectors', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Plugins & integrations', exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(state.writes).toEqual([]);
   expect(state.errors).toEqual([]);

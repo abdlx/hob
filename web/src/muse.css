@@ -108,35 +108,15 @@ button { font-family: inherit; }
 .hob-menu-button { position: relative; }
 .hob-bot-tag { margin-left: 6px; font-size: 10px; font-weight: 400; color: var(--color-muted); }
 .hob-menu-button i { position: absolute; top: 3px; right: 3px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-accent); }
-.hob-desktop-panel-toggle { display: none; }
-.hob-navigation-sheet {
-  position: fixed;
-  inset: 0 auto 0 0;
-  width: min(340px, 88vw);
-  height: 100dvh;
-  max-height: 100dvh;
-  margin: 0;
-  padding: 20px 20px max(28px, env(safe-area-inset-bottom));
-  border: 1px solid var(--color-hair);
-  border-radius: 0 24px 24px 0;
-  color: var(--color-ink);
-  background: var(--color-panel);
-}
-.hob-navigation-sheet[open] { display: flex; flex-direction: column; }
-.hob-navigation-sheet > button:last-child { margin-top: auto; }
-.hob-navigation-sheet::backdrop { background: #0008; backdrop-filter: blur(5px); }
-.hob-sheet-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.hob-sheet-heading h2 { font-size: 24px; font-weight: 600; }
-.hob-navigation-sheet > button { display: flex; align-items: center; gap: 16px; width: 100%; padding: 16px 8px; text-align: left; border-radius: 12px; font-size: 17px; }
-.hob-navigation-sheet > button:hover { background: var(--hob-control); }
 .hob-mobile-dock {
   width: 100%;
-  height: 72px;
-  flex-shrink: 0;
+  height: calc(72px + env(safe-area-inset-bottom, 0px));
+  min-height: calc(72px + env(safe-area-inset-bottom, 0px));
+  flex: 0 0 calc(72px + env(safe-area-inset-bottom, 0px));
   display: flex;
   justify-content: space-evenly;
   align-items: center;
-  padding: 4px 28px 0;
+  padding: 4px 28px env(safe-area-inset-bottom, 0px);
   background: var(--color-canvas);
 }
 .hob-mobile-dock button { display: grid; place-items: center; width: 48px; height: 48px; min-width: 44px; padding: 0; color: var(--hob-icon-idle); background: transparent; }
@@ -219,7 +199,6 @@ button { font-family: inherit; }
 .hob-settings-group > button > span { flex: 1; }
 .hob-settings-group > button > svg:last-child { color: var(--color-muted); }
 .hob-settings-group > button > svg { flex-shrink: 0; }
-.hob-settings-back { align-items: center; gap: 8px; margin-bottom: 16px; color: var(--color-muted); }
 .hob-voice-slot:has(section) { position: absolute; bottom: 100%; left: 24px; right: 24px; z-index: 30; }
 
 @media (min-width: 768px) {
@@ -228,9 +207,6 @@ button { font-family: inherit; }
   .hob-profile-button { position: static; transform: none; flex-direction: row; gap: 10px; margin-right: auto; padding: 4px 12px 4px 4px; background: var(--color-panel); border-radius: 40px; }
   .hob-profile-button > div { width: 40px !important; height: 40px !important; }
   .hob-profile-name { margin: 0; padding: 0; min-height: 0; background: transparent; }
-  .hob-reference-header > .hob-menu-button { display: none; }
-  .hob-desktop-panel-toggle { display: flex; }
-  .hob-workspace-profile { display: none; }
   .hob-agent-scroll { padding: 24px 16px; }
   .hob-agent-profile h2 { margin-top: 16px; }
   .hob-agent-profile > p { font-size: 14px; }
@@ -241,7 +217,6 @@ button { font-family: inherit; }
   .hob-goal-row { padding: 12px 0 22px; }
   .hob-create-goal { margin-top: 24px; }
   .hob-create-goal > button { max-width: 500px; }
-  .hob-settings-back { display: none; }
 }
 
 @media (max-width: 767px) {
@@ -249,28 +224,19 @@ button { font-family: inherit; }
   .hob-panel-center { background: var(--color-canvas); }
   .hob-reference-header::before { content: ''; position: absolute; z-index: -1; inset: 0 0 auto; height: 150px; background: linear-gradient(var(--color-canvas) 8%, color-mix(in srgb, var(--color-canvas) 95%, transparent) 32%, transparent); pointer-events: none; }
   .hob-workspace-profile { position: absolute; height: 160px; }
-  .hob-workspace-titlebar { display: none; }
   .hob-workspace-scroll { padding: 160px 15px 20px; }
   .hob-workspace-scroll > div { max-width: none; }
-  .hob-workspace-bot-selector { display: none; }
   .hob-workspace-settings { padding-top: 85px; background: var(--color-panel); }
-  .hob-panel-center:has(.hob-workspace-settings) .hob-workspace-titlebar { display: flex; position: absolute; z-index: 20; inset: 0 0 auto; height: 80px; justify-content: center; border: 0; background: linear-gradient(var(--color-panel) 65%, transparent); padding: 24px 15px 10px; }
-  .hob-panel-center:has(.hob-workspace-settings) .hob-workspace-titlebar h1 { font-size: 17px; }
-  .hob-panel-center:has(.hob-workspace-settings) .hob-workspace-titlebar > button { position: absolute; left: 15px; display: grid; place-items: center; padding: 0; width: 46px; height: 46px; border-radius: 50%; background: var(--hob-control); color: var(--color-ink); }
-  .hob-panel-center:has(.hob-workspace-settings) .hob-workspace-titlebar > button svg { width: 23px; height: 23px; }
-  .hob-settings-root:not(.hob-settings-detail) > .settings-workspace { display: none; }
-  .hob-settings-root:not(.hob-settings-detail) .hob-settings-back { display: none; }
+  .hob-settings-layout { display: block; }
+  .hob-settings-root:not(.hob-settings-detail) .hob-settings-content { display: none; }
   .hob-settings-detail .hob-settings-directory { display: none; }
-  .hob-settings-detail .hob-settings-back { display: flex; }
-  .hob-panel-center:has(.hob-workspace-settings) > div > div:last-child:has(.hob-mobile-dock) { display: none; }
-  .hob-composer { padding: 6px 15px 0 !important; gap: 14px; background: var(--color-canvas); }
+  .hob-composer { padding: 6px 15px 14px !important; gap: 4px; background: var(--color-canvas); }
   .hob-composer form > div { border: 0; border-radius: 28px; background: var(--color-panel); box-shadow: none; }
   .hob-composer form > div:focus-within { box-shadow: none; }
   .hob-composer form > div > div:last-child { min-height: 46px; padding: 3px 8px; gap: 2px; align-items: center; }
   .hob-composer textarea { font-size: 17px; padding: 8px 4px; line-height: 24px; }
   .hob-composer button[aria-label='Add files or library'] { color: var(--color-ink); }
   .hob-composer button[aria-label='Add files or library'] > svg { width: 24px; height: 24px; stroke-width: 2; }
-  .hob-composer .hob-mobile-dock { margin: 0 -15px; width: calc(100% + 30px); }
   .hob-composer .hob-send-action:has(button:disabled) { display: none; }
   .hob-composer .hob-voice-slot { flex-shrink: 0; display: flex; align-items: center; }
   .hob-composer .hob-voice-slot:has(section) { position: absolute; bottom: 100%; left: 15px; right: 15px; z-index: 30; }
@@ -288,35 +254,56 @@ button { font-family: inherit; }
   .hob-chat-prompt { background: var(--color-panel); border: 0; border-radius: 22px; max-width: 92%; font-size: 16px; }
   .hob-chat-prompt button { background: var(--color-canvas); border: 1px dashed var(--color-edge); border-radius: 10px; padding: 10px; }
   .hob-welcome { padding: 24px 4px; }
-  .hob-welcome-mark, .hob-eyebrow { display: none; }
   .hob-welcome h1 { font-size: 29px; }
   .hob-shortcuts { gap: 8px; }.hob-shortcuts > button { min-height: 82px; flex-direction: row; gap: 12px; align-items: center; border: 0; background: var(--color-panel); }
   .hob-shortcuts > button > span { margin: 0; }.hob-shortcuts > button > span > svg:last-child { display: none; }
-  .hob-panel-center > div > div:last-child:has(> .hob-mobile-dock) { padding: 0; }
-  .hob-library { margin: 0; }
-  .hob-library > * { margin-block: 0; }
-  .hob-library-heading, .hob-library-tools, .hob-library-crumbs, .hob-library-footer, .hob-library-more { display: none; }
-  .hob-library-show-tools .hob-library-heading, .hob-library-show-tools .hob-library-tools, .hob-library-show-tools .hob-library-crumbs { display: flex; }
-  .hob-library-show-tools .hob-library-tools { display: block; position: static; }
-  .hob-library-show-tools .hob-library-heading { margin-top: 14px; }.hob-library-show-tools .hob-library-heading h2 { display: none; }
-  .hob-library-show-tools .hob-library-heading p { display: none; }
-  .hob-library-desktop-gallery:has([aria-label='Library gallery']) { display: none; }
-  .hob-library-tabs { margin-bottom: 20px; }
-  .hob-artifact-list { display: flex; flex-direction: column; gap: 0; }
-  .hob-mobile-file { position: relative; display: flex; min-width: 0; }
-  .hob-file-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; padding: 0; text-align: left; }
-  .hob-artifact-list .hob-file-open { height: 59px; }
-  .hob-file-icon { position: relative; display: grid; place-items: center; flex: 0 0 34px; color: #eff0f1; }
-  .hob-file-icon small { position: absolute; bottom: 3px; color: #6c7073; font-size: 6px; font-weight: 700; line-height: 1; }
-  .hob-file-label { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 1px; }
-  .hob-file-label strong { font-size: 17px; font-weight: 400; line-height: 23px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .hob-file-label > span { font-size: 14px; line-height: 20px; color: var(--color-faint); }
-  .hob-file-more { display: grid; place-items: center; flex: 0 0 18px; min-width: 18px; min-height: 44px; align-self: flex-start; padding: 0; color: var(--hob-icon-idle); }
-  .hob-media-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; border-radius: 20px 20px 0 0; overflow: hidden; }
-  .hob-media-grid .hob-file-open { display: block; position: relative; aspect-ratio: 1; overflow: hidden; }
-  .hob-media-grid .hob-file-open > div { width: 100%; height: 100%; aspect-ratio: 1; border-radius: 0; }
-  .hob-media-grid .hob-file-open > div > span { display: none; }
-  .hob-video-play { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; }
-  .hob-mobile-library-empty { font-size: 15px; padding: 16px 0; color: var(--color-muted); }
   .hob-workspace-goals { scroll-padding-top: 10px; }
+}
+
+.hob-mobile-dock[hidden], .hob-library-options[hidden] { display: none; }
+.hob-sidebar-nav-button { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; color: var(--hob-icon-idle); }
+.hob-sidebar-nav-button[aria-current='page'] { background: var(--hob-selected); color: var(--color-ink); }
+.hob-sidebar-nav-button:hover { background: var(--color-hover); }
+.hob-workspace-scroll { padding-top: 112px; }
+.hob-settings-titlebar { position: absolute; inset: 0 0 auto; height: 80px; padding: 24px 15px 10px; display: flex; align-items: center; justify-content: center; z-index: 20; background: linear-gradient(var(--color-panel) 65%, transparent); }
+.hob-settings-titlebar > button { position: absolute; left: 15px; }
+.hob-settings-titlebar h1 { font-size: 17px; font-weight: 600; }
+.hob-workspace-settings { padding-top: 85px; }
+.hob-settings-layout { display: grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); gap: 24px; }
+.hob-settings-directory { min-width: 0; }
+.hob-settings-group { padding: 0 12px; }
+.hob-settings-group > button { min-height: 68px; padding: 12px 2px; gap: 12px; font-size: 15px; }
+.hob-settings-category-name { display: block; }
+.hob-settings-group small { display: block; margin-top: 3px; color: var(--color-muted); font-size: 11px; line-height: 16px; }
+.hob-library { display: flex; flex-direction: column; gap: 20px; }
+.hob-library-options { padding: 16px; border-radius: 18px; background: var(--color-panel); }
+.hob-library-tabs { flex-shrink: 0; }
+.hob-artifact-list { display: flex; flex-direction: column; gap: 0; }
+.hob-file { position: relative; display: flex; min-width: 0; }
+.hob-file-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; padding: 0; text-align: left; }
+.hob-artifact-list .hob-file-open { height: 59px; }
+.hob-file-icon { position: relative; display: grid; place-items: center; flex: 0 0 34px; color: #eff0f1; }
+.hob-file-icon small { position: absolute; bottom: 3px; color: #6c7073; font-size: 6px; font-weight: 700; line-height: 1; }
+.hob-file-label { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 1px; }
+.hob-file-label strong { font-size: 17px; font-weight: 400; line-height: 23px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hob-file-label > span { font-size: 14px; line-height: 20px; color: var(--color-faint); }
+.hob-media-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; border-radius: 20px 20px 0 0; overflow: hidden; }
+.hob-media-grid .hob-file-open { display: block; position: relative; aspect-ratio: 1; overflow: hidden; }
+.hob-media-grid .hob-file-open > div { width: 100%; height: 100%; aspect-ratio: 1; border-radius: 0; }
+.hob-media-grid .hob-file-open > div > span { display: none; }
+.hob-video-play { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; }
+
+@media (min-width: 768px) {
+  .hob-workspace-profile { height: 96px; }
+  .hob-settings-titlebar { background: var(--color-canvas); }
+  .hob-file-label strong { font-size: 17px; }
+  .hob-artifact-list .hob-file-open { height: 68px; }
+  .hob-media-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 767px) {
+  .hob-workspace-scroll:not(.hob-workspace-settings) { padding-top: 160px; }
+  .hob-settings-layout { display: block; }
+  .hob-settings-group { padding: 0 15px; }
+  .hob-settings-group > button { min-height: 68px; font-size: 17px; }
+  .hob-settings-group small { font-size: 12px; }
 }

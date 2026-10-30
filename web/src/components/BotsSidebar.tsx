@@ -548,26 +548,6 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
           )}
         </div>
 
-        {/* Footer: + New Bot and Manage in Settings */}
-        <div className="hidden md:block p-4 pt-2 border-t border-line bg-canvas space-y-2.5 shrink-0">
-          <button
-            type="button"
-            onClick={() => setIsCreateOpen(true)}
-            className="w-full h-[46px] rounded-full bg-sunken hover:bg-neutral-strong text-ink text-[13.5px] font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-[0.98]"
-          >
-            <Plus size={16} strokeWidth={2.2} />
-            <span>New Bot</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveNav('settings')}
-            className="w-full flex items-center justify-center gap-1.5 py-1 text-muted hover:text-ink text-[12.5px] font-medium transition-colors cursor-pointer"
-          >
-            <Settings size={13} strokeWidth={1.8} />
-            <span>Manage in Settings</span>
-          </button>
-        </div>
       </div>
 
       {/* Create Bot Modal Dialog */}

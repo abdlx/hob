@@ -136,8 +136,8 @@ test('a narrow touch viewport keeps dock targets usable and settings inputs at 1
       const rect = await button.boundingBox(); expect(rect!.height).toBeGreaterThanOrEqual(44); expect(rect!.width).toBeGreaterThanOrEqual(44);
     }
     await page.getByRole('button', { name: 'Open navigation' }).click();
-    await page.getByRole('dialog', { name: 'Navigation' }).getByRole('button', { name: 'Settings', exact: true }).click();
-    await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Conversations', exact: true }).getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { name: 'General', exact: true }).click();
     const timezone = page.getByRole('textbox', { name: /^Bot timezone/ });
     await expect(timezone).toBeVisible();
     expect(await timezone.evaluate(node => getComputedStyle(node).fontSize)).toBe('16px');
@@ -150,7 +150,7 @@ test('a narrow touch viewport keeps dock targets usable and settings inputs at 1
 test('language and native run limits persist for the selected bot and another bot retains its choices', async ({ page }) => {
   const state = await fixture(page);
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'General', exact: false }).click();
+  await page.getByRole('button', { name: 'General', exact: true }).click();
   const form = page.getByRole('region', { name: 'Bot language and limits' });
   await form.getByRole('combobox', { name: 'Reply and title language' }).selectOption('ur-Latn');
   await form.getByRole('spinbutton', { name: /^Maximum model turns/ }).fill('12');
@@ -169,14 +169,14 @@ test('language and native run limits persist for the selected bot and another bo
 test('a title correction saves the inspected revision and survives reload', async ({ page }) => {
   const state = await fixture(page);
   await page.goto('/chat');
-  await page.getByRole('button', { name: 'Conversations', exact: true }).filter({ visible: true }).click();
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).filter({ visible: true }).click();
   const drawer = page.getByRole('dialog', { name: 'Conversations', exact: true });
   await drawer.getByRole('button', { name: 'Rename Test conversation' }).click();
   await drawer.getByRole('textbox', { name: 'Conversation title', exact: true }).fill('Roman Urdu ki guftagu');
   await drawer.getByRole('button', { name: 'Save title' }).click();
   await expect(drawer.getByRole('button', { name: 'Rename Roman Urdu ki guftagu' })).toBeVisible();
   await page.reload();
-  await page.getByRole('button', { name: 'Conversations', exact: true }).filter({ visible: true }).click();
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).filter({ visible: true }).click();
   await expect(drawer.getByRole('button', { name: 'Rename Roman Urdu ki guftagu' })).toBeVisible();
   const write = state.writes.find(row => row.path.endsWith('/title'))!;
   expect(write.profile).toBe('default'); expect(write.body.revision).toBe(1); expect(write.body.title).toBe('Roman Urdu ki guftagu');
@@ -191,7 +191,7 @@ test('tablet chat starts unobstructed and the conversation drawer contains and r
     await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible();
     await expect(page.getByRole('complementary', { name: 'Agent details', exact: true })).toBeHidden();
   }
-  const opener = page.getByRole('button', { name: 'Conversations', exact: true }).filter({ visible: true });
+  const opener = page.getByRole('button', { name: 'Open navigation', exact: true }).filter({ visible: true });
   await opener.click();
   const drawer = page.getByRole('dialog', { name: 'Conversations', exact: true });
   await expect(drawer.getByRole('textbox', { name: 'Search conversations' })).toBeFocused();
@@ -212,9 +212,9 @@ test('phone navigation opens Settings and follows browser navigation', async ({ 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/chat');
   await page.getByRole('button', { name: 'Open navigation' }).click();
-  await page.getByRole('dialog', { name: 'Navigation' }).getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Conversations', exact: true }).getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page).toHaveURL(/\/settings$/);
-  await expect(page.getByRole('button', { name: 'Connectors', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Plugins & integrations', exact: true })).toBeVisible();
   await page.goBack();
   const dock = page.getByRole('navigation', { name: 'Mobile navigation' }).filter({ visible: true });
   await expect(dock.getByRole('button', { name: 'Chat', exact: true })).toHaveAttribute('aria-current', 'page');
@@ -328,7 +328,7 @@ test('saved provider cards connect a bot privately while keeping model choice se
   await page.screenshot({ path: 'test-results/saved-providers-desktop.png', fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await page.getByRole('button', { name: 'Secure credentials store', exact: true }).click();
+  await page.getByRole('button', { name: 'Models & providers', exact: true }).click();
   await expect(providers.getByRole('heading', { name: 'OpenRouter', exact: true })).toBeVisible();
   await providers.getByRole('heading', { name: 'OpenRouter', exact: true }).scrollIntoViewIfNeeded();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -440,7 +440,7 @@ test('mobile dock tracks open pages, supports history and same-tab clicks, and c
 test('conversation search explains empty results and lets the user recover', async ({ page }) => {
   const state = await fixture(page);
   await page.goto('/chat');
-  await page.getByRole('button', { name: 'Conversations', exact: true }).filter({ visible: true }).click();
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).filter({ visible: true }).click();
   await page.getByRole('textbox', { name: 'Search conversations', exact: true }).fill('missing title');
   await expect(page.getByText('No matching conversations', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Clear search', exact: true }).click();
@@ -458,7 +458,7 @@ test('categories retain drafts, failed saves stay unsaved, successful saves surv
   const editor = page.locator('.settings-editor');
   await editor.getByRole('combobox').selectOption('false');
   await expect(editor.getByText('Unsaved changes')).toBeVisible();
-  await page.getByRole('button', { name: 'General', exact: false }).click();
+  await page.getByRole('button', { name: 'General', exact: true }).click();
   await expect(editor).toBeHidden();
   await page.getByRole('button', { name: 'Advanced configuration', exact: false }).click();
   await expect(editor.getByRole('combobox')).toHaveValue('false');
@@ -478,7 +478,7 @@ test('categories retain drafts, failed saves stay unsaved, successful saves surv
 test('theme and settings navigation persist with keyboard-visible focus and mobile layout', async ({ page }) => {
   const state = await fixture(page);
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'General', exact: false }).click();
+  await page.getByRole('button', { name: 'General', exact: true }).click();
   await page.getByRole('button', { name: 'Dark', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await page.reload();
@@ -494,9 +494,10 @@ test('theme and settings navigation persist with keyboard-visible focus and mobi
   await page.screenshot({ path: 'test-results/settings-dark-desktop.png', fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await page.getByRole('button', { name: 'General', exact: true }).click();
   await expect(page.getByRole('group', { name: 'Color theme' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
   await page.getByRole('textbox', { name: 'Find settings category' }).fill('cron');
   await expect(page.getByRole('navigation', { name: 'Settings categories' }).getByRole('button')).toHaveCount(1);
   await page.screenshot({ path: 'test-results/settings-dark-mobile.png', fullPage: true });
@@ -531,7 +532,10 @@ test('opening the computer inspector loads its deferred module and shows actual 
   await page.getByRole('tab', { name: 'Browser', exact: true }).click();
   await page.getByRole('button', { name: 'Open browser', exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'No Chromium-family browser was found on the host.' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Computer', exact: true }).click();
   await computerStatus;
+  await expect(page.getByText('No agent computer is configured for this bot.', { exact: false })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: 'No Chromium-family browser was found on the host.' })).toHaveCount(0);
   await expect(page.getByText('Agent Computer is Sleeping', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Live stream', { exact: true })).toHaveCount(0);
   expect(state.errors).toEqual([]);
@@ -580,7 +584,7 @@ test('plugin store uses app tiles, filters installed and catalog apps, and opens
   await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await page.getByRole('button', { name: 'Connectors', exact: true }).click();
+  await page.getByRole('button', { name: 'Plugins & integrations', exact: true }).click();
   await tile.click();
   dialog = page.getByRole('dialog', { name: 'example', exact: true });
   await expect(dialog.getByRole('button', { name: 'Install', exact: true })).toBeInViewport();

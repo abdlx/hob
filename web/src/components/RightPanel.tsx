@@ -470,6 +470,7 @@ const RIGHT_PANEL_TABS = [
 function LiveBrowserPanel() {
   const { agent } = useChat();
   const runtime = useRuntime();
+  const [view, setView] = useState<'browser' | 'computer'>('browser');
   if (!agent) {
     return (
       <div className="space-y-3">
@@ -478,18 +479,10 @@ function LiveBrowserPanel() {
       </div>
     );
   }
-  return (
-    <div className="space-y-4">
-      {runtime === 'hermes' ? (
-        <HermesBrowser key={agent.id} profile={agent.id} />
-      ) : (
-        <OpenClawBrowserPanel />
-      )}
-      {runtime === 'hermes' && (
-        <Suspense fallback={<Skeleton className="h-64 w-full" />}><AgentComputerViewer key={`comp-${agent.id}`} profile={agent.id} /></Suspense>
-      )}
-    </div>
-  );
+  return runtime === 'hermes' ? <div className="space-y-4">
+    <div className="hob-segments" role="tablist" aria-label="Computer views"><button role="tab" aria-selected={view === 'browser'} onClick={() => setView('browser')}>Browser session</button><button role="tab" aria-selected={view === 'computer'} onClick={() => setView('computer')}>Computer</button></div>
+    {view === 'browser' ? <HermesBrowser key={agent.id} profile={agent.id} /> : <Suspense fallback={<Skeleton className="h-64 w-full" />}><AgentComputerViewer key={agent.id} profile={agent.id} /></Suspense>}
+  </div> : <OpenClawBrowserPanel />;
 }
 
 function IdentityPanel() {

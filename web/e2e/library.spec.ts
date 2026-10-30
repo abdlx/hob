@@ -52,11 +52,13 @@ test('Library is a spacious gallery with thumbnails, filters and focused preview
   const state = await fixture(page);
   await page.goto('/library');
   const library = page.getByRole('region', { name: 'File library' });
-  await expect(library.getByRole('heading', { name: 'Your files' })).toBeVisible();
+  await expect(library.getByRole('tab', { name: 'Artifacts', exact: true })).toBeVisible();
+  await library.getByRole('tab', { name: 'Media', exact: true }).click();
+  await page.getByRole('button', { name: 'Library options', exact: true }).click();
   await expect(page.getByLabel('Agent details', { exact: true })).toHaveCount(0);
   await expect(page.getByLabel('Bots directory', { exact: true })).toHaveCount(0);
   await expect(library.getByRole('button', { name: 'Preview Launch moodboard.png', exact: true }).locator('img')).toBeVisible();
-  const gallery = library.getByLabel('Library gallery');
+  const gallery = library.locator('#library-content');
   expect(await gallery.evaluate(node => getComputedStyle(node).gridTemplateColumns.split(' ').length)).toBeGreaterThanOrEqual(3);
   await page.screenshot({ path: 'test-results/library-gallery-desktop.png', fullPage: true });
   await library.getByRole('button', { name: 'Images', exact: true }).click();

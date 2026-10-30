@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { LeftSidebar } from '../components/LeftSidebar';
 import { BotsSidebar } from '../components/BotsSidebar';
 import { ChatHeader } from '../components/ChatHeader';
@@ -10,184 +10,45 @@ import { useChat } from '../context/ChatContext';
 import { WorkspaceViews } from './WorkspaceViews';
 import { Notice } from '../components/WorkspaceUI';
 import { MobileDock } from '../components/MobileDock';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 
-export const ChatScreen: React.FC = () => {
-  const {
-    agent,
-    activeNav,
-    setActiveNav,
-    error,
-    clearError,
-    refresh,
-    isPreparing,
-    isCreatingConversation,
-    activeSessionId,
-    sessions,
-    createNewSession,
-    isRightPanelOpen,
-    toggleRightPanel,
-    isBotsSidebarOpen,
-  } = useChat();
-
-  const readOnly = sessions.find((session) => session.id === activeSessionId)?.readOnly === true;
-  const libraryWorkspace = activeNav === 'library';
-
-  // Chat is the mobile entry point; the sidebar opens the bot directory.
+export function ChatScreen() {
+  const { agent, activeNav, error, clearError, refresh, isPreparing, isCreatingConversation,
+    activeSessionId, sessions, createNewSession, isRightPanelOpen, isBotsSidebarOpen } = useChat();
+  const mobile = useMediaQuery('(max-width: 767px)');
   const [mobileView, setMobileView] = useState<'bots' | 'chat'>('chat');
+  const [drafting, setDrafting] = useState(false);
   useEffect(() => {
-    const opened = () => setMobileView('chat');
-    const bots = () => setMobileView('bots');
+    const opened = () => { setMobileView('chat'); setDrafting(false); };
+    const bots = () => { setMobileView('bots'); setDrafting(false); };
     window.addEventListener('hob:conversation-opened', opened);
     window.addEventListener('hob:open-bots', bots);
     return () => { window.removeEventListener('hob:conversation-opened', opened); window.removeEventListener('hob:open-bots', bots); };
   }, []);
-
-  return (
-    <div className="hob-app flex h-[100vh] h-[100dvh] max-h-[100dvh] w-screen max-w-full overflow-hidden bg-canvas md:bg-app p-0 md:p-2.5 gap-0 md:gap-2.5 select-none">
-      {/* Panel 1: Left Navigation Rail + Bot Directory (Desktop only) */}
-      <aside
-        className={`hob-panel-left hidden md:flex rounded-[34px] bg-canvas shadow-[0_8px_30px_rgba(0,0,0,0.045)] border border-[rgba(0,0,0,0.035)] overflow-hidden shrink-0 h-full ${
-          libraryWorkspace ? 'w-[76px]' : isBotsSidebarOpen ? 'w-[23%] min-w-[280px] max-w-[340px]' : 'w-[136px]'
-        }`}
-        aria-label={libraryWorkspace ? 'Navigation' : 'Navigation and bots'}
-      >
-        <LeftSidebar />
-        {!libraryWorkspace && <BotsSidebar collapsed={!isBotsSidebarOpen} />}
-      </aside>
-
-      {/* Slide-over Conversations Drawer */}
-      <ChatsDrawer key={agent?.id} />
-
-      {/* Panel 2: Center Primary Panel (Conversation or Mobile Views) */}
-      <main
-        id="main-content"
-        className="hob-panel-center flex-1 flex flex-col h-full min-w-0 min-h-0 rounded-none md:rounded-[34px] bg-canvas shadow-none md:shadow-[0_8px_30px_rgba(0,0,0,0.045)] border-0 md:border md:border-[rgba(0,0,0,0.035)] overflow-hidden relative"
-      >
-        {isPreparing && (
-          <div className="px-6 pt-3">
-            <Notice>Your agent runtime is starting. Settings remain available.</Notice>
-          </div>
-        )}
-        {isCreatingConversation && (
-          <div className="px-6 pt-3">
-            <Notice>Creating your conversation…</Notice>
-          </div>
-        )}
-        {error && (
-          <div className="px-6 pt-3">
-            <Notice error>
-              {error}
-              <div className="flex gap-2.5 mt-2.5">
-                <button
-                  onClick={refresh}
-                  className="px-3 py-1 rounded-xl bg-red-600 hover:bg-red-700 text-white font-medium text-xs transition-colors cursor-pointer"
-                >
-                  Retry
-                </button>
-                <button
-                  onClick={clearError}
-                  className="px-3 py-1 rounded-xl bg-surface hover:bg-red-50 text-red-700 text-xs transition-colors cursor-pointer border border-red-200"
-                >
-                  Dismiss
-                </button>
-              </div>
-            </Notice>
-          </div>
-        )}
-
-        {activeNav === 'chat' || activeNav === 'search' ? (
-          <>
-            {/* ========================================================
-                MOBILE VIEW: Bots directory first, then Chat on select
-               ======================================================== */}
-            <div className="md:hidden flex-1 flex flex-col h-full min-h-0 overflow-hidden">
-              {mobileView === 'bots' ? (
-                <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
-                  <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-                    <BotsSidebar onSelectBot={() => setMobileView('chat')} />
-                  </div>
-                  <div className="shrink-0 pt-1 pb-2 bg-transparent flex justify-center">
-                    <MobileDock
-                      currentMobileView="bots"
-                      onNavigateBots={() => setMobileView('bots')}
-                      onOpenActivity={() => {
-                        if (isRightPanelOpen) toggleRightPanel();
-                      }}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden relative">
-                  <ChatHeader onBackToBots={() => setMobileView('bots')} />
-                  {readOnly && (
-                    <div className="px-6 pt-[88px] pb-2 shrink-0 z-10">
-                      <Notice>
-                        This older API conversation is preserved as history.{' '}
-                        <button className="underline text-accent" onClick={createNewSession}>
-                          Start a new interactive conversation
-                        </button>
-                      </Notice>
-                    </div>
-                  )}
-                  <ChatMessageList />
-                  <ChatInput
-                    key={`composer-mobile:${activeSessionId}`}
-                    onNavigateBots={() => setMobileView('bots')}
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* ========================================================
-                DESKTOP VIEW: Center conversation panel always active
-               ======================================================== */}
-            <div className="hidden md:flex flex-1 flex-col h-full min-h-0 overflow-hidden relative">
-              <ChatHeader onBackToBots={() => setMobileView('bots')} />
-              {readOnly && (
-                <div className="px-6 pt-[88px] pb-2 shrink-0 z-10">
-                  <Notice>
-                    This older API conversation is preserved as history.{' '}
-                    <button className="underline text-accent" onClick={createNewSession}>
-                      Start a new interactive conversation
-                    </button>
-                  </Notice>
-                </div>
-              )}
-              <ChatMessageList />
-              <ChatInput
-                key={`composer-desktop:${activeSessionId}`}
-                onNavigateBots={() => setMobileView('bots')}
-              />
-            </div>
-          </>
-        ) : (
-          <div className="flex-1 min-h-0 overflow-hidden flex flex-col h-full">
-            <WorkspaceViews activeNav={activeNav} />
-            <div className="shrink-0 pt-1 pb-2 bg-transparent flex justify-center md:hidden">
-              <MobileDock
-                currentMobileView={mobileView}
-                onNavigateBots={() => {
-                  setActiveNav('chat');
-                  setMobileView('chat');
-                }}
-                onOpenActivity={() => {
-                  if (isRightPanelOpen) toggleRightPanel();
-                }}
-              />
-            </div>
-          </div>
-        )}
-      </main>
-
-      {/* Panel 3: Right Agent & Activity Inspector Panel */}
-      {activeNav !== 'groups' && !libraryWorkspace && isRightPanelOpen && (
-          <aside
-            className="hob-panel-right fixed inset-0 z-50 flex flex-col w-full h-[100dvh] max-h-[100dvh] bg-canvas overflow-hidden xl:relative xl:inset-auto xl:z-auto xl:rounded-[34px] xl:shadow-[0_8px_30px_rgba(0,0,0,0.045)] xl:border xl:border-hair xl:shrink-0 xl:w-[22%] xl:min-w-[300px] xl:max-w-[350px] xl:h-full"
-            aria-label="Agent details"
-          >
-            <RightPanel />
-          </aside>
-      )}
-    </div>
-  );
-};
+  const chatPage = activeNav === 'chat' || activeNav === 'search';
+  const library = activeNav === 'library';
+  const readOnly = sessions.find(session => session.id === activeSessionId)?.readOnly === true;
+  return <div className="hob-app flex h-dvh max-h-dvh w-screen max-w-full overflow-hidden bg-canvas md:bg-app md:p-2.5 md:gap-2.5 select-none">
+    {!mobile && <aside className={`hob-panel-left flex rounded-[34px] bg-canvas border border-hair overflow-hidden shrink-0 h-full ${library ? 'w-[76px]' : isBotsSidebarOpen ? 'w-[23%] min-w-[280px] max-w-[340px]' : 'w-[136px]'}`} aria-label={library ? 'Navigation' : 'Navigation and bots'}>
+      <LeftSidebar />{!library && <BotsSidebar collapsed={!isBotsSidebarOpen} />}
+    </aside>}
+    <ChatsDrawer key={agent?.id} />
+    <main id="main-content" className="hob-panel-center flex-1 flex flex-col h-full min-w-0 min-h-0 md:rounded-[34px] bg-canvas md:border md:border-hair overflow-hidden relative"
+      onFocusCapture={event => { if (event.target instanceof HTMLTextAreaElement && event.target.closest('.hob-composer')) setDrafting(true); }}
+      onBlurCapture={event => { if (event.target instanceof HTMLTextAreaElement && event.target.closest('.hob-composer')) setDrafting(false); }}>
+      {isPreparing && <div className="px-6 pt-3"><Notice>Your agent runtime is starting. Settings remain available.</Notice></div>}
+      {isCreatingConversation && <div className="px-6 pt-3"><Notice>Creating your conversation...</Notice></div>}
+      {error && <div className="px-6 pt-3"><Notice error>{error}<div className="flex gap-2.5 mt-2.5"><button onClick={refresh} className="px-3 py-1 rounded-xl bg-bad text-white text-xs">Retry</button><button onClick={clearError} className="px-3 py-1 rounded-xl bg-surface text-ink text-xs">Dismiss</button></div></Notice></div>}
+      <div className="hob-page-content flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col relative">
+        {chatPage ? mobile && mobileView === 'bots' ? <BotsSidebar onSelectBot={() => setMobileView('chat')} /> : <>
+          <ChatHeader />
+          {readOnly && <div className="px-6 pt-[158px] md:pt-[88px] pb-2 shrink-0 z-10"><Notice>This older API conversation is preserved as history. <button className="underline text-accent" onClick={createNewSession}>Start a new interactive conversation</button></Notice></div>}
+          <ChatMessageList />
+          <ChatInput key={`composer:${activeSessionId}`} />
+        </> : <WorkspaceViews activeNav={activeNav} />}
+      </div>
+      {mobile && activeNav !== 'settings' && <MobileDock hidden={drafting} onNavigate={id => { setDrafting(false); if (id === 'chat') setMobileView('chat'); }} />}
+    </main>
+    {activeNav !== 'groups' && !library && isRightPanelOpen && <aside className="hob-panel-right fixed inset-0 z-50 flex flex-col w-full h-dvh max-h-dvh bg-canvas overflow-hidden xl:relative xl:inset-auto xl:z-auto xl:rounded-[34px] xl:border xl:border-hair xl:shrink-0 xl:w-[22%] xl:min-w-[300px] xl:max-w-[350px] xl:h-full" aria-label="Agent details"><RightPanel /></aside>}
+  </div>;
+}

@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react';
-import { ArrowDown, ArrowUpRight, CalendarClock, Check, FolderOpen, MessageCircle, MoonStar, ShieldAlert, X } from 'lucide-react';
+import { ArrowDown, ArrowUpRight, CalendarClock, Check, FolderOpen, MessageCircle, ShieldAlert, X } from 'lucide-react';
 import { useChat } from '../context/ChatContext';
 import { ChatMessageItem } from './ChatMessageItem';
 import { HermesRunPanel } from './HermesRunPanel';
@@ -139,20 +139,8 @@ export function ChatMessageList() {
       >
         {visibleMessages.length === 0 && exchanges.rows.length === 0 && (
           <section className="hob-welcome py-8 px-4 text-center max-w-xl mx-auto" aria-label="Welcome to hob">
-            <div className="hob-welcome-mark flex justify-center mb-5">
-              <div className="w-20 h-20 rounded-full bg-surface flex items-center justify-center shadow-xs border border-line p-3">
-                <img src="/brand/hob-mark.png" alt="hob" className="w-full h-full object-contain" />
-              </div>
-            </div>
-            <p className="hob-eyebrow flex items-center justify-center gap-1.5 text-[11px] font-semibold tracking-wider text-muted mb-3">
-              <MoonStar size={14} className="text-accent" /> A LITTLE HELP. A LITTLE MORE LIFE.
-            </p>
-            <h1 className="text-3xl md:text-4xl font-semibold text-ink tracking-tight leading-tight">
-              Leave the little things<br />to <span className="text-accent">hob.</span>
-            </h1>
-            <p className="hob-welcome-copy text-muted text-[15px] leading-relaxed my-4">
-              A thoughtful companion for your everyday.<br className="hidden sm:block" /> Give it a task. Make space for everything else.
-            </p>
+            <h1 className="text-3xl md:text-4xl font-semibold text-ink tracking-tight leading-tight">What can I help you with?</h1>
+            <p className="hob-welcome-copy text-muted text-base leading-relaxed my-4">Message {agent?.name || 'your bot'}, or choose a place to start.</p>
             <div className="hob-shortcuts grid grid-cols-1 sm:grid-cols-3 gap-3.5 mt-6 text-left">
               {shortcuts.map(({ title, description, icon: Icon, action }) => (
                 <button

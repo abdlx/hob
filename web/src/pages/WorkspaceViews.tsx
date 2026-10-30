@@ -339,17 +339,11 @@ export function DailyGoals() {
 export function WorkspaceViews({ activeNav }: { activeNav: string }) {
   const { setActiveNav, agent } = useChat();
   const runtime = useRuntime();
-  const title = activeNav === 'idea' ? 'Workshop' : activeNav.charAt(0).toUpperCase() + activeNav.slice(1);
   // A group conversation is a chat: it owns the whole pane, not the workspace scroller.
   if (activeNav === 'groups' && runtime === 'hermes') return <HermesGroups />;
   return (
     <>
-      <header className="hob-workspace-titlebar h-[64px] border-b border-line px-6 flex items-center gap-3.5 shrink-0 bg-canvas">
-        <button className="text-muted hover:text-ink md:hidden p-1.5 transition-colors cursor-pointer" title="Back to chat" onClick={() => setActiveNav('chat')}>
-          <ArrowLeft size={18} />
-        </button>
-        <h1 className="text-base md:text-lg font-semibold text-ink">{title}</h1>
-      </header>
+      {activeNav === 'settings' && <header className="hob-settings-titlebar"><button className="hob-round-button" aria-label="Back" onClick={() => { if (window.dispatchEvent(new Event('hob:settings-back', { cancelable: true }))) setActiveNav('chat'); }}><ArrowLeft size={23} /></button><h1>Settings</h1></header>}
       {activeNav !== 'settings' && <ChatHeader workspace />}
       <div className={`hob-workspace-scroll hob-workspace-${activeNav} flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 md:p-8`}>
         <div className={`mx-auto ${activeNav === 'library' ? 'max-w-[1280px]' : 'max-w-[960px]'}`}>

@@ -16,7 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiFetch } from '../services/api';
-import { Notice } from './WorkspaceUI';
+import { Notice, Skeleton } from './WorkspaceUI';
 import { errorText } from './workspaceUtils';
 import { createComputerStream, resolveRfbConstructor } from '../services/computer-stream';
 import type { ComputerConnectionState } from '../services/computer-stream';
@@ -122,7 +122,8 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
   };
   const handleWake = () => control('wake');
   const handleSleep = () => control('sleep');
-  if (!status || (!status.connected && !status.configured)) return null;
+  if (!status) return error ? <Notice error>{error}</Notice> : <Skeleton className="h-40 w-full" />;
+  if (!status.connected && !status.configured) return <Notice>No agent computer is configured for this bot. Connect one in Tools &amp; computer settings.</Notice>;
   const isWaking = busy === 'wake' || activeComputer?.state === 'starting';
   const isSleeping = busy === 'sleep';
   const displayState = !status.connected ? 'unavailable' : isWaking ? 'Starting...' : isSleeping ? 'Sleeping...' : activeComputer?.state || 'Unknown';

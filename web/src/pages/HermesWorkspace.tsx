@@ -173,7 +173,7 @@ export function HermesIdentity({ profile }: { profile: string }) {
   const { agent } = useChat();
   const [selected, setSelected] = useState<'edit' | 'soul' | 'memory' | null>(null);
   return <div className="hob-identity">
-    {selected ? <><button className={buttonClass} onClick={() => setSelected(null)}><ArrowLeft size={16} />Back</button>{selected === 'memory' ? <HermesMemories profile={profile} /> : <><IdentityEditor profile={profile} />{selected === 'edit' && <AgentModelSettings key={profile} />}</>}</> : <>
+    {selected ? <><button className={buttonClass} onClick={() => setSelected(null)}><ArrowLeft size={16} />Back</button>{selected === 'memory' ? <HermesMemories profile={profile} /> : selected === 'soul' ? <IdentityEditor profile={profile} /> : <div className="space-y-6"><BotAvatar profile={profile} /><AgentModelSettings key={profile} /></div>}</> : <>
       <h3>{agent?.name || 'Main'}</h3>
       <button className="hob-identity-edit" onClick={() => setSelected('edit')}><Pencil size={20} />Edit</button>
       <div className="hob-identity-cards">
@@ -191,7 +191,6 @@ function IdentityEditor({ profile }: { profile: string }) {
   return (
     <div className="space-y-4 pt-1">
       {error && <Notice error>{error}</Notice>}
-      <BotAvatar profile={profile} />
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm md:text-base font-semibold text-ink">Personality & instructions</h3>
@@ -216,7 +215,6 @@ function IdentityEditor({ profile }: { profile: string }) {
         )}
         <p className="text-xs text-muted leading-relaxed">Personality changes apply when Hermes next builds the bot’s context. Configure the model in Settings.</p>
       </section>
-      <HermesMemories profile={profile} />
     </div>
   );
 }
@@ -283,5 +281,5 @@ export function HermesWorkspace({ page }: { page: string }) {
   const [error, setError] = useState('');
   if (!agent) return <div className="space-y-3"><Skeleton className="h-9 w-full" /><Skeleton className="h-40 w-full" /></div>;
   if (page === 'library') return <div className="space-y-3">{error && <Notice error>{error}</Notice>}<HermesLibrary key={agent.id} profile={agent.id} scope={<label className="inline-flex items-center gap-2 rounded-full border border-line bg-panel py-1.5 pl-3 pr-2 text-xs text-muted">Bot<select aria-label="Library bot" className="max-w-36 bg-transparent py-1 text-xs font-medium text-ink outline-none cursor-pointer" value={agent.id} disabled={isPreparing} onChange={event => { setError(''); void selectAgent(event.target.value, { stayOnPage: true }).catch(reason => setError(errorText(reason))); }}>{agents.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>} /></div>;
-  return <div className="space-y-5"><div className="hob-workspace-bot-selector"><Field label="Bot"><select className={inputClass} value={agent.id} disabled={isPreparing} onChange={event => { setError(''); void selectAgent(event.target.value, { stayOnPage: true }).catch(error => setError(errorText(error))); }}>{agents.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field></div>{error && <Notice error>{error}</Notice>}{page === 'goals' ? <HermesGoals key={agent.id} profile={agent.id} /> : <HermesWorkshop key={agent.id} profile={agent.id} />}</div>;
+  return page === 'goals' ? <HermesGoals key={agent.id} profile={agent.id} /> : <HermesWorkshop key={agent.id} profile={agent.id} />;
 }

@@ -8,11 +8,7 @@ import { errorText } from './workspaceUtils';
 import { VoiceInput } from './VoiceInput';
 import { useRuntime } from '../context/RuntimeContext';
 
-interface ChatInputProps {
-  onNavigateBots?: () => void;
-}
-
-export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
+export const ChatInput: React.FC = () => {
   const runtime = useRuntime();
   const {
     sendMessage,
@@ -82,7 +78,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onNavigateBots }) => {
           : 'Message'
       }
       onAddContext={() => setActiveNav('library')}
-      onNavigateBots={onNavigateBots}
     /></>
   );
 };

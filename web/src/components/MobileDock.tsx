@@ -1,26 +1,17 @@
-import { MessageCircle, PanelsTopLeft, Lightbulb, SquareCheck, Shapes } from 'lucide-react';
+import { primaryNavigation, navigationSelected } from './navigation';
 import { useChat } from '../context/ChatContext';
 
 interface MobileDockProps {
-  currentMobileView?: 'bots' | 'chat';
-  onNavigateBots?: () => void;
-  onOpenActivity?: () => void;
-  onNavigate?: () => void;
+  hidden?: boolean;
+  onNavigate?: (id: string) => void;
 }
-const items = [
-  { id: 'chat', label: 'Chat', icon: MessageCircle },
-  { id: 'activity', label: 'Activity', icon: PanelsTopLeft },
-  { id: 'idea', label: 'Workshop', icon: Lightbulb },
-  { id: 'goals', label: 'Goals', icon: SquareCheck },
-  { id: 'library', label: 'Library', icon: Shapes },
-];
-export function MobileDock({ onOpenActivity, onNavigate }: MobileDockProps) {
+export function MobileDock({ hidden = false, onNavigate }: MobileDockProps) {
   const { activeNav, setActiveNav } = useChat();
-  return <nav className="hob-mobile-dock md:hidden" aria-label="Mobile navigation">
-    {items.map(({ id, label, icon: Icon }) => {
-      const active = activeNav === id || (id === 'chat' && ['search', 'groups'].includes(activeNav));
+  return <nav hidden={hidden} className="hob-mobile-dock" aria-label="Mobile navigation">
+    {primaryNavigation.map(({ id, label, icon: Icon }) => {
+      const active = navigationSelected(activeNav, id);
       return <button key={id} type="button" title={label} aria-label={label} aria-current={active ? 'page' : undefined}
-        onClick={() => { onNavigate?.(); setActiveNav(id); if (id === 'activity') onOpenActivity?.(); }}>
+        onClick={() => { onNavigate?.(id); setActiveNav(id); }}>
         <Icon size={25} strokeWidth={1.9} />
       </button>;
     })}

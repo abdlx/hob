@@ -217,7 +217,6 @@ function GroupConversation({ groupId }: { groupId: string }) {
         canSend={!busy && !blocked}
         placeholder={current.disbanded ? 'This group has been disbanded' : `Message ${current.name}...`}
         onAddContext={() => setActiveNav('library')}
-        showMobileDock={false}
       />
     </div>
   );

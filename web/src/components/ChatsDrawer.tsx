@@ -2,19 +2,18 @@ import React, { useEffect, useRef, useState } from 'react';
 import { conversationDate } from '../services/conversation-date';
 import { apiFetch } from '../services/api';
 import { useChat } from '../context/ChatContext';
-import { Plus, Search, MessageSquare, X, Pencil, Settings } from 'lucide-react';
+import { Users, Search, MessageSquare, X, Pencil, Settings } from 'lucide-react';
 
 export const ChatsDrawer: React.FC = () => {
   const {
     sessions,
     activeSessionId,
     selectSession,
-    createNewSession,
     isLeftDrawerOpen,
     toggleLeftDrawer,
-    isCreatingConversation,
     refresh,
     setActiveNav,
+    setBotsSidebarOpen,
   } = useChat();
 
   const [search, setSearch] = useState('');
@@ -81,18 +80,8 @@ export const ChatsDrawer: React.FC = () => {
             finally { setRenameBusy(false); }
           }}>Save title</button><button type="button" disabled={renameBusy} className="px-3 py-2 text-xs text-muted" onClick={() => setEditing(null)}>Cancel title edit</button></div>
         </div>}
-        {/* New chat button */}
         {renameError && !editing && <p role="alert" className="px-3.5 text-xs text-bad">{renameError}</p>}
-        <div className="p-3.5 shrink-0">
-          <button
-            onClick={createNewSession}
-            disabled={isCreatingConversation}
-            className="w-full flex items-center justify-center space-x-2 py-2.5 px-4 bg-accent hover:bg-accent-strong text-white text-sm font-semibold rounded-full transition-colors cursor-pointer shadow-xs active:scale-[0.98]"
-          >
-            <Plus size={16} strokeWidth={2.2} />
-            <span>New Chat</span>
-          </button>
-        </div>
+        <div className="p-3.5 shrink-0"><button type="button" className="hob-sidebar-bots flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-base text-ink hover:bg-neutral" onClick={() => { toggleLeftDrawer(); setBotsSidebarOpen(true); setActiveNav('chat'); window.dispatchEvent(new Event('hob:open-bots')); }}><Users size={21} />Bots</button></div>
 
         {/* Search */}
         <div className="px-3.5 pb-2.5 shrink-0">
