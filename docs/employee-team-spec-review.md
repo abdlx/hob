@@ -174,3 +174,7 @@ Cross-cutting rollout conditions: no secrets in distributed snapshots/relay payl
 | Ordinary promotions | All promotions require user approval until a policy is selected. Typed ordinary-fact autonomy can be enabled later. | Permit coordinator-only Tier 1 promotion, or require user approval for every promotion. |
 
 These are configuration decisions. The engineering resolutions above do not answer them on the user's behalf.
+
+### Subsequent user confirmations
+
+The user approved the proposed 20-complete-turn window, 4,000-character injected core budget, user approval for every core promotion, and no paid lane. They later clarified that existing subscriptions with no per-call charges are allowed. Role mapping and messaging may remain unset until supplied. These confirmations supersede the corresponding open choices above; they do not establish runtime isolation, billing enforcement or live acceptance. Current implementation and qualification evidence are tracked in the [implementation checkpoint](employee-team-implementation.md).

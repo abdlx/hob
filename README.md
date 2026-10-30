@@ -52,6 +52,8 @@ Activity preserves scheduled runs' original outcomes. Historical failures for ve
 
 In coordinator-only preview mode, Main can receive the worker's nominated output with `node .hob/talk.mjs artifact <exchange-id>`, inspect the coordinator-local copy, and record its checks with `review <exchange-id> <sha256> <passed|failed> <checks>`. `artifact-status` shows the receipt and review history. Team completion remains pending until the coordinator records passing checks against the exact output snapshot.
 
+Team controls also provide exact model-route review for free/local models and existing subscriptions with no usage or overage charges. Approval binds a bot, endpoint, model list, credential fingerprint and billing evidence; changing credentials requires a fresh review. The dormant native SDK guard checks final HTTP requests and revocation before sending. Team activation still awaits complete provider/tool/process qualification and live billing evidence.
+
 ## Contents
 
 - [Android and iPhone app](mobile/README.md)

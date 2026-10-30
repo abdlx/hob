@@ -17,6 +17,9 @@ SOURCES = {
     "agent/conversation_compression.py": "490af3443334af9dd8ec011b9d5d8f483ec4c13e88510d141fc76b52f93c6fa2",
     "agent/turn_finalizer.py": "9000e17a4a0dba03b1d97cc10fe4184addcca685520ca0c9e6c6ef2cb97d1f25",
     "agent/turn_request_assembly.py": "61b6a0022037d0dfb004f71e3b085b21d3b03e83bde5478b6ee67c8a0118723a",
+    "agent/client_lifecycle.py": "4e8a80556184c415256934c50e6191b840910867fe68d36efc263440ea7b7dd2",
+    "agent/auxiliary_client.py": "62d0fbcc689cd8e45ee8dd43cea583645a4ab1962613438abd9ae564218b507d",
+    "agent/api_error_summary.py": "b31ba3cc4081d8e2e68d599410e5e5cd01204a9bf46dfdedefd64d7e9177f3f9",
 }
 
 
@@ -38,6 +41,17 @@ def _replace(source, before, after):
     if source.count(before) != 1:
         raise RuntimeError("Expected one qualified team call site.")
     return source.replace(before, after)
+
+
+def _client_factory(source, name, *, agent_arg=False):
+    matches = [node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.FunctionDef) and node.name == name]
+    if len(matches) != 1:
+        raise RuntimeError("Expected one qualified model client factory: " + name)
+    node = matches[0]
+    lines = source.splitlines(keepends=True)
+    # Static qualified module, installed below. No dynamic provider/plugin import.
+    lines.insert(node.lineno - 1, " " * node.col_offset + "@__import__('agent.hob_team_execution', fromlist=['client_factory']).client_factory(agent_arg=" + str(agent_arg) + ")\n")
+    return "".join(lines)
 
 
 def revisions(sources):
@@ -154,6 +168,21 @@ if _hob_skip_compaction:
     _hob_team.check_request_budget(agent, api_messages, tools_for_api, effective_system)
     return AssembledRequest(
 """)
+    key = "agent/client_lifecycle.py"
+    for name in ("_create_request_openai_client", "_create_request_anthropic_client"):
+        out[key] = _client_factory(out[key], name, agent_arg=True)
+    key = "agent/auxiliary_client.py"
+    for name in ("resolve_provider_client", "get_text_auxiliary_client", "resolve_vision_provider_client", "_get_cached_client", "_to_async_client"):
+        out[key] = _client_factory(out[key], name)
+    key = "agent/chat_completion_helpers.py"
+    for name in ("_dispatch_nonstreaming_api_request", "interruptible_streaming_api_call"):
+        out[key] = _entry(out[key], name, """from agent import hob_team_execution as _hob_execution
+_hob_execution.require_supported_transport(agent)""")
+    key = "agent/api_error_summary.py"
+    out[key] = _entry(out[key], "_summarize_api_error", """from agent import hob_team_context as _hob_team
+_hob_refusal = _hob_team.explain_error(error)
+if _hob_refusal is not None:
+    return _hob_refusal""")
     for text in out.values():
         ast.parse(text)
     return out
@@ -172,14 +201,19 @@ def install(root, expected=None):
         if hashlib.sha256(raw).hexdigest() != digest:
             raise RuntimeError("Team source differs from the qualified upstream commit: " + relative)
         source[relative] = raw.decode("utf-8")
-    helper = root / "agent/hob_team_context.py"
-    if helper.exists() or helper.is_symlink():
-        raise RuntimeError("Refusing to replace an existing team context module.")
+    helpers = {"agent/hob_team_context.py": "hob-team-context.py", "agent/hob_team_execution.py": "hob-team-execution.py"}
+    for relative in helpers:
+        helper = root / relative
+        if helper.exists() or helper.is_symlink():
+            raise RuntimeError("Refusing to replace an existing team adapter module.")
     updated = revisions(source)
-    helper_bytes = Path(__file__).with_name("hob-team-context.py").read_bytes()
-    ast.parse(helper_bytes)
+    helper_bytes = {relative: Path(__file__).with_name(filename).read_bytes() for relative, filename in helpers.items()}
+    for value in helper_bytes.values():
+        ast.parse(value)
     for relative, text in updated.items():
         (root / relative).write_bytes(text.encode("utf-8"))
-    helper.write_bytes(helper_bytes)
-    helper.chmod(0o444)
-    return {relative: hashlib.sha256(text.encode("utf-8")).hexdigest() for relative, text in updated.items()} | {"agent/hob_team_context.py": hashlib.sha256(helper_bytes).hexdigest()}
+    for relative, value in helper_bytes.items():
+        helper = root / relative
+        helper.write_bytes(value)
+        helper.chmod(0o444)
+    return {relative: hashlib.sha256(text.encode("utf-8")).hexdigest() for relative, text in updated.items()} | {relative: hashlib.sha256(value).hexdigest() for relative, value in helper_bytes.items()}

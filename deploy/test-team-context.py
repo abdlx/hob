@@ -270,7 +270,7 @@ class ContextTests(unittest.TestCase):
                 self.assertEqual(before[relative], (destination / relative).read_bytes())
         changed_file.write_bytes(before["run_agent.py"])
         hashes = compat.install(destination)
-        self.assertEqual(len(hashes), len(compat.SOURCES) + 1)
+        self.assertEqual(len(hashes), len(compat.SOURCES) + 2)
         with self.assertRaisesRegex(RuntimeError, "differs"):
             compat.install(destination)
 

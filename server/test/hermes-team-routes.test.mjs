@@ -39,6 +39,15 @@ test('only dashboard authentication can approve core; bot identity cannot be sup
   assert.equal(team.core().revision, 0);
   const login = await call('/api/auth/login', { password: 'test-password' });
   const user = { Cookie: login.headers.get('set-cookie').split(';')[0] };
+  const modelRoute = { profile: 'writer', endpoint: 'https://included.example/v1/messages', models: ['included-model'], billingMode: 'subscription', credentialDigest: 'c'.repeat(64), basis: 'Account contract checked; usage and overages are disabled.' };
+  assert.equal((await call('/api/hermes/team/execution/routes/preview', modelRoute, main)).status, 401);
+  const routePreview = await (await call('/api/hermes/team/execution/routes/preview', modelRoute, user)).json();
+  const routeApproval = { ...routePreview, confirm: true, confirmNoUsageCharges: true };
+  assert.equal((await call('/api/hermes/team/execution/routes', routeApproval, worker)).status, 401);
+  assert.equal((await call('/api/hermes/team/execution/routes', routeApproval, { ...user, Origin: 'https://other.invalid' })).status, 403);
+  assert.equal((await call('/api/hermes/team/execution/routes', routeApproval, user)).status, 201);
+  assert.equal((await call('/api/hermes/team/execution/routes', routeApproval, user)).status, 409);
+  assert.equal((await call('/api/hermes/team/execution/routes/revoke', { id: routePreview.route.id, digest: routePreview.digest, revision: 1, confirm: true }, main)).status, 401);
   assert.equal((await call('/api/hermes/team/decisions', decision, { ...user, Origin: 'https://other.invalid' })).status, 403);
   const approved = await call('/api/hermes/team/decisions', decision, user); assert.equal(approved.status, 200);
   const status = await approved.json(); assert.equal(status.core.revision, 1); assert.deepEqual(status.sync.failed, []);

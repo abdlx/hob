@@ -21,6 +21,17 @@ class TeamContextError(RuntimeError):
     pass
 
 
+def explain_error(error):
+    """Keep controlled team refusals visible through SDK connection wrappers."""
+    seen = set()
+    while error is not None and id(error) not in seen and len(seen) < 16:
+        seen.add(id(error))
+        if isinstance(error, TeamContextError):
+            return str(error)
+        error = getattr(error, "__cause__", None) or getattr(error, "__context__", None)
+    return None
+
+
 def _home():
     from hermes_constants import get_hermes_home
     return Path(get_hermes_home()).resolve()
@@ -83,7 +94,7 @@ def _state(agent=None):
                              (profile, getattr(agent, "session_id", ""))).fetchone()
             kind, assignment = row if row else ("unbound", "")
         core = db.execute("SELECT revision,content,digest FROM core_versions ORDER BY revision DESC LIMIT 1").fetchone()
-        return {"policy": settings, "profile": profile, "metadata": metadata, "kind": kind,
+        return {"authority": str(filename.resolve()), "policy": settings, "profile": profile, "metadata": metadata, "kind": kind,
                 "assignment": assignment, "core": core}
 
 

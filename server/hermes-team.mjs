@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { createTeamExecutionRoutes } from './hermes-team-execution.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, closeSync, lstatSync, mkdirSync, openSync } from 'node:fs';
 import { constants } from 'node:fs';
@@ -18,7 +19,7 @@ const secretContent = /-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:sk-(?:proj-)?[A-Z
 export const containsTeamCredentials = value => secretContent.test(String(value || ''));
 const hash = value => createHash('sha256').update(value).digest('hex');
 const fail = (message, status = 400, code = 'INVALID_TEAM_REQUEST') => new HermesError(status, message, code);
-const defaults = { revision: 0, coordinatorOnly: false, shareDocuments: false, coreBudget: 4000, sessionWindow: 20, ordinaryPromotions: 'user', nativeContext: false };
+const defaults = { revision: 0, coordinatorOnly: false, shareDocuments: false, coreBudget: 4000, sessionWindow: 20, ordinaryPromotions: 'user', nativeContext: false, paidExecution: false, allowSubscriptions: true };
 
 // Native privacy/context qualification is deliberately separate from these controls.
 // An operator enabling document distribution is not an attestation that the team is live.
@@ -87,7 +88,7 @@ function validateCore(content, budget, revision) {
 
 /** Approved revisions are immutable. Raw workspace edits can only become proposals. */
 export class HermesTeam {
-  #db; #root; #home; #roster; #now; #draftError = '';
+  #db; #root; #home; #roster; #now; #draftError = ''; execution;
   constructor({ stateDir, workspaceRoot, roster, nativeHome = process.env.HERMES_HOME, now = Date.now }) {
     if (!workspaceRoot || typeof roster !== 'function') throw new Error('Team workspaces and enrolled roster are required.');
     let filename = ':memory:';
@@ -110,8 +111,14 @@ export class HermesTeam {
       CREATE TABLE IF NOT EXISTS runtime_profiles (profile TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS runtime_sessions (profile TEXT NOT NULL, session TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('user','relay')), assignment TEXT NOT NULL, PRIMARY KEY(profile,session));
       CREATE TABLE IF NOT EXISTS artifact_handoffs (exchange TEXT PRIMARY KEY, value TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS artifact_reviews (request TEXT PRIMARY KEY, exchange TEXT NOT NULL, value TEXT NOT NULL, created INTEGER NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS artifact_reviews (request TEXT PRIMARY KEY, exchange TEXT NOT NULL, value TEXT NOT NULL, created INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS execution_policy (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
+      INSERT OR IGNORE INTO execution_policy VALUES(1,0);
+      CREATE TABLE IF NOT EXISTS execution_routes (id TEXT PRIMARY KEY, profile TEXT NOT NULL, value TEXT NOT NULL, created INTEGER NOT NULL, revoked INTEGER);`);
       this.#db.prepare('INSERT OR IGNORE INTO settings VALUES (1,?)').run(JSON.stringify(defaults));
+      // Materialize newly confirmed defaults for the native read-only adapter.
+      this.#db.prepare('UPDATE settings SET value=? WHERE id=1').run(JSON.stringify(this.policy()));
+      this.execution = createTeamExecutionRoutes({ db: this.#db, active: profile => this.#active(profile), sensitive: containsTeamCredentials, now });
     } catch (error) { this.#db.close(); throw error; }
   }
   policy() { return { ...defaults, ...JSON.parse(this.#db.prepare('SELECT value FROM settings WHERE id=1').get().value) }; }

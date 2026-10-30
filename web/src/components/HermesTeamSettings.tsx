@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { apiFetch } from '../services/api';
 import { buttonClass, cardClass, Field, inputClass, Notice } from './WorkspaceUI';
 import { errorText } from './workspaceUtils';
+import { HermesTeamExecutionSettings } from './HermesTeamExecutionSettings';
 
 interface Policy { revision: number; coordinatorOnly: boolean; shareDocuments: boolean; coreBudget: number; sessionWindow: number; ordinaryPromotions: 'user' }
 interface Proposal { id: string; base: number; content: string; digest: string; author: string; evidence: string }
@@ -39,7 +40,7 @@ export function HermesTeamSettings() {
     <p className="text-xs text-muted">Review shared facts before distributing them. Private bot memory stays separate.</p>
     <button className={buttonClass} aria-expanded={opened} disabled={busy} onClick={() => { if (!opened && !state) void run(read); setOpened(!opened); }}>{opened ? 'Close team controls' : 'Open team controls'}</button>
     {opened && <div className="space-y-4">
-      <Notice>These controls manage core approvals, document copies, and coordinator-only relay. Session-only memory, private group context, and native isolation still need verification before the employee team can be marked live. Provider settings are unchanged; the team’s no-paid-execution policy is not yet enforced. No messaging account is connected here.</Notice>
+      <Notice>These controls manage core approvals, document copies, and coordinator-only relay. Session-only memory, private group context, and native isolation still need verification before the employee team can be marked live. Guarded model routes require your review; team execution remains inactive pending complete native checks. No messaging account is connected here.</Notice>
       {error && <Notice error>{error}</Notice>}{message && <Notice>{message}</Notice>}
       {state?.draftError && <Notice error>{state.draftError}</Notice>}
       <button className={buttonClass} disabled={busy} onClick={() => void run(read)}>Refresh team status</button>
@@ -51,6 +52,7 @@ export function HermesTeamSettings() {
           <p className="text-xs text-muted">Every core promotion requires your approval. The requested {policy.sessionWindow}-turn session window is not active until native context support is verified.</p>
           <button className={buttonClass} onClick={() => void run(() => mutate('settings', { revision: policy.revision, coordinatorOnly: policy.coordinatorOnly, shareDocuments: policy.shareDocuments, coreBudget: policy.coreBudget, sessionWindow: policy.sessionWindow, confirm: true }, 'PUT'))}>Save team distribution settings</button>
         </fieldset>
+        <HermesTeamExecutionSettings bots={state.bots} />
         <div className="space-y-3">
           <h3 className="text-sm font-medium">Published core · revision {state.core.revision}</h3>
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-panel p-3 text-xs" aria-label="Published team core">{state.core.content || 'No core has been approved.'}</pre>

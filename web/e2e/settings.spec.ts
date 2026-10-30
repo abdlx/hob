@@ -708,3 +708,55 @@ test('team core review requires an explicit approval and reports incomplete dist
   expect(writes.map(write => write.path)).toEqual(['/api/hermes/team/proposals', '/api/hermes/team/decisions', '/api/hermes/team/settings', '/api/hermes/team/sync']);
   expect(state.errors).toEqual([]);
 });
+
+test('non-metered routes require exact billing review and expose revocation on a phone', async ({ page }) => {
+  const { expectNoHorizontalScroll } = await import('./mobile-layout');
+  const fixtureState = await fixture(page);
+  const team = { policy: { revision: 0, coordinatorOnly: false, shareDocuments: false, coreBudget: 4000, sessionWindow: 20, ordinaryPromotions: 'user' }, core: { revision: 0, content: '' }, proposals: [], bots: [{ id: 'research', name: 'My configured researcher', status: 'not synchronized' }] };
+  let execution = { revision: 0, routes: [] as Record<string, unknown>[] };
+  let preview: Record<string, unknown> | null = null;
+  const writes: string[] = [];
+  await page.route('**/api/hermes/team**', async route => {
+    const request = route.request(), path = new URL(request.url()).pathname;
+    if (request.method() === 'GET') return route.fulfill({ json: path.endsWith('/execution/routes') ? execution : team });
+    const body = request.postDataJSON(); writes.push(path);
+    if (path.endsWith('/preview')) {
+      preview = { revision: execution.revision, digest: 'b'.repeat(64), route: { ...body, id: 'route-id' } };
+      return route.fulfill({ json: preview });
+    }
+    if (path.endsWith('/revoke')) {
+      expect(body).toEqual({ id: 'route-id', digest: 'b'.repeat(64), revision: 1, confirm: true });
+      execution = { revision: 2, routes: execution.routes.map(value => ({ ...value, revoked: 2 })) };
+    } else {
+      expect(body).toEqual({ ...preview, confirm: true, confirmNoUsageCharges: true });
+      execution = { revision: 1, routes: [{ ...body.route, digest: body.digest, approvedAt: 1, revoked: null }] };
+    }
+    return route.fulfill({ json: execution });
+  });
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto('/settings');
+  await page.locator('.hob-settings-directory').getByRole('button', { name: 'Memory & history', exact: true }).click();
+  await page.getByRole('button', { name: 'Open team controls' }).click();
+  const controls = page.getByRole('region', { name: 'Team model execution routes' });
+  await controls.getByRole('button', { name: 'Review model routes', exact: true }).click();
+  await expect(controls.getByText(/No model routes approved/)).toBeVisible();
+  await controls.getByLabel('Inference endpoint').fill(`https://subscription.example/${'long-prefix-'.repeat(10)}/v1/chat/completions`);
+  await controls.getByLabel('Exact model IDs').fill('included-model');
+  await controls.getByLabel('Credential fingerprint').fill('a'.repeat(64));
+  await controls.getByLabel('Billing review evidence').fill('Existing subscription checked today; usage and overages disabled.');
+  await controls.getByRole('button', { name: 'Prepare exact route review' }).click();
+  const approve = controls.getByRole('button', { name: 'Approve reviewed model route' });
+  await expect(approve).toBeDisabled(); expect(writes.length).toBe(1);
+  await controls.getByRole('checkbox', { name: /I verified that this exact endpoint/ }).check();
+  await expectNoHorizontalScroll(page);
+  await page.screenshot({ path: 'test-results/employee-team-model-route-review-mobile.png' });
+  await approve.click();
+  await expect(controls.getByText(/Route approval saved/)).toBeVisible();
+  await expect(controls.getByLabel('Exact model route review')).toHaveCount(0);
+  await controls.getByRole('button', { name: 'Revoke this model route' }).click();
+  await expect(controls.getByText(/Each future request requires an active approval/)).toBeVisible();
+  await expect(controls.getByRole('button', { name: 'Revoke this model route' })).toHaveCount(0);
+  await expectNoHorizontalScroll(page);
+  expect(writes).toEqual(['/api/hermes/team/execution/routes/preview', '/api/hermes/team/execution/routes', '/api/hermes/team/execution/routes/revoke']);
+  expect(fixtureState.errors).toEqual([]);
+});

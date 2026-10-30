@@ -7,8 +7,12 @@ export function createHermesTeamRoutes({ team, bots }) {
     if (!resource && req.method === 'GET') return json(res, 200, team.status());
     if (resource === '/history' && req.method === 'GET') return json(res, 200, { revisions: team.history() });
     if (resource === '/draft' && req.method === 'GET') return json(res, 200, { content: await team.draft(), base: team.core().revision });
+    if (resource === '/execution/routes' && req.method === 'GET') return json(res, 200, team.execution.state());
     const value = req.method === 'POST' || req.method === 'PUT' ? await body(req) : null;
     if (value && (typeof value !== 'object' || Array.isArray(value))) throw new HermesError(400, 'Use a team request object.', 'INVALID_TEAM_REQUEST');
+    if (resource === '/execution/routes/preview' && req.method === 'POST') return json(res, 200, team.execution.preview(value));
+    if (resource === '/execution/routes' && req.method === 'POST') return json(res, 201, team.execution.approve(value));
+    if (resource === '/execution/routes/revoke' && req.method === 'POST') return json(res, 200, team.execution.revoke(value));
     if (resource === '/settings' && req.method === 'PUT') {
       team.configure(value || {});
       const sync = await bots.syncSharedNetwork();
