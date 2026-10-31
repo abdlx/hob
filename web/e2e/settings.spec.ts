@@ -279,6 +279,46 @@ test('skill reviews display the full diff, reject stale decisions and bind the u
   expect(state.errors).toEqual([]);
 });
 
+for (const stale of [false, true]) test(`private skill promotion requires explicit retention consent${stale ? ' and refuses stale sources' : ''} on a phone`, async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  const state = await fixture(page);
+  const revision = 'd'.repeat(64), decisions: Record<string, unknown>[] = [];
+  let pending = true;
+  await page.route('**/api/hermes/workspace/reviews/skills**', async route => {
+    if (route.request().method() === 'POST') {
+      decisions.push(route.request().postDataJSON()); pending = false;
+      return route.fulfill({ json: { ok: true } });
+    }
+    if (new URL(route.request().url()).pathname.endsWith('/private-proposal')) return route.fulfill({ json: {
+      id: 'private-proposal', summary: 'Retain a private lesson', revision, diff: '+ An exact private lesson.', stale,
+      team: { version: 1, profile: 'default', session: 'private-source-session-'.repeat(12), kind: 'user' },
+    } });
+    return route.fulfill({ json: { items: pending ? [{ id: 'private-proposal', summary: 'Retain a private lesson', revision, origin: 'foreground' }] : [], nextOffset: null } });
+  });
+  await page.goto('/idea');
+  const queue = page.getByRole('region', { name: 'Skill review queue' });
+  await queue.getByRole('button', { name: /Retain a private lesson/ }).click();
+  const approve = queue.getByRole('button', { name: 'Approve reviewed revision' });
+  const consent = queue.getByRole('checkbox', { name: 'I want this exact change to persist privately for this bot across chats.' });
+  await expect(approve).toBeDisabled();
+  if (stale) {
+    await expect(consent).toBeDisabled();
+    await expect(queue.getByRole('alert')).toContainText('Private skill files changed');
+  } else {
+    await consent.check();
+    await expect(approve).toBeEnabled();
+  }
+  await queue.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: `test-results/private-promotion-${stale ? 'stale' : 'review'}-mobile.png`, fullPage: true });
+  await (stale ? queue.getByRole('button', { name: 'Reject reviewed revision' }) : approve).click();
+  expect(decisions).toHaveLength(1);
+  expect(decisions[0]).toMatchObject({ revision, confirm: true, action: stale ? 'reject' : 'approve' });
+  expect(decisions[0].confirmPrivatePromotion).toBe(stale ? undefined : true);
+  await expect(queue.getByText('No pending proposals for this bot.', { exact: true })).toBeVisible();
+  expect(state.errors).toEqual([]);
+});
+
 test('uncertain approvals require native-state inspection and record observations without another application', async ({ page }) => {
   const state = await fixture(page);
   const revision = 'c'.repeat(64), decisions: Record<string, unknown>[] = [];

@@ -217,6 +217,14 @@ test('versioned review requests bind exact revisions to a single bot and refuse 
     }
     assert.equal((await request('reviews/memory', 'POST', body)).status, 200);
     assert.deepEqual(calls.at(-1), { route: '/api/hob/reviews/memory', profile: 'coder', method: 'POST', body });
+    const promoted = { ...body, confirmPrivatePromotion: true };
+    assert.equal((await request('reviews/memory', 'POST', promoted)).status, 200);
+    assert.deepEqual(calls.at(-1), { route: '/api/hob/reviews/memory', profile: 'coder', method: 'POST', body: promoted });
+    for (const changed of [{ ...body, confirmPrivatePromotion: false }, { ...promoted, action: 'reject' }]) {
+      const count = calls.length;
+      assert.equal((await request('reviews/memory', 'POST', changed)).status, 400);
+      assert.equal(calls.length, count);
+    }
   } finally { reply = undefined; }
 });
 

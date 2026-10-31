@@ -57,9 +57,10 @@ export function createHermesWorkspaceRoutes({ client, bridge, workspaceRoot, bot
         return json(res, 200, await dashboard(`/api/hob/reviews/${review[1]}${review[2] ? `/${review[2]}` : ''}`, { query: { offset } }));
       }
       if (method === 'POST' && !review[2]) {
-        const value = await input(['id', 'revision', 'action', 'requestId', 'confirm']);
+        const value = await input(['id', 'revision', 'action', 'requestId', 'confirm', 'confirmPrivatePromotion']);
         if (value.confirm !== true || !['approve', 'reject'].includes(value.action) || !/^[a-zA-Z0-9_-]{1,128}$/.test(value.id || '') || value.id === 'all'
-          || !/^[a-f0-9]{64}$/.test(value.revision || '') || !/^[a-zA-Z0-9_-]{16,128}$/.test(value.requestId || '')) throw invalid('Confirm one exact proposal revision.');
+          || !/^[a-f0-9]{64}$/.test(value.revision || '') || !/^[a-zA-Z0-9_-]{16,128}$/.test(value.requestId || '')
+          || 'confirmPrivatePromotion' in value && (value.confirmPrivatePromotion !== true || value.action !== 'approve')) throw invalid('Confirm one exact proposal revision.');
         return json(res, 200, await dashboard(`/api/hob/reviews/${review[1]}`, { method, body: value }));
       }
     }

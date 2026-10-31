@@ -54,6 +54,8 @@ In coordinator-only preview mode, Main can receive the worker's nominated output
 
 Team controls also provide exact model-route review for free/local models and existing subscriptions with no usage or overage charges. Approval binds a bot, endpoint, model list, credential fingerprint and billing evidence; changing credentials requires a fresh review. The dormant native SDK guard checks final HTTP requests and revocation before sending. Team activation still awaits complete provider/tool/process qualification and live billing evidence.
 
+The dormant team adapter also keeps unproven chat notes in private review proposals until you explicitly approve retention across chats. Source-checked task observations and existing private skill excerpts preserve each bot's native memory approval setting. Skill proposals retain their reviewed diff and require a fresh proposal if the source changes. This preview does not yet establish complete session-only memory or native process isolation.
+
 ## Contents
 
 - [Android and iPhone app](mobile/README.md)

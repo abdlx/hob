@@ -73,6 +73,26 @@ class NativeReviewTests(unittest.TestCase):
         self.assertTrue(filename.exists())
         self.assertFalse(self.applied)
 
+    def test_private_promotion_needs_an_explicit_extra_confirmation(self):
+        record, filename, body = self.seed()
+        record["team"] = {"version": 1, "profile": "default", "session": "private-chat", "kind": "user", "retention": "pending-private-promotion", "homeDigest": "a" * 64}
+        filename.write_text(json.dumps(record), encoding="utf-8")
+        body["revision"] = controls.revision(record)
+        package = types.ModuleType("agent")
+        helper = types.SimpleNamespace(review_metadata=lambda record, profile: dict(record["team"]))
+        with patch.dict(sys.modules, {"agent": package, "agent.hob_team_retention": helper}):
+            with self.assertRaises(Refusal) as denied:
+                controls.decide("memory", body)
+            self.assertEqual(denied.exception.status_code, 400)
+            self.assertTrue(filename.exists()); self.assertFalse(self.applied)
+            confirmed = {**body, "confirmPrivatePromotion": True}
+            result = controls.decide("memory", confirmed)
+            self.assertTrue(result["decision"]["privatePromotionConfirmed"])
+            self.assertEqual(result["decision"]["team"], record["team"])
+            self.assertTrue(controls.decide("memory", confirmed)["replayed"])
+            with self.assertRaises(Refusal):
+                controls.decide("memory", body)
+
     def test_failed_native_apply_preserves_a_claim_instead_of_enabling_replay(self):
         _record, filename, body = self.seed()
         sys.modules["hermes_cli.write_approval_commands"]._apply_one = lambda *args: (False, "stale native preimage", {})

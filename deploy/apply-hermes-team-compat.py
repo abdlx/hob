@@ -20,6 +20,12 @@ SOURCES = {
     "agent/client_lifecycle.py": "4e8a80556184c415256934c50e6191b840910867fe68d36efc263440ea7b7dd2",
     "agent/auxiliary_client.py": "62d0fbcc689cd8e45ee8dd43cea583645a4ab1962613438abd9ae564218b507d",
     "agent/api_error_summary.py": "b31ba3cc4081d8e2e68d599410e5e5cd01204a9bf46dfdedefd64d7e9177f3f9",
+    "tools/write_approval.py": "8d8a15d29a73dceb2e8cf76f613d59d91115314c908a8086ffe1c72572382c7f",
+    "tools/memory_tool.py": "3ac1975d5d34a8e0fd20ea538aa084fc48c5ba21e8b2da4f97f58a7bf3cafaab",
+    "tools/skill_manager_tool.py": "131d3720957659c37addd27430693d5d0b7dec0b5176a83b2bedad783b7edcd7",
+    "agent/skill_utils.py": "9cb773037fe97940cdfcbf8b0d6bbfe60e366985749d3ae3bec3b274a83e33c4",
+    "hermes_cli/write_approval_commands.py": "f861762fed993aedbdd3a1dc95862d6237e881b9e159fe205193925a7d32a3d4",
+    "agent/inline_tool_executors.py": "20ec06265f1629b32a932a1abc892e0965baac39f79719f99aec651ff44a7065",
 }
 
 
@@ -183,6 +189,58 @@ _hob_execution.require_supported_transport(agent)""")
 _hob_refusal = _hob_team.explain_error(error)
 if _hob_refusal is not None:
     return _hob_refusal""")
+    key = "tools/write_approval.py"
+    out[key] = _entry(out[key], "evaluate_gate", """from agent import hob_team_retention as _hob_retention
+_hob_decision = _hob_retention.decision(subsystem, GateDecision)
+if _hob_decision is not None:
+    return _hob_decision""")
+    out[key] = _entry(out[key], "stage_write", """from agent import hob_team_retention as _hob_retention
+_hob_record = _hob_retention.stage_write(subsystem, payload, summary=summary, origin=origin)
+if _hob_record is not None:
+    return _hob_record""")
+    # Native tool owners historically fail open when this optional gate cannot
+    # import. Team authority makes that absence a refusal, never a direct write.
+    for key, before in (("tools/memory_tool.py", "    except Exception:\n        return None\n    decision = wa.evaluate_gate(wa.MEMORY, inline_summary=summary, inline_detail=detail)\n"),
+                        ("tools/skill_manager_tool.py", "    except Exception:\n        return None  # fail open\n    decision = wa.evaluate_gate(wa.SKILLS)\n")):
+        after = before.replace("        return None", "        from agent import hob_team_context as _hob_team\n        if _hob_team.enabled():\n            raise _hob_team.TeamContextError('The native private-write review gate is unavailable.')\n        return None", 1)
+        out[key] = _replace(out[key], before, after)
+    key = "tools/memory_tool.py"
+    gate = next(node for node in ast.walk(ast.parse(out[key])) if isinstance(node, ast.FunctionDef) and node.name == "_gate_or_stage")
+    lines = out[key].splitlines(keepends=True)
+    lines.insert(gate.lineno - 1, "@__import__('agent.hob_team_retention', fromlist=['memory_gate']).memory_gate\n")
+    out[key] = "".join(lines)
+    key = "agent/inline_tool_executors.py"
+    out[key] = _entry(out[key], "emit_terminal_post_tool_call", """from agent import hob_team_retention as _hob_retention
+_hob_retention.observe_tool(agent, function_name, status)""")
+    key = "agent/skill_utils.py"
+    out[key] = _entry(out[key], "get_skill_search_roots", """from agent import hob_team_retention as _hob_retention
+_hob_root = _hob_retention.private_skill_root()
+if _hob_root is not None:
+    return [(TIER_LOCAL, _hob_root)]""")
+    for name, result in (("get_skill_create_dir", "None"), ("get_external_skills_dirs", "[]"), ("get_project_skills_dirs", "[]"), ("get_untrusted_project_skills_root", "None")):
+        out[key] = _entry(out[key], name, f"""from agent import hob_team_retention as _hob_retention
+if _hob_retention.private_skill_root() is not None:
+    return {result}""")
+    key = "tools/skill_manager_tool.py"
+    out[key] = _entry(out[key], "_resolve_skill_dir", """from agent import hob_team_retention as _hob_retention
+_hob_root = _hob_retention.private_skill_root()
+if _hob_root is not None:
+    return _hob_root / (category or '') / name""")
+    out[key] = _entry(out[key], "_find_skill_in_other_profiles", """from agent import hob_team_retention as _hob_retention
+if _hob_retention.private_skill_root() is not None:
+    return []""")
+    key = "hermes_cli/write_approval_commands.py"
+    tree = ast.parse(out[key])
+    apply = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_apply_one")
+    lines = out[key].splitlines(keepends=True)
+    lines.insert(apply.lineno - 1, "@__import__('agent.hob_team_retention', fromlist=['review_application']).review_application\n")
+    out[key] = "".join(lines)
+    key = "agent/conversation_loop.py"
+    tree = ast.parse(out[key])
+    turn = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_run_conversation_turn")
+    lines = out[key].splitlines(keepends=True)
+    lines.insert(turn.lineno - 1, "@__import__('agent.hob_team_retention', fromlist=['turn_scope']).turn_scope\n")
+    out[key] = "".join(lines)
     for text in out.values():
         ast.parse(text)
     return out
@@ -201,7 +259,7 @@ def install(root, expected=None):
         if hashlib.sha256(raw).hexdigest() != digest:
             raise RuntimeError("Team source differs from the qualified upstream commit: " + relative)
         source[relative] = raw.decode("utf-8")
-    helpers = {"agent/hob_team_context.py": "hob-team-context.py", "agent/hob_team_execution.py": "hob-team-execution.py"}
+    helpers = {"agent/hob_team_context.py": "hob-team-context.py", "agent/hob_team_execution.py": "hob-team-execution.py", "agent/hob_team_retention.py": "hob-team-retention.py"}
     for relative in helpers:
         helper = root / relative
         if helper.exists() or helper.is_symlink():

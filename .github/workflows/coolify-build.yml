@@ -113,6 +113,7 @@ jobs:
           test -n "$native_base"
           docker run --rm --entrypoint /opt/hermes/.venv/bin/python -v "$PWD/deploy:/hob-team-tests:ro" -e HOB_QUALIFIED_RUNTIME=/opt/hermes "$native_base" /hob-team-tests/test-team-context.py
           docker run --rm --entrypoint /opt/hermes/.venv/bin/python -v "$PWD/deploy:/hob-team-tests:ro" -e HOB_NATIVE_SDK_PROBE=1 -e HOB_QUALIFIED_RUNTIME=/opt/hermes "$native_base" /hob-team-tests/test-team-execution.py
+          docker run --rm --entrypoint /opt/hermes/.venv/bin/python -v "$PWD/deploy:/hob-team-tests:ro" -e HOB_QUALIFIED_RUNTIME=/opt/hermes "$native_base" /hob-team-tests/test-team-retention-pinned.py
           docker run --rm --entrypoint /opt/hermes/.venv/bin/python -v "$PWD/deploy:/hob-team-tests:ro" -e HOB_QUALIFIED_RUNTIME=/opt/hermes "$native_base" /hob-team-tests/test-native-activity-pinned.py
       - name: Verify first boot, sandboxed browser, and persistence
         env:

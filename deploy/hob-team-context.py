@@ -118,6 +118,8 @@ def no_external_memory(agent):
 
 def turn_start(agent, *, moa_active=False):
     state = _state(agent)
+    from agent import hob_team_retention
+    hob_team_retention.bind_turn(agent, state)
     if state is None:
         return
     if moa_active or getattr(agent, "api_mode", "") == "codex_app_server":
@@ -319,6 +321,10 @@ def bound_messages(agent, messages):
         selected = copy.deepcopy(turns[cut:])
         if cut:
             selected[0][0]["content"] = _prepend(selected[0][0].get("content"), _summary(turns[:cut]))
+        from agent import hob_team_retention
+        evidence = hob_team_retention.learning_evidence()
+        if evidence:
+            selected[-1][0]["content"] = _append(selected[-1][0].get("content"), evidence)
         if state["kind"] == "relay":
             selected[-1][0]["content"] = _append(selected[-1][0].get("content"),
                 "Current worker assignment (trusted relay admission):\n" + state["assignment"])

@@ -75,6 +75,7 @@ class ContextTests(unittest.TestCase):
         package = types.ModuleType("agent")
         package.hob_team_context = team
         patch.dict(sys.modules, {"agent": package, "agent.system_prompt": native_prompt, "agent.model_metadata": metadata}).start()
+        package.hob_team_retention = load("retention", "hob-team-retention.py")
         (self.home / "SOUL.md").write_text("OWN_ROLE", encoding="utf-8")
         (self.home / "memories" / "USER.md").write_text("OWN_USER", encoding="utf-8")
         (self.home / "memories" / "MEMORY.md").write_text("OWN_MEMORY", encoding="utf-8")
@@ -270,7 +271,7 @@ class ContextTests(unittest.TestCase):
                 self.assertEqual(before[relative], (destination / relative).read_bytes())
         changed_file.write_bytes(before["run_agent.py"])
         hashes = compat.install(destination)
-        self.assertEqual(len(hashes), len(compat.SOURCES) + 2)
+        self.assertEqual(len(hashes), len(compat.SOURCES) + 3)
         with self.assertRaisesRegex(RuntimeError, "differs"):
             compat.install(destination)
 

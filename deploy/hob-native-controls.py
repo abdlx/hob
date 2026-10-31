@@ -28,6 +28,16 @@ def revision(record):
     return hashlib.sha256(encoded).hexdigest()
 
 
+def private_promotion(record, profile=None):
+    if record.get("team") is None:
+        return None
+    try:
+        from agent.hob_team_retention import review_metadata
+        return review_metadata(record, profile or "default")
+    except Exception:
+        raise HTTPException(409, "Private promotion provenance cannot be verified for this bot") from None
+
+
 def subsystem_name(value):
     if value not in {"memory", "skills"}:
         raise HTTPException(400, "Choose memory or skills")
@@ -168,12 +178,15 @@ def reconcile_claim(subsystem, body):
         return {"ok": True, "decision": decision}
 
 
-def decide(subsystem, body):
+def decide(subsystem, body, profile=None):
     from hermes_cli.write_approval_commands import _apply_one
     from tools.memory_tool import load_on_disk_store
     subsystem_name(subsystem)
-    if not isinstance(body, dict) or set(body) != {"id", "revision", "action", "requestId", "confirm"} or body["confirm"] is not True:
+    required = {"id", "revision", "action", "requestId", "confirm"}
+    if not isinstance(body, dict) or set(body) not in (required, required | {"confirmPrivatePromotion"}) or body["confirm"] is not True:
         raise HTTPException(400, "Confirm one exact proposal revision")
+    if "confirmPrivatePromotion" in body and (body["confirmPrivatePromotion"] is not True or body.get("action") != "approve"):
+        raise HTTPException(400, "Confirm private retention only for an approval")
     if any(not isinstance(body[key], str) for key in ["id", "revision", "action", "requestId"]):
         raise HTTPException(400, "Invalid review decision")
     pending_id = proposal_id(body["id"])
@@ -182,12 +195,24 @@ def decide(subsystem, body):
     with _lock:
         for previous in audit_history():
             if previous.get("requestId") == body["requestId"]:
-                if previous.get("subsystem") != subsystem or any(previous.get(key) != body[key] for key in ["id", "revision", "action"]):
+                if previous.get("subsystem") != subsystem or any(previous.get(key) != body[key] for key in ["id", "revision", "action"]) or previous.get("privatePromotionConfirmed", False) != body.get("confirmPrivatePromotion", False):
                     raise HTTPException(409, "Decision identifier was already used")
                 return {"ok": True, "decision": previous, "replayed": True}
         record = get_record(subsystem, pending_id)
         if revision(record) != body["revision"]:
             raise HTTPException(409, "Proposal changed; refresh and review again")
+        promotion = private_promotion(record, profile)
+        if promotion is not None and body["action"] == "approve":
+            if body.get("confirmPrivatePromotion") is not True:
+                raise HTTPException(400, "Confirm that this exact change may persist privately across chats")
+            if subsystem == "skills":
+                from agent.hob_team_retention import review_context, _skills_digest
+                try:
+                    with review_context(record, profile or "default"):
+                        if record.get("privateSkillBase") != _skills_digest():
+                            raise ValueError("changed")
+                except Exception:
+                    raise HTTPException(409, "Private skills changed; reject and recreate the proposal") from None
         original = pending_path(subsystem, pending_id)
         claimed = original.with_name(f".hob-claimed-{pending_id}-{body['revision']}.claim")
         if claimed.exists():
@@ -221,6 +246,10 @@ def decide(subsystem, body):
                 # Preserve the claim; never make an uncertain write replayable.
                 raise HTTPException(409, "Native application was not confirmed; inspect current state and reconcile the claim")
         decision = {"id": pending_id, "revision": body["revision"], "action": body["action"], "requestId": body["requestId"], "subsystem": subsystem, "at": time.time(), "status": "completed"}
+        if body.get("confirmPrivatePromotion"):
+            decision["privatePromotionConfirmed"] = True
+        if promotion is not None:
+            decision["team"] = promotion
         append_audit(decision)
         claimed.unlink()
         return {"ok": True, "decision": decision}
@@ -258,16 +287,32 @@ async def detail(subsystem: str, pending_id: str, profile: Optional[str] = None)
     def work():
         from tools import write_approval as native
         record = get_record(subsystem, pending_id)
-        diff = native.skill_pending_diff(record) if subsystem == "skills" else json.dumps(record.get("payload", {}), ensure_ascii=False, indent=2)
+        promotion = private_promotion(record, profile)
+        stale = False
+        if promotion is not None and subsystem == "skills":
+            diff = record.get("stagedDiff")
+            if not isinstance(diff, str):
+                raise HTTPException(409, "Private skill proposal has no reviewed source snapshot")
+            try:
+                from agent.hob_team_retention import review_context, _skills_digest
+                with review_context(record, profile or "default"):
+                    stale = record.get("privateSkillBase") != _skills_digest()
+            except Exception:
+                stale = True
+        else:
+            diff = native.skill_pending_diff(record) if subsystem == "skills" else json.dumps(record.get("payload", {}), ensure_ascii=False, indent=2)
         if len(diff.encode("utf-8")) > 1024 * 1024:
             raise HTTPException(413, "Proposal diff exceeds the review limit")
-        return {"id": pending_id, "revision": revision(record), "summary": str(record.get("summary", "")), "diff": diff}
+        result = {"id": pending_id, "revision": revision(record), "summary": str(record.get("summary", "")), "diff": diff}
+        if promotion is not None:
+            result.update(team=promotion, stale=stale)
+        return result
     return await scoped(profile, work)
 
 
 @router.post("/api/hob/reviews/{subsystem}")
 async def decision(subsystem: str, body: dict, profile: Optional[str] = None):
-    return await scoped(profile, lambda: decide(subsystem, body))
+    return await scoped(profile, lambda: decide(subsystem, body, profile))
 
 
 @router.get("/api/hob/review-claims/{subsystem}/{pending_id}/{version}")
