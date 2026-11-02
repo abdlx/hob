@@ -66,6 +66,7 @@ export function HermesSettings() {
 function ProfileSettings({ profile, setProfile, section, visited }: { profile: string; setProfile: (value: string) => void; section: SettingsSection; visited: Set<SettingsSection> }) {
   const { toast } = useToast();
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [available, setAvailable] = useState<Profile[]>([]);
   const mounted = useRef(true);
   const modelForm = useRef<HTMLElement>(null);
   const pending = useRef(false);
@@ -96,9 +97,10 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
     const sequence = ++loadSequence.current;
     setLoading(true);
     try {
-      const roster = await request<{ profiles: Profile[] }>('/api/hermes/profiles');
+      const roster = await request<{ profiles: Profile[]; available?: Profile[] }>('/api/hermes/profiles');
       if (sequence !== loadSequence.current) return;
       setProfiles(roster.profiles);
+      setAvailable(roster.available ?? []);
       const [config, keys, configSchema] = await Promise.all([
         request<HermesConfig>(scoped('config')),
         request<Record<string, HermesCredential>>(scoped('credentials')),
@@ -125,6 +127,10 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
   }
   const runAction = (work: () => Promise<unknown>, message: string) => { void action(work, message).catch(() => undefined); };
   const submit = (path: string, value: unknown, method = 'PUT') => request(scoped(path), { method, body: JSON.stringify(value) });
+  const adopt = (name: string) => runAction(
+    () => request('/api/hermes/profiles/adopt', { method: 'POST', body: JSON.stringify({ name }) }),
+    `Adopted ${name}. Select it above to connect its model and credentials.`,
+  );
   async function selectModel(confirmExpensive = false) {
     if (pending.current) return;
     pending.current = true;
@@ -186,7 +192,19 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
     {visited.has('channels') && <div hidden={section !== 'channels'}><HermesChannelsSettings profile={profile} /></div>}
     {visited.has('skills') && <div hidden={section !== 'skills'}><HermesWorkshop profile={profile} includeMemory={false} /></div>}
     {visited.has('automation') && <div hidden={section !== 'automation'} className="space-y-5">{section === 'automation' && <HermesAutonomySettings key={profile} profile={profile} />}<HermesGoals profile={profile} /></div>}
-    <section hidden={section !== 'agents'} className={`${cardClass} space-y-3`}><h2 className="text-sm text-ink">Create a bot</h2>
+    <section hidden={section !== 'agents'} className={`${cardClass} space-y-3`}>
+      {available.length > 0 && <div className="space-y-2 border-b border-hair pb-4">
+        <h2 className="text-sm text-ink">Adopt an existing profile</h2>
+        <p className="text-xs text-muted">These profiles exist in Hermes but are not in the dashboard. Adoption keeps their prompts, model and sessions, and gives each one its own HOB workspace and relay identity. Nothing is copied from another bot.</p>
+        {available.map(item => <div key={item.name} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-edge px-3 py-2">
+          <div className="min-w-0">
+            <p className="truncate text-sm text-ink">{item.name}</p>
+            <p className="truncate text-xs text-muted">{item.description || item.model || 'Existing Hermes profile'}</p>
+          </div>
+          <button className={`${buttonClass} shrink-0`} disabled={busy} onClick={() => adopt(item.name)}>Adopt {item.name}</button>
+        </div>)}
+      </div>}
+      <h2 className="text-sm text-ink">Create a bot</h2>
       <Field label="Name" hint="Use lowercase letters, digits, underscores or hyphens; start with a letter."><input className={inputClass} value={newName} disabled={busy} onChange={event => setNewName(event.target.value)} /></Field>
       <Field label="Personality and instructions"><textarea className={inputClass} rows={4} value={soul} disabled={busy} onChange={event => setSoul(event.target.value)} /></Field>
       <Field label="Bot role" hint="Shown in About and shared with the bot roster. Optional; leave blank if this bot has no specific role."><textarea className={inputClass} rows={2} maxLength={2000} value={newRole} disabled={busy} onChange={event => setNewRole(event.target.value)} /></Field>

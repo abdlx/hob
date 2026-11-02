@@ -103,8 +103,11 @@ The operator-created roster persists in `.hob/bots.json`. Named bots receive dis
 keys and working directories under `workspaces/bots/<name>` through the native
 settings/credential owners before dashboard activation. A bot called `main` cannot
 collide with Main's `workspaces/main` directory. Unenrolled profiles do not become
-dashboard bots merely because Hermes discovers them. Partial setup remains pending
-for explicit operator recovery; revoked enrollment stays revoked if setup was in flight.
+dashboard bots merely because Hermes discovers them, but Settings → Agents lists them
+for explicit adoption. Adoption claims the named native profile in place and gives it
+the same workspace, listener credential, browser binding and relay identity as a newly
+created bot; it never recreates, renames or copies another profile. Partial setup remains
+pending for explicit operator recovery; revoked enrollment stays revoked if setup was in flight.
 These are application routing/state boundaries; a local backend with shared OS access
 can still reach other files/processes. Execution sandbox isolation remains required.
 

@@ -83,6 +83,15 @@ export function createHermesRoutes(client, bots, { removeBot, home, stateDir, wo
       }
       return json(res, 201, await (bots ? bots.create(proposal) : client.dashboard('/api/profiles', { method, body: proposal })));
     }
+    if (path === 'profiles/adopt' && method === 'POST') {
+      if (!bots) throw new HermesError(404, 'Unknown Hermes application endpoint.', 'NOT_FOUND');
+      const input = object(await body(req));
+      if (Object.keys(input).some(key => !['name', 'displayName', 'tags', 'description'].includes(key))) {
+        throw new HermesError(400, 'Unsupported profile adoption option.', 'INVALID_REQUEST');
+      }
+      return json(res, 201, await bots.adopt({ name: input.name, displayName: input.displayName,
+        tags: input.tags, description: input.description }));
+    }
     const finish = /^profiles\/([a-z][a-z0-9_-]{0,63})\/finish-setup$/.exec(path);
     if (finish && method === 'POST' && bots) {
       const input = object(await body(req));

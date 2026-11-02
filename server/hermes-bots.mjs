@@ -185,7 +185,7 @@ export class HermesBotRegistry {
    * lets a deleted display name be reused without pointing a new bot at old
    * browser profiles, sessions or credentials.
    */
-  async reserve(name, { displayName, tags, description, taken = [] } = {}) {
+  async reserve(name, { displayName, tags, description, taken = [], exact = false } = {}) {
     const base = hermesProfile(name);
     const label = hermesDisplayName(displayName ?? DEFAULT_DISPLAY(base));
     tags = hermesBotTags(tags);
@@ -197,6 +197,9 @@ export class HermesBotRegistry {
       const unavailable = new Set([...data.bots.map(item => item.name), ...taken]);
       let internal = base;
       if (unavailable.has(internal)) {
+        // Adoption must claim the exact native profile. Silently allocating a
+        // suffix would leave a setup record pointing at nothing.
+        if (exact) throw new HermesError(409, 'This profile is already in your dashboard.', 'BOT_EXISTS');
         let suffix = 2;
         while (unavailable.has(internal = suffixed(base, suffix))) suffix += 1;
       }
@@ -376,7 +379,16 @@ export class HermesBots {
         ...(item.state === 'active' && !profile ? { state: 'unavailable' } : {}) };
     });
     this.#metadata = new Map(profiles.map(item => [item.name, item]));
-    return { profiles };
+    // Native profiles outside the roster are never enrolled implicitly. They are
+    // only offered for an explicit operator adoption. Revoked tombstone names
+    // stay hidden because an internal id is never resurrected.
+    const available = native.profiles
+      .filter(profile => profile.name !== 'default' && /^[a-z][a-z0-9_-]{0,63}$/.test(profile.name)
+        && !this.#registry.hasRecord(profile.name))
+      .map(profile => ({ name: profile.name,
+        ...(typeof profile.description === 'string' ? { description: profile.description } : {}),
+        ...(typeof profile.model === 'string' ? { model: profile.model } : {}) }));
+    return { profiles, available };
   }
   /**
    * The relay's view of every active bot. Synchronous because the relay resolves
@@ -463,6 +475,39 @@ export class HermesBots {
     await this.#registry.update(name, { nativeCreated: true });
     return this.finishSetup(name);
   }
+  /**
+   * Enroll a Hermes profile that already exists on disk.
+   *
+   * `create()` refuses to claim an unregistered native profile, because the
+   * profile may be somebody else's state. Adoption is the explicit operator
+   * alternative: the named profile is claimed in place, never recreated or
+   * renamed, and receives the same workspace, listener credential, browser
+   * binding and relay identity as a newly created bot.
+   */
+  async adopt(proposal) {
+    hermesBotTags(proposal.tags);
+    if (proposal.description !== undefined && (typeof proposal.description !== 'string' || proposal.description.length > 2000)) {
+      throw new HermesError(400, 'Enter a role under 2,000 characters.', 'INVALID_REQUEST');
+    }
+    const name = hermesProfile(proposal.name);
+    if (name === 'default') throw new HermesError(400, 'The Main bot already exists.', 'INVALID_PROFILE');
+    // A revoked tombstone also refuses adoption: identities are never reused.
+    if (this.#registry.hasRecord(name)) {
+      throw new HermesError(409, 'This profile is already in your dashboard. Finish its setup instead of adopting it again.', 'BOT_EXISTS');
+    }
+    const native = await this.#client.dashboard('/api/profiles');
+    if (!Array.isArray(native.profiles)) throw new HermesError(502, 'Hermes returned an invalid bot roster.', 'HERMES_PROTOCOL_ERROR');
+    if (!native.profiles.some(profile => profile.name === name)) {
+      throw new HermesError(409, 'Hermes has no profile with that name to adopt.', 'BOT_PROFILE_MISSING');
+    }
+    await this.#registry.reserve(name, {
+      displayName: proposal.displayName ?? DEFAULT_DISPLAY(name),
+      tags: proposal.tags, description: proposal.description,
+      // The requested id *is* the profile being adopted; never suffix it.
+      exact: true,
+    });
+    return { ...(await this.finishSetup(name, { confirmExisting: true })), adopted: true };
+  }
   async finishSetup(name, { confirmExisting = false } = {}) {
     const record = this.#registry.setup(name);
     if (record.state === 'active') return { ok: true, name, displayName: record.displayName, state: 'active' };
@@ -513,6 +558,14 @@ export class HermesBots {
     await this.#isolation?.revoke(name);
     await this.#afterChange();
     await this.#browser?.remove(name);
-    return this.#client.dashboard(`/api/profiles/${hermesProfile(name)}`, { method: 'DELETE' });
+    try {
+      return await this.#client.dashboard(`/api/profiles/${hermesProfile(name)}`, { method: 'DELETE' });
+    } catch (error) {
+      // A CLI deletion can remove the native profile before the dashboard
+      // hears about it. Revocation above is authoritative and absence is the
+      // desired end state, so retrying deletion is not an operator error.
+      if (error?.status === 404) return { ok: true, name, alreadyAbsent: true };
+      throw error;
+    }
   }
 }

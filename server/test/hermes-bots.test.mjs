@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { HermesBotRegistry, HermesBots } from '../hermes-bots.mjs';
-import { HermesClient } from '../hermes-client.mjs';
+import { HermesClient, HermesError } from '../hermes-client.mjs';
 
 async function fixture(run) {
   const root = await mkdtemp(path.join(tmpdir(), 'hob-bot-registry-'));
@@ -68,6 +68,12 @@ test('relay credentials migrate independently, survive restart and revoke with t
   await migrated.update('research', { state: 'revoked' });
   assert.equal(migrated.authenticate(relay), null);
   assert.throws(() => migrated.relayToken('research'), /not in your dashboard/);
+}));
+
+test('exact reservation refuses a taken id instead of allocating a suffix', async () => fixture(async ({ registry }) => {
+  await registry.reserve('research');
+  await assert.rejects(registry.reserve('research', { displayName: 'Scout', exact: true }), /already in your dashboard/);
+  assert.deepEqual(registry.list().map(item => item.name), ['default', 'research']);
 }));
 
 test('boot reconciliation binds pre-existing active bots and isolates failures', async () => fixture(async ({ registry, root }) => {
@@ -220,6 +226,45 @@ test('operator-created bot gets independent credentials and workspace through na
   assert.ok(!JSON.stringify(await bots.list()).includes(credential.body.value));
 }));
 
+test('an existing native profile can be adopted explicitly without being recreated', async () => fixture(async ({ registry, root, options }) => {
+  const upstream = native();
+  const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work') });
+  const before = await bots.list();
+  assert.deepEqual(before.profiles.map(item => item.name), ['default']);
+  assert.deepEqual(before.available.map(item => item.name), ['unregistered'],
+    'an unenrolled native profile is offered for adoption, never listed as a bot');
+
+  const adopted = await bots.adopt({ name: 'unregistered', displayName: 'Scout', description: 'Reads things.' });
+  assert.equal(adopted.name, 'unregistered');
+  assert.equal(adopted.displayName, 'Scout');
+  assert.equal(adopted.state, 'active');
+  assert.equal(adopted.adopted, true);
+  assert.equal(upstream.calls.filter(call => call.route === '/api/profiles' && call.method === 'POST').length, 0,
+    'adoption must claim the existing profile, not create another one');
+  const credential = upstream.calls.find(call => call.route === '/api/env');
+  assert.equal(credential.body.value, registry.token('unregistered'));
+  assert.equal(upstream.calls.find(call => call.route === '/api/config').body.config.terminal.cwd,
+    path.join(root, 'work', 'bots', 'unregistered'));
+  assert.equal((await bots.list()).available.some(item => item.name === 'unregistered'), false);
+  assert.equal((await HermesBotRegistry.open(options)).setup('unregistered').nativeCreated, true);
+}));
+
+test('adoption refuses an unknown profile and never resurrects an enrolled or revoked id', async () => fixture(async ({ registry, root }) => {
+  const upstream = native();
+  const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work') });
+  await assert.rejects(bots.adopt({ name: 'missing' }), /no profile with that name/);
+  assert.equal(registry.list().length, 1, 'a refused adoption leaves no setup record');
+
+  await bots.create({ name: 'research' });
+  await assert.rejects(bots.adopt({ name: 'research' }), /already in your dashboard/);
+
+  // The fake native roster keeps the profile after deletion, mirroring a failed
+  // native removal. Its tombstone must still refuse adoption.
+  await bots.remove('research');
+  await assert.rejects(bots.adopt({ name: 'research' }), /already in your dashboard/);
+  await assert.rejects(bots.adopt({ name: 'default' }), /Main bot already exists/);
+}));
+
 test('a named bot called main cannot reuse the Main bot’s working directory', async () => fixture(async ({ registry, root }) => {
   const upstream = native();
   const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work') });
@@ -276,6 +321,20 @@ test('bot deletion revokes its browser even when native profile deletion fails',
   await assert.rejects(bots.remove('research'), /native deletion failure/);
   assert.deepEqual(removed, ['research']);
   assert.throws(() => registry.token('research'), /not in your dashboard/);
+}));
+
+test('deleting a profile already removed outside the dashboard still completes revocation', async () => fixture(async ({ registry, root }) => {
+  const upstream = native();
+  const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work') });
+  await bots.create({ name: 'research' });
+  const dashboard = upstream.client.dashboard;
+  upstream.client.dashboard = async (route, options) => {
+    if (options?.method === 'DELETE') throw new HermesError(404, 'Hermes rejected the request (404).', 'HERMES_REQUEST_FAILED');
+    return dashboard(route, options);
+  };
+  assert.deepEqual(await bots.remove('research'), { ok: true, name: 'research', alreadyAbsent: true });
+  assert.throws(() => registry.token('research'), /not in your dashboard/);
+  assert.equal((await bots.list()).profiles.some(item => item.name === 'research'), false);
 }));
 
 test('unconfirmed creation requires deliberate operator confirmation and never recreates a missing profile', async () => fixture(async ({ registry, root }) => {

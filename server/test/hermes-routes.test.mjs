@@ -64,6 +64,11 @@ test('native Hermes endpoints retain application authentication and origin check
   assert.equal((await fetch(`${origin}/api/hermes/saved-providers`)).status, 401);
   assert.equal((await request('saved-providers', 'POST', { id: 'a'.repeat(64), action: 'connect' }, { Origin: 'https://attacker.invalid' })).status, 403);
   assert.equal((await request('profiles', 'POST', { name: 'research' }, { Origin: 'https://attacker.invalid' })).status, 403);
+  assert.equal((await fetch(`${origin}/api/hermes/profiles/adopt`)).status, 401);
+  assert.equal((await request('profiles/adopt', 'POST', { name: 'research' }, { Origin: 'https://attacker.invalid' })).status, 403);
+  assert.equal(calls.length, count);
+  assert.equal((await request('profiles/adopt', 'POST', { name: 'research' })).status, 404,
+    'adoption is a dashboard operation and does not fall through to native profile creation');
   assert.equal(calls.length, count);
 });
 
