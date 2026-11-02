@@ -131,6 +131,10 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
     () => request('/api/hermes/profiles/adopt', { method: 'POST', body: JSON.stringify({ name }) }),
     `Adopted ${name}. Select it above to connect its model and credentials.`,
   );
+  const removeRecord = (name: string) => runAction(
+    () => request(`/api/hermes/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+    `Removed the dashboard record for ${name}.`,
+  );
   async function selectModel(confirmExpensive = false) {
     if (pending.current) return;
     pending.current = true;
@@ -156,6 +160,7 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
     finally { pending.current = false; if (mounted.current) setBusy(false); }
   }
 
+  const staleProfiles = profiles.filter(item => item.state === 'unavailable');
   return <div className="space-y-5">
     <div className="flex items-center justify-between gap-3"><p className="min-w-0 text-xs md:text-sm text-muted">Configure Hermes and your independent bots.</p><button className={`${buttonClass} shrink-0`} disabled={busy || loading} onClick={load}>Refresh</button></div>
     {error && <Notice error>{error}</Notice>}
@@ -193,6 +198,17 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
     {visited.has('skills') && <div hidden={section !== 'skills'}><HermesWorkshop profile={profile} includeMemory={false} /></div>}
     {visited.has('automation') && <div hidden={section !== 'automation'} className="space-y-5">{section === 'automation' && <HermesAutonomySettings key={profile} profile={profile} />}<HermesGoals profile={profile} /></div>}
     <section hidden={section !== 'agents'} className={`${cardClass} space-y-3`}>
+      {staleProfiles.length > 0 && <div className="space-y-2 border-b border-hair pb-4">
+        <h2 className="text-sm text-ink">Missing Hermes profiles</h2>
+        <p className="text-xs text-muted">These dashboard records have no matching profile in Hermes, so the app hides them. The team relay still advertises them until the record is removed. Removing a record does not delete anything from disk.</p>
+        {staleProfiles.map(item => <div key={item.name} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2">
+          <div className="min-w-0">
+            <p className="truncate text-sm text-ink">{item.display_name || item.name}</p>
+            <p className="truncate text-xs text-muted">Profile {item.name} is missing</p>
+          </div>
+          <button className={`${buttonClass} shrink-0`} disabled={busy} onClick={() => removeRecord(item.name)}>Remove record</button>
+        </div>)}
+      </div>}
       {available.length > 0 && <div className="space-y-2 border-b border-hair pb-4">
         <h2 className="text-sm text-ink">Adopt an existing profile</h2>
         <p className="text-xs text-muted">These profiles exist in Hermes but are not in the dashboard. Adoption keeps their prompts, model and sessions, and gives each one its own HOB workspace and relay identity. Nothing is copied from another bot.</p>
