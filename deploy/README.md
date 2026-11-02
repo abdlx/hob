@@ -108,6 +108,10 @@ for explicit adoption. Adoption claims the named native profile in place and giv
 the same workspace, listener credential, browser binding and relay identity as a newly
 created bot; it never recreates, renames or copies another profile. Partial setup remains
 pending for explicit operator recovery; revoked enrollment stays revoked if setup was in flight.
+After changing profiles with the Hermes CLI, `node deploy/reconcile-roster.mjs` (optionally
+`--main Hob`) applies the same operations over the authenticated API: it adopts every
+unenrolled native profile, revokes dashboard bots whose profile is gone, and prints the
+resulting active roster. It never edits `bots.json` or the team database directly.
 These are application routing/state boundaries; a local backend with shared OS access
 can still reach other files/processes. Execution sandbox isolation remains required.
 
