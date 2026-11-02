@@ -9,6 +9,20 @@ import { hermesBotTags, withBotIdentity } from './hermes-bot-identity.mjs';
 const LIMIT = 1024 * 1024;
 const DEFAULT_DISPLAY = name => name === 'default' ? 'Main' : name;
 
+/**
+ * Membership policy for the dashboard roster.
+ *
+ * `off` keeps enrollment fully explicit; `adopt` mirrors additions only; `mirror`
+ * also retires a dashboard bot after its native profile has been absent twice.
+ */
+export function profileSyncMode(value = 'mirror') {
+  const mode = String(value).trim().toLowerCase();
+  if (!['off', 'adopt', 'mirror'].includes(mode)) {
+    throw new Error(`HOB_PROFILE_SYNC must be off, adopt, or mirror (received "${value}").`);
+  }
+  return mode;
+}
+
 /** A display name is UI identity, never a profile directory or a credential. */
 export function hermesDisplayName(value) {
   if (typeof value !== 'string') throw new HermesError(400, 'Enter a bot name.', 'INVALID_REQUEST');
@@ -34,9 +48,10 @@ const sameToken = (left, right) => {
   return a.length === b.length && timingSafeEqual(a, b);
 };
 
-// This is the operator's dashboard roster, not a scan of arbitrary profile
-// directories. Hermes still owns profile contents, secrets, sessions and runs.
-// One application writer owns this file; it is not an OS isolation boundary.
+// HOB's per-bot orchestration state (listener/relay credentials, workspace and
+// browser binding) keyed by native profile. Membership follows Hermes in mirror
+// mode; Hermes still owns profile contents, secrets, sessions and runs. One
+// application writer owns this file; it is not an OS isolation boundary.
 export class HermesBotRegistry {
   #filename;
   #data;
@@ -239,6 +254,28 @@ export class HermesBotRegistry {
       return view(item);
     });
   }
+  /**
+   * Re-enable a record that automatic mirroring retired because its native
+   * profile had disappeared. Operator deletions stay permanent: only records
+   * marked by the sync pass can come back, and they return with fresh
+   * credentials so the old revoked keys cannot be replayed.
+   */
+  async reopen(name) {
+    const profile = hermesProfile(name);
+    const existing = this.#data.bots.find(item => item.name === profile);
+    if (!existing || existing.state !== 'revoked' || existing.retiredBy !== 'sync') return null;
+    return this.#mutate(data => {
+      const item = data.bots.find(item => item.name === profile);
+      if (!item || item.state !== 'revoked' || item.retiredBy !== 'sync') return null;
+      item.state = 'setup_required';
+      item.nativeCreated = true;
+      item.identitySync = 'pending';
+      item.apiKey = randomBytes(32).toString('hex');
+      item.relayKey = randomBytes(32).toString('hex');
+      delete item.retiredBy;
+      return view(item);
+    });
+  }
 }
 
 export class HermesBots {
@@ -253,8 +290,12 @@ export class HermesBots {
   #metadata = new Map();
   #settingUp = new Set();
   #identityQueue = Promise.resolve();
-  constructor({ registry, client, workspaceRoot, browser, network, relayUrl, isolation, team }) {
+  #profileSync;
+  #reconciling = null;
+  #missingProfiles = new Map();
+  constructor({ registry, client, workspaceRoot, browser, network, relayUrl, isolation, team, profileSync = 'mirror' }) {
     this.#registry = registry; this.#client = client; this.#browser = browser; this.#isolation = isolation;
+    this.#profileSync = profileSyncMode(profileSync);
     this.#workspaceRoot = path.resolve(workspaceRoot, 'bots');
     this.#network = network ?? (relayUrl ? new HermesBotNetwork({
       roster: () => this.list(),
@@ -379,9 +420,11 @@ export class HermesBots {
         ...(item.state === 'active' && !profile ? { state: 'unavailable' } : {}) };
     });
     this.#metadata = new Map(profiles.map(item => [item.name, item]));
-    // Native profiles outside the roster are never enrolled implicitly. They are
-    // only offered for an explicit operator adoption. Revoked tombstone names
-    // stay hidden because an internal id is never resurrected.
+    // Profiles outside the roster are offered for explicit adoption. With
+    // HOB_PROFILE_SYNC=mirror the background pass enrolls them instead; this
+    // list stays a read-only view. Revoked names stay hidden because an
+    // internal id is not resurrected, except when the mirror pass reopens its
+    // own retirement after Hermes gains the profile again.
     const available = native.profiles
       .filter(profile => profile.name !== 'default' && /^[a-z][a-z0-9_-]{0,63}$/.test(profile.name)
         && !this.#registry.hasRecord(profile.name))
@@ -389,6 +432,131 @@ export class HermesBots {
         ...(typeof profile.description === 'string' ? { description: profile.description } : {}),
         ...(typeof profile.model === 'string' ? { model: profile.model } : {}) }));
     return { profiles, available };
+  }
+  /**
+   * Make the Hermes profile store the source of truth for roster membership.
+   *
+   * Hermes owns profile creation, deletion and configuration; the dashboard
+   * registry only caches the HOB-specific keys, workspace and browser binding.
+   * Mirroring adopts profiles created with the Hermes CLI and retires dashboard
+   * bots whose profile is gone, without either side hand-editing `bots.json`.
+   *
+   * Revocation waits for a second successful read that still lacks the profile:
+   * a dashboard restart or a partially mounted profile store must not destroy a
+   * bot's workspace, browser state and relay identity. It also never deletes a
+   * native profile; removal here follows native deletion, it does not perform it.
+   */
+  async reconcileProfiles() {
+    if (this.#profileSync === 'off') return { adopted: [], revoked: [], failed: [] };
+    if (this.#reconciling) return this.#reconciling;
+    this.#reconciling = this.#runProfileReconciliation().finally(() => { this.#reconciling = null; });
+    return this.#reconciling;
+  }
+  #nativeLabel(profile) {
+    const value = profile?.display_name || profile?.bot_title;
+    if (typeof value !== 'string') return undefined;
+    const label = value.replace(/\s+/g, ' ').trim();
+    return label && label.length <= 64 && !/[\u0000-\u001f\u007f]/.test(label) ? label : undefined;
+  }
+  async #runProfileReconciliation() {
+    const result = { adopted: [], revoked: [], failed: [] };
+    let native;
+    try { native = await this.#client.dashboard('/api/profiles'); }
+    catch (error) {
+      result.failed.push({ name: '*', error: `Hermes profile read failed: ${error.message}` });
+      return result;
+    }
+    const profiles = Array.isArray(native?.profiles) ? native.profiles : null;
+    // Main is the one profile that always exists. If it is absent, Hermes is
+    // still starting or its profile store is not mounted: leave the roster alone.
+    if (!profiles || !profiles.some(profile => profile.name === 'default')) {
+      result.failed.push({ name: '*', error: 'Hermes did not return the Main profile; the dashboard roster was left unchanged.' });
+      return result;
+    }
+    const nativeNames = new Set(profiles.map(profile => profile.name)
+      .filter(name => /^[a-z][a-z0-9_-]{0,63}$/.test(name)));
+    const nativeByName = new Map(profiles.map(profile => [profile.name, profile]));
+    let changed = false;
+    // Additions first: a profile swap (delete old, create new) must not look
+    // like an empty roster to the removal pass.
+    for (const profile of profiles) {
+      if (profile.name === 'default' || !nativeNames.has(profile.name)) continue;
+      if (this.#registry.hasRecord(profile.name)) {
+        // A native profile can be deleted and recreated under the same name.
+        // Only an automatic retirement is reversible; a tombstone created by
+        // the operator keeps that identity closed.
+        if (this.#profileSync !== 'mirror') continue;
+        try {
+          if (!await this.#registry.reopen(profile.name)) continue;
+        } catch (error) {
+          result.failed.push({ name: profile.name, error: error.message });
+          continue;
+        }
+        try {
+          await this.finishSetup(profile.name, { confirmExisting: true });
+          result.adopted.push(profile.name);
+          changed = true;
+        } catch (error) {
+          result.failed.push({ name: profile.name, error: error.message });
+        }
+        continue;
+      }
+      try {
+        const displayName = this.#nativeLabel(profile);
+        let adopted;
+        try {
+          adopted = await this.adopt({ name: profile.name, ...(displayName ? { displayName } : {}) });
+        } catch (error) {
+          if (error?.code !== 'BOT_EXISTS' || !displayName) throw error;
+          // A native label can collide with an existing dashboard bot. The
+          // immutable profile id is the fallback label.
+          adopted = await this.adopt({ name: profile.name });
+        }
+        result.adopted.push(adopted.name);
+        changed = true;
+      } catch (error) {
+        result.failed.push({ name: profile.name, error: error.message });
+      }
+    }
+    if (this.#profileSync === 'mirror') {
+      // Main's native id never changes, so its Hermes display name is safe to
+      // mirror directly. A named profile is renamed by moving its directory,
+      // which is a new identity; its dashboard label stays operator-owned after
+      // adoption (new profiles still start with the native label).
+      const main = this.#registry.list().find(item => item.name === 'default');
+      const mainLabel = this.#nativeLabel(nativeByName.get('default'));
+      if (main && mainLabel && !sameLabel(mainLabel, main.displayName)) {
+        try { await this.#registry.rename('default', mainLabel); changed = true; }
+        catch (error) { if (error?.code !== 'BOT_EXISTS') result.failed.push({ name: 'default', error: error.message }); }
+      }
+      const stillActive = new Set();
+      for (const item of this.#registry.list()) {
+        if (item.name === 'default' || item.state !== 'active') continue;
+        if (nativeNames.has(item.name)) { this.#missingProfiles.delete(item.name); continue; }
+        stillActive.add(item.name);
+        const misses = (this.#missingProfiles.get(item.name) || 0) + 1;
+        this.#missingProfiles.set(item.name, misses);
+        if (misses < 2) continue;
+        try {
+          await this.remove(item.name, { deleteNative: false, bySync: true });
+          result.revoked.push(item.name);
+          this.#missingProfiles.delete(item.name);
+          changed = true;
+        } catch (error) {
+          result.failed.push({ name: item.name, error: error.message });
+        }
+      }
+      for (const name of this.#missingProfiles.keys()) if (!stillActive.has(name)) this.#missingProfiles.delete(name);
+    }
+    if (changed) {
+      try {
+        const sync = await this.syncNetwork();
+        if (sync.failed.length) result.failed.push(...sync.failed);
+      } catch (error) {
+        result.failed.push({ name: '*', error: `Roster synchronization failed: ${error.message}` });
+      }
+    }
+    return result;
   }
   /**
    * The relay's view of every active bot. Synchronous because the relay resolves
@@ -442,6 +610,9 @@ export class HermesBots {
     return work;
   }
   async #afterChange() {
+    // Reconciliation applies one network sync after its whole pass; an
+    // intermediate sync for every adopted/revoked profile is wasted work.
+    if (this.#reconciling) return { updated: [], failed: [] };
     try { return await this.syncNetwork(); }
     catch (error) { return { updated: [], failed: [{ name: '*', error: error.message }] }; }
   }
@@ -480,7 +651,8 @@ export class HermesBots {
    *
    * `create()` refuses to claim an unregistered native profile, because the
    * profile may be somebody else's state. Adoption is the explicit operator
-   * alternative: the named profile is claimed in place, never recreated or
+   * alternative and the operation the mirror pass uses when Hermes gains a
+   * profile: the named profile is claimed in place, never recreated or
    * renamed, and receives the same workspace, listener credential, browser
    * binding and relay identity as a newly created bot.
    */
@@ -552,12 +724,13 @@ export class HermesBots {
     const sync = await this.#afterChange();
     return { ok: true, ...result, identitySync: sync.failed.some(item => item.name === name || item.name === '*') ? 'pending' : 'synced', sync };
   }
-  async remove(name) {
+  async remove(name, { deleteNative = true, bySync = false } = {}) {
     if (name === 'default') throw new HermesError(400, 'The Main bot cannot be deleted.', 'INVALID_PROFILE');
-    await this.#registry.update(name, { state: 'revoked' });
+    await this.#registry.update(name, { state: 'revoked', ...(bySync ? { retiredBy: 'sync' } : {}) });
     await this.#isolation?.revoke(name);
     await this.#afterChange();
     await this.#browser?.remove(name);
+    if (!deleteNative) return { ok: true, name, alreadyAbsent: true };
     try {
       return await this.#client.dashboard(`/api/profiles/${hermesProfile(name)}`, { method: 'DELETE' });
     } catch (error) {

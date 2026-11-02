@@ -64,6 +64,7 @@ const bots = new HermesBots({
   client: new HermesClient(clientOptions),
   workspaceRoot: process.env.HOB_WORKSPACE_ROOT || path.join(process.env.HERMES_HOME, 'workspaces'),
   browser,
+  profileSync: process.env.HOB_PROFILE_SYNC?.trim() || 'mirror',
   // Co-located bots use the private app listener, independently of the public
   // proxy's origin/port. A remote backend can provision HOB_BOT_RELAY_URL.
   relayUrl: botRelayUrl(),
@@ -77,6 +78,21 @@ gateway.start();
 const port = Number(process.env.HOB_PORT || 3000);
 const build = `${process.env.HOB_GIT_COMMIT || 'unknown'} (${process.env.HOB_GIT_REF || 'unknown'})`;
 server.listen(port, process.env.HOB_HOST || '127.0.0.1', () => console.log(`hob ${build} listening on port ${port}.`));
+let stopping = false;
+// Hermes owns profiles. Adopt additions and retire dashboard records whose
+// native profile is gone, so a profile created or deleted with the Hermes CLI
+// reaches the app and the relay without a second manual roster.
+const syncProfiles = async () => {
+  if (stopping) return;
+  let result;
+  try { result = await bots.reconcileProfiles(); }
+  catch (error) { console.warn(`Hermes profile reconciliation failed: ${error.message}`); return; }
+  if (result.adopted.length) console.log(`Adopted new Hermes profile${result.adopted.length === 1 ? '' : 's'}: ${result.adopted.join(', ')}.`);
+  if (result.revoked.length) console.log(`Retired dashboard bot${result.revoked.length === 1 ? '' : 's'} whose Hermes profile is gone: ${result.revoked.join(', ')}.`);
+  if (result.failed.length) {
+    console.warn(`Hermes profile reconciliation incomplete: ${result.failed.map(item => `${item.name}: ${item.error}`).join('; ')}`);
+  }
+};
 // Bind every active bot on boot, not just the ones this process created. Bots
 // that predate the managed browser (and bots whose setup-time binding failed)
 // otherwise drive a throwaway Hermes browser while the dashboard watches an idle
@@ -103,7 +119,10 @@ const bindBrowsers = async (attempt = 1) => {
   const timer = setTimeout(() => void bindBrowsers(attempt + 1), attempt * 2000);
   timer.unref?.();
 };
-void bindBrowsers();
+void syncProfiles().then(() => bindBrowsers());
+// The dashboard polls profiles only on demand; this timer catches CLI changes
+// while the app is running. The second pass is also what confirms a removal.
+const profileTimer = setInterval(() => void syncProfiles(), 15000); profileTimer.unref();
 let teamReconciliation;
 const reconcileTeam = () => {
   if (teamReconciliation) return;
@@ -120,11 +139,11 @@ const teamTimer = setInterval(reconcileTeam, 30000); teamTimer.unref();
 // A signal must finish the graceful browser stop — that close is what flushes cookies
 // and storage to the profile — but it must also finish inside the supervisor's window:
 // `deploy/start.mjs` escalates to SIGKILL at 30 s, so wait at most 25 s and then leave.
-let stopping = false;
 const shutdown = async () => {
   if (stopping) return;
   stopping = true;
   clearInterval(teamTimer);
+  clearInterval(profileTimer);
   nativeSessions.close();
   gateway.stop();
   server.close();

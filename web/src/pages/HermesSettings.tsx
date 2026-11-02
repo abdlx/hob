@@ -200,7 +200,7 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
     <section hidden={section !== 'agents'} className={`${cardClass} space-y-3`}>
       {staleProfiles.length > 0 && <div className="space-y-2 border-b border-hair pb-4">
         <h2 className="text-sm text-ink">Missing Hermes profiles</h2>
-        <p className="text-xs text-muted">These dashboard records have no matching profile in Hermes, so the app hides them. The team relay still advertises them until the record is removed. Removing a record does not delete anything from disk.</p>
+        <p className="text-xs text-muted">These dashboard records have no matching profile in Hermes, so the app hides them. The team relay still advertises them until the record is removed. With the default profile sync, HOB retires them automatically after a second check; removing one here does it immediately. Either way, nothing is deleted from disk.</p>
         {staleProfiles.map(item => <div key={item.name} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2">
           <div className="min-w-0">
             <p className="truncate text-sm text-ink">{item.display_name || item.name}</p>

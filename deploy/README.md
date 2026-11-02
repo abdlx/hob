@@ -102,16 +102,24 @@ The old OpenClaw volume is left untouched and is not implicitly imported.
 The operator-created roster persists in `.hob/bots.json`. Named bots receive distinct
 keys and working directories under `workspaces/bots/<name>` through the native
 settings/credential owners before dashboard activation. A bot called `main` cannot
-collide with Main's `workspaces/main` directory. Unenrolled profiles do not become
-dashboard bots merely because Hermes discovers them, but Settings → Agents lists them
-for explicit adoption. Adoption claims the named native profile in place and gives it
-the same workspace, listener credential, browser binding and relay identity as a newly
-created bot; it never recreates, renames or copies another profile. Partial setup remains
-pending for explicit operator recovery; revoked enrollment stays revoked if setup was in flight.
-After changing profiles with the Hermes CLI, `node deploy/reconcile-roster.mjs` (optionally
-`--main Hob`) applies the same operations over the authenticated API: it adopts every
-unenrolled native profile, revokes dashboard bots whose profile is gone, and prints the
-resulting active roster. It never edits `bots.json` or the team database directly.
+collide with Main's `workspaces/main` directory. Hermes profiles are the source of
+truth for membership: with the default `HOB_PROFILE_SYNC=mirror`, a profile created
+with the Hermes CLI is adopted automatically, Main's display name follows Hermes, and a
+dashboard bot whose native profile has been absent across two successful
+reads is retired. `HOB_PROFILE_SYNC=adopt` only adds profiles; `HOB_PROFILE_SYNC=off`
+restores explicit enrollment. Adoption claims
+the named native profile in place and gives it the same workspace, listener credential,
+browser binding and relay identity as a newly created bot; it never recreates, renames
+or copies another profile. Automatic retirement never deletes a native profile, and a
+failed Hermes read leaves the roster untouched. Recreating a name that automatic
+mirroring retired re-enrolls it with fresh credentials; an explicit operator deletion
+remains a permanent tombstone. Partial setup remains pending for
+explicit operator recovery; revoked enrollment stays revoked if setup was in flight.
+For an immediate pass, Settings → Agents → Refresh, or
+`node deploy/reconcile-roster.mjs` (optionally `--main Hob`) applies the same operations
+over the authenticated API: it adopts every unenrolled native profile, revokes dashboard
+bots whose profile is gone, and prints the resulting active roster. It never edits
+`bots.json` or the team database directly.
 These are application routing/state boundaries; a local backend with shared OS access
 can still reach other files/processes. Execution sandbox isolation remains required.
 

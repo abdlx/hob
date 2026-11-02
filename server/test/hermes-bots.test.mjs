@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { HermesBotRegistry, HermesBots } from '../hermes-bots.mjs';
+import { HermesBotRegistry, HermesBots, profileSyncMode } from '../hermes-bots.mjs';
 import { HermesClient, HermesError } from '../hermes-client.mjs';
 
 async function fixture(run) {
@@ -356,6 +356,87 @@ test('concurrent creation reserves a name once and cannot silently adopt an exte
   const results = await Promise.allSettled([bots.create({ name: 'research' }), bots.create({ name: 'research' })]);
   assert.equal(results.filter(item => item.status === 'fulfilled').length, 1);
   assert.equal(upstream.calls.filter(call => call.route === '/api/profiles' && call.method === 'POST').length, 1);
+}));
+
+test('profile reconciliation adopts profiles added in Hermes and uses their display name', async () => fixture(async ({ registry, root }) => {
+  const upstream = native();
+  upstream.profiles[0].display_name = 'Hob';
+  upstream.profiles.push({ name: 'newbot', display_name: 'Scout' });
+  const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work'), profileSync: 'mirror' });
+  const result = await bots.reconcileProfiles();
+  assert.deepEqual(result, { adopted: ['unregistered', 'newbot'], revoked: [], failed: [] });
+  assert.deepEqual(registry.list().map(item => [item.name, item.displayName]), [
+    ['default', 'Hob'], ['unregistered', 'unregistered'], ['newbot', 'Scout'],
+  ]);
+  assert.equal(upstream.calls.filter(call => call.route === '/api/profiles' && call.method === 'POST').length, 0,
+    'mirroring claims an existing profile, never creates another');
+  assert.match(registry.token('newbot'), /^[a-f0-9]{64}$/);
+}));
+
+test('profile reconciliation retires a bot only after Hermes omits it twice and never deletes natively', async () => fixture(async ({ registry, root }) => {
+  const upstream = native();
+  upstream.profiles.splice(1, 1); // only Main exists natively
+  await registry.reserve('ghost');
+  await registry.update('ghost', { state: 'active', nativeCreated: true });
+  const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work'), profileSync: 'mirror' });
+
+  const oldToken = registry.token('ghost');
+  const first = await bots.reconcileProfiles();
+  assert.deepEqual(first.revoked, [], 'one successful read is not enough to destroy bot state');
+  assert.deepEqual(registry.list().map(item => item.name), ['default', 'ghost']);
+
+  const second = await bots.reconcileProfiles();
+  assert.deepEqual(second.revoked, ['ghost']);
+  assert.deepEqual(registry.list().map(item => item.name), ['default']);
+  assert.equal(upstream.calls.some(call => call.method === 'DELETE'), false,
+    'mirroring follows native deletion; it must never delete the profile itself');
+
+  // Recreating the profile under the same name in Hermes re-enrolls the
+  // automatic retirement, with fresh credentials instead of the revoked ones.
+  upstream.profiles.push({ name: 'ghost' });
+  const third = await bots.reconcileProfiles();
+  assert.deepEqual(third.adopted, ['ghost']);
+  assert.equal(registry.list().find(item => item.name === 'ghost').state, 'active');
+  assert.notEqual(registry.token('ghost'), oldToken);
+  assert.equal(upstream.calls.filter(call => call.route === '/api/profiles' && call.method === 'POST').length, 0,
+    're-enrollment adopts the recreated profile rather than creating another');
+}));
+
+test('profile sync modes are validated before the roster starts', () => {
+  assert.equal(profileSyncMode(undefined), 'mirror');
+  assert.equal(profileSyncMode(' OFF '), 'off');
+  assert.throws(() => profileSyncMode('auto'), /off, adopt, or mirror/);
+});
+
+test('profile reconciliation is disabled when the operator keeps enrollment explicit', async () => fixture(async ({ registry, root }) => {
+  const upstream = native();
+  const bots = new HermesBots({ registry, client: upstream.client, workspaceRoot: path.join(root, 'work'), profileSync: 'off' });
+  assert.deepEqual(await bots.reconcileProfiles(), { adopted: [], revoked: [], failed: [] });
+  assert.deepEqual((await bots.list()).available.map(item => item.name), ['unregistered']);
+  assert.deepEqual(registry.list().map(item => item.name), ['default']);
+}));
+
+test('a failed or incomplete Hermes profile read leaves the roster untouched', async () => fixture(async ({ registry, root }) => {
+  await registry.reserve('ghost');
+  await registry.update('ghost', { state: 'active', nativeCreated: true });
+  let response = null;
+  const client = { async dashboard() { if (response instanceof Error) throw response; return response; } };
+  const bots = new HermesBots({ registry, client, workspaceRoot: path.join(root, 'work'), profileSync: 'mirror' });
+
+  response = new Error('synthetic dashboard outage');
+  const outage = await bots.reconcileProfiles();
+  assert.equal(outage.adopted.length, 0);
+  assert.equal(outage.revoked.length, 0);
+  assert.match(outage.failed[0].error, /profile read failed/);
+
+  // A list without Main means the profile store is not ready, not that every
+  // named profile was deleted.
+  response = { profiles: [{ name: 'somebody-else' }] };
+  const incomplete = await bots.reconcileProfiles();
+  assert.equal(incomplete.adopted.length, 0);
+  assert.equal(incomplete.revoked.length, 0);
+  assert.match(incomplete.failed[0].error, /Main profile/);
+  assert.deepEqual(registry.list().map(item => item.name), ['default', 'ghost']);
 }));
 
 test('revocation persists before native deletion and blocks subsequent setup and transport', async () => fixture(async ({ registry, root, options }) => {

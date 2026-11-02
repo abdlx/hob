@@ -77,7 +77,7 @@ The dormant team adapter also keeps unproven chat notes in private review propos
 
 | Area | What you get |
 | --- | --- |
-| **Multi-bot** | A persistent operator roster with a default **Main** bot and explicitly created bots. Each bot has its own Hermes profile, listener credential, workspace, conversations, and settings. |
+| **Multi-bot** | Hermes profiles are the roster: profiles created, renamed or removed with the Hermes CLI appear and disappear automatically (configurable). Each bot keeps its own listener credential, workspace, conversations, and settings. |
 | **Chat** | Native durable Hermes sessions, streamed replies, tool activity, approvals, clarifying questions, stop/cancel, run recovery, and multi-bot group rooms. |
 | **Browser** | One managed Chromium identity per bot, persistent cookies and tabs, live frame streaming, human takeover, tab actions, precision input methods over CDP, and opt-in CAPTCHA challenge handling. |
 | **Media** | Inline images in chat bubbles from `MEDIA:`, `@image:`, `#media:` links, and Markdown image syntax. Local files are served through an authenticated, profile-scoped endpoint. |
@@ -207,6 +207,7 @@ Saving a channel's fields does not connect it. Connecting is a separate confirme
 | `HOB_SECURE_COOKIES` | For HTTPS | Set to `true` when the browser reaches hob over HTTPS. |
 | `HOB_BIND_ADDRESS` | Standalone | Host interface for the standalone overlay. Defaults to `127.0.0.1`. |
 | `HOB_PORT` | Optional | Host port for the standalone overlay. Defaults to `3000`. |
+| `HOB_PROFILE_SYNC` | Optional | Roster membership policy: `mirror` (default) adopts profiles created with the Hermes CLI and retires bots whose profile is gone; `adopt` only adds profiles; `off` keeps enrollment explicit. |
 
 Coolify supplies `SERVICE_PASSWORD_64_HOB` and `SERVICE_REALBASE64_64_HOB` through `compose.yaml`. Keep those values stable across redeploys.
 

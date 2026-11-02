@@ -57,6 +57,7 @@ export function createHermesRoutes(client, bots, { removeBot, home, stateDir, wo
       return json(res, 200, await client.runtime('/v1/capabilities', options));
     }
     if (path === 'profiles' && method === 'GET') {
+      if (bots) await bots.reconcileProfiles();
       return json(res, 200, await (bots ? bots.list() : client.dashboard('/api/profiles')));
     }
     if (path === 'profiles' && method === 'POST') {
