@@ -15,10 +15,73 @@ import { spawn, spawnSync } from 'node:child_process';
 import { CdpConnection } from './browser-cdp-client.mjs';
 import { PipeChromium } from './browser-pipe.mjs';
 import { resolveChromiumExecutable } from './browser-executable.mjs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export { resolveChromiumExecutable };
+
+/**
+ * Asynchronously discover valid unpacked extensions in `<profileDir>/extensions`.
+ *
+ * Scans `<profileDir>/extensions` for subdirectories containing a valid `manifest.json`.
+ * If `<profileDir>/extensions` itself contains a valid `manifest.json`, it is treated as
+ * a single unpacked extension.
+ *
+ * @param {string} profileDir Profile directory path
+ * @returns {Promise<string[]>} Array of absolute paths to valid unpacked extensions
+ */
+export async function discoverExtensions(profileDir) {
+  if (!profileDir) return [];
+  const extensionsDir = path.resolve(profileDir, 'extensions');
+  const valid = [];
+
+  const isValidManifest = async dir => {
+    try {
+      const manifestFile = path.join(dir, 'manifest.json');
+      const content = await readFile(manifestFile, 'utf8');
+      const manifest = JSON.parse(content);
+      return Boolean(
+        manifest &&
+        typeof manifest === 'object' &&
+        !Array.isArray(manifest) &&
+        typeof manifest.name === 'string' &&
+        manifest.name.trim().length > 0 &&
+        typeof manifest.version === 'string' &&
+        manifest.version.trim().length > 0 &&
+        (manifest.manifest_version === 2 || manifest.manifest_version === 3 || typeof manifest.manifest_version === 'number')
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  try {
+    if (await isValidManifest(extensionsDir)) {
+      return [extensionsDir];
+    }
+    const entries = await readdir(extensionsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue;
+      let isDir = entry.isDirectory();
+      const extDir = path.join(extensionsDir, entry.name);
+      if (!isDir && entry.isSymbolicLink?.()) {
+        try {
+          const s = await stat(extDir);
+          isDir = s.isDirectory();
+        } catch { isDir = false; }
+      }
+      if (!isDir) continue;
+      if (await isValidManifest(extDir)) {
+        valid.push(extDir);
+      }
+    }
+  } catch {
+    return [];
+  }
+
+  valid.sort();
+  return valid;
+}
 
 const DEVTOOLS_FILE = 'DevToolsActivePort';
 const START_TIMEOUT_MS = 30000;
@@ -112,7 +175,7 @@ export const BROWSER_WINDOW_SIZE = `${BROWSER_VIEWPORT.w},${BROWSER_VIEWPORT.h}`
  * The window size is the page viewport in headless mode, so the constant above
  * is what makes the agent, screenshots and the live viewer share a 5:4 frame.
  */
-export async function launchChromium({ profileDir, executablePath, headless = true, extraArgs = [], attempts = 3, transport, spawnChild = spawn }) {
+export async function launchChromium({ profileDir, executablePath, headless = true, extraArgs = [], attempts = 3, transport, spawnChild = spawn, extensions: explicitExtensions }) {
   const mode = transport || cdpTransportMode();
   await mkdir(profileDir, { recursive: true, mode: 0o700 });
 
@@ -140,6 +203,9 @@ export async function launchChromium({ profileDir, executablePath, headless = tr
     ? ['--remote-debugging-pipe']
     : ['--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1'];
 
+  const extensions = explicitExtensions !== undefined ? explicitExtensions : await discoverExtensions(profileDir);
+  const enableExtensions = extensions.length > 0 && process.env.HOB_ENABLE_EXTENSIONS !== 'false';
+
   const args = [
     ...(headless ? ['--headless=new'] : []),
     ...debuggingArgs,
@@ -156,9 +222,14 @@ export async function launchChromium({ profileDir, executablePath, headless = tr
     '--no-first-run', '--no-default-browser-check',
     '--disable-background-networking', '--disable-component-update',
     '--disable-default-apps', '--disable-sync', '--disable-translate',
-    '--disable-extensions', '--disable-plugins', '--disable-gpu',
+    ...(!enableExtensions ? ['--disable-extensions'] : []),
+    '--disable-plugins', '--disable-gpu',
     '--metrics-recording-only', '--mute-audio',
     `--window-size=${BROWSER_WINDOW_SIZE}`,
+    ...(enableExtensions ? [
+      `--load-extension=${extensions.join(',')}`,
+      `--disable-extensions-except=${extensions.join(',')}`,
+    ] : []),
     ...sandboxArgs, ...extraArgs,
   ];
 

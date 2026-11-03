@@ -491,13 +491,20 @@ class Broker:
                 raise ValueError("browser_already_running")
             directory = self.browser_profile(name, account["uid"])
             args = request.get("args")
-            if not isinstance(args, list) or len(args) > 32 or not all(isinstance(arg, str) and len(arg) < 4096 for arg in args):
+            if not isinstance(args, list) or len(args) > 64 or not all(isinstance(arg, str) and len(arg) < 4096 for arg in args):
                 raise ValueError("invalid_browser_arguments")
             for arg in args:
                 if arg in BROWSER_FLAGS or re.fullmatch(r"--window-size=\d{2,5},\d{2,5}", arg):
                     continue
                 if arg.startswith("--user-data-dir=") and Path(arg.split("=", 1)[1]).resolve() == directory:
                     continue
+                if arg.startswith("--load-extension=") or arg.startswith("--disable-extensions-except="):
+                    raw_paths = arg.split("=", 1)[1].split(",")
+                    try:
+                        if raw_paths and all(p and Path(p).resolve().is_relative_to(directory) for p in raw_paths):
+                            continue
+                    except (ValueError, OSError):
+                        pass
                 raise ValueError("unsafe_browser_argument")
             if "--remote-debugging-pipe" not in args or not any(arg.startswith("--user-data-dir=") for arg in args):
                 raise ValueError("private_browser_pipe_required")
