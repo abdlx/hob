@@ -140,6 +140,15 @@ bypass unknown work. Native `unknown` outcomes require an explicit current
 admission/generation resolution. Missing receipts do not prove completion, and
 native conversation history remains readable when a receipt disappears.
 
+A relay exchange also stores the recipient's native terminal outcome (`failed`,
+`cancelled` or `interrupted`) with `error`, `turnExitReason`, `partial` and the
+event name; a generic "run ended" sentence is no longer the only record. Inspect it
+with `node .hob/talk.mjs status <exchange-id>` in either bot's workspace, or open
+the exchange card in either bot chat. `talk.mjs send` reports a terminal failure
+in its normal output and labels any retained text as partial output, so an agent
+does not mistake a failed turn for a completed reply. Native run status is
+retained only briefly, so inspect recent failures first.
+
 The local native/custom-server proof now covers question display and actual answer
 delivery to a managed worker across adapter restart, plus a real tool side effect
 and persisted history, using a deterministic model. Linux image build and first

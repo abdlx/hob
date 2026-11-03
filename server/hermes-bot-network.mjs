@@ -92,8 +92,16 @@ try {
     const body = await call('/send', { method: 'POST', body: JSON.stringify({ to: args[0], message: args.slice(1).join(' '), waitMs, requestId: lastRequestId, sourceSession: process.env.HERMES_UI_SESSION_ID || process.env.HERMES_SESSION_ID || undefined, parentExchangeId }) });
     console.log('Exchange: ' + body.id + ' (' + body.status + ')');
     if (body.teamTask) console.log('Team result verification: ' + (body.teamVerification || 'unproven') + '. Native completion is not independent verification. Check the result and saved files before reporting success.');
-    if (typeof body.reply === 'string' && body.reply.trim()) console.log(body.reply);
-    else console.log('Message accepted by ' + (body.toName || body.to) + '. Read its status with: node .hob/talk.mjs status ' + body.id + '. The exchange is also visible in both bot chats.');
+    if (['failed', 'cancelled', 'interrupted'].includes(body.status)) {
+      // The HTTP request succeeded; only the recipient's run failed. Do not use
+      // a nonzero exit code, or an agent may retry the send and duplicate work.
+      console.log('The recipient did not complete the exchange: ' + (body.error || body.observationError || 'No failure reason was returned.'));
+      if (typeof body.reply === 'string' && body.reply.trim()) console.log('Partial output:\n' + body.reply);
+    } else if (typeof body.reply === 'string' && body.reply.trim()) {
+      console.log(body.reply);
+    } else {
+      console.log('Exchange is ' + body.status + '. Read its status with: node .hob/talk.mjs status ' + body.id + '. The exchange is also visible in both bot chats.');
+    }
   } else if (command === 'status') {
     const body = await call('/exchanges/' + encodeURIComponent(args[0] || ''));
     console.log(JSON.stringify(body, null, 2));

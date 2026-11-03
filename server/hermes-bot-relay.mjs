@@ -15,6 +15,50 @@ const summary = record => ({ ...record, completed: record.status === 'completed'
   ...(record.teamTask ? { completed: record.status === 'completed' && record.teamVerification === 'coordinator-reviewed' } : {}),
   sessionKey: record.sessionId ? hermesSessionKey(record.to, record.sessionId) : null });
 
+// A terminal native run is not an unexplained event. Hermes carries the provider
+// error, a turn exit reason (for example `max_iterations_reached(60/60)`), and
+// whether the output was partial. Keep those fields instead of replacing the
+// whole outcome with one generic sentence; the caller and both bot chats need
+// the actual reason to decide whether a retry is safe.
+const FAILURE_TEXT_LIMIT = 8000;
+const failureText = value => typeof value === 'string'
+  ? value.replace(/\u0000/g, '').trim().slice(0, FAILURE_TEXT_LIMIT) : '';
+const nativeFailure = (source, status) => {
+  const failure = { status };
+  const event = failureText(source?.event || source?.last_event);
+  if (event) failure.event = event;
+  const error = failureText(source?.error);
+  if (error) failure.error = error;
+  const turnExitReason = failureText(source?.turn_exit_reason);
+  if (turnExitReason) failure.turnExitReason = turnExitReason;
+  const reason = failureText(source?.reason);
+  if (reason) failure.reason = reason;
+  for (const key of ['partial', 'completed', 'interrupted']) {
+    if (typeof source?.[key] === 'boolean') failure[key] = source[key];
+  }
+  return failure;
+};
+const failureMessage = failure => {
+  if (failure?.error) return failure.error;
+  if (failure?.turnExitReason) return `The native run stopped before completing the exchange (${failure.turnExitReason}).`;
+  if (failure?.reason) return `The native run stopped before completing the exchange (${failure.reason}).`;
+  if (failure?.status === 'cancelled') return 'The native run was cancelled before completing the exchange.';
+  if (failure?.status === 'interrupted') return 'The native run was interrupted before completing the exchange.';
+  return 'The native run failed before completing the exchange.';
+};
+const nativeTerminalPatch = (run, status) => {
+  const failure = ['failed', 'cancelled', 'interrupted'].includes(status)
+    ? nativeFailure({ ...run, last_event: run.last_event }, status) : null;
+  // A failed turn often has no `output` but did stream partial deltas. Keep
+  // those unless the terminal payload actually carries replacement text.
+  const output = typeof run.output === 'string' && run.output ? run.output : null;
+  return {
+    status,
+    ...(output !== null ? { reply: output.slice(0, 512000), replyTruncated: output.length > 512000 } : {}),
+    ...(failure ? { failure, error: failureMessage(failure) } : {}),
+  };
+};
+
 /** Each handoff has its own native session and durable correlation record. */
 export function createHermesBotRelay({ client, bots, exchanges = new HermesExchanges(), journal, bridge, onWake, team, teamArtifacts }) {
   const observers = new Map(), admissions = new Map(), controllers = new Set();
@@ -55,11 +99,17 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
             reply = combined.slice(0, 512000);
           }
           if (event.event === 'run.completed') {
-            if (typeof event.output === 'string') { reply = event.output.slice(0, 512000); replyTruncated = event.output.length > 512000; }
+            if (typeof event.output === 'string' && event.output) { reply = event.output.slice(0, 512000); replyTruncated = event.output.length > 512000; }
             await patch(record.id, { status: 'completed', reply, replyTruncated }); return;
           }
           if (['run.failed', 'run.cancelled', 'run.interrupted'].includes(event.event)) {
-            await patch(record.id, { status: event.event.slice(4), reply, replyTruncated, error: 'The native run ended before completing the exchange.' }); return;
+            const status = event.event.slice(4);
+            // A failed event can carry its partial answer in `output`; prefer it
+            // over the deltas we observed, which may be incomplete. An empty
+            // terminal output must not erase the deltas that did arrive.
+            if (typeof event.output === 'string' && event.output) { reply = event.output.slice(0, 512000); replyTruncated = event.output.length > 512000; }
+            const failure = nativeFailure(event, status);
+            await patch(record.id, { status, reply, replyTruncated, failure, error: failureMessage(failure) }); return;
           }
         }
         await patch(record.id, { reply, replyTruncated }); // End of a stream does not prove completion.
@@ -95,8 +145,20 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
       if (!states.has(run.status)) return record;
       const current = exchanges.get(record.id);
       if (terminal.has(current.status)) return current;
-      return patch(record.id, { status: run.status, ...(typeof run.output === 'string' ? { reply: run.output.slice(0, 512000), replyTruncated: run.output.length > 512000 } : {}) });
+      return patch(record.id, nativeTerminalPatch(run, run.status));
     } catch (error) { return { ...record, observationError: error.message }; }
+  };
+  // Exchange detail is opened by a person investigating an outcome, so it can
+  // afford one native status read when an older record predates failure fields
+  // (or when the event stream was missed). List and sweep paths never do this.
+  const hydrateFailure = async record => {
+    if (!record?.runId || record.failure || !['failed', 'cancelled', 'interrupted'].includes(record.status)) return record;
+    try {
+      const run = await client.runtime(`/v1/runs/${hermesResource(record.runId)}`, { profile: record.to });
+      if (run.run_id !== record.runId || !['failed', 'cancelled', 'interrupted'].includes(run.status)) return record;
+      const failure = nativeFailure({ ...run, last_event: run.last_event }, run.status);
+      return patch(record.id, { failure, error: failureMessage(failure) });
+    } catch { return record; } // Terminal statuses are retained only briefly.
   };
   const send = async (sender, input) => {
     const receiver = participant(input.to);
@@ -202,7 +264,7 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
     if (tail.startsWith('/exchanges/') && req.method === 'GET') {
       const record = exchanges.get(tail.slice('/exchanges/'.length));
       if (!record || ![record.from, record.to].includes(sender.name)) throw new HermesError(404, 'Exchange not found.', 'NOT_FOUND');
-      return json(res, 200, summary(await reconcile(record)));
+      return json(res, 200, summary(await hydrateFailure(await reconcile(record))));
     }
     throw new HermesError(404, 'Unknown bot relay endpoint.', 'NOT_FOUND');
   };
@@ -219,7 +281,8 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
         const result = await client.runtime(`/api/sessions/${hermesResource(record.sessionId)}/messages`, { profile: record.to });
         return json(res, 200, { messages: Array.isArray(result?.data) ? result.data : [] });
       }
-      record = await reconcile(record); return json(res, 200, { ...summary(record), wakeups: exchanges.wakeups(record.id) });
+      record = await hydrateFailure(await reconcile(record));
+      return json(res, 200, { ...summary(record), wakeups: exchanges.wakeups(record.id) });
     }
     if (url.pathname !== '/api/hermes/exchanges') throw new HermesError(404, 'Exchange not found.', 'NOT_FOUND');
     const session = url.searchParams.get('session');

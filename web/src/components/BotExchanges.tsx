@@ -7,6 +7,7 @@ import type { SecurityApproval } from '../types/chat';
 export interface BotExchange {
   id: string; fromName: string; toName: string; status: string; createdAt: number;
   message?: string; reply?: string; replyTruncated?: boolean; error?: string; observationError?: string; sessionKey?: string; to?: string;
+  failure?: { status?: string; event?: string; error?: string; turnExitReason?: string; reason?: string; lastEvent?: string; partial?: boolean; completed?: boolean; interrupted?: boolean };
   wakeups?: { id: string; profile: string; status: string; error?: string | null }[];
   teamTask?: { id: string };
   teamVerification?: 'unproven' | 'self-reported' | 'coordinator-reviewed' | 'coordinator-rejected';
@@ -74,6 +75,8 @@ export function BotExchangeNotice({ exchange, profile }: { exchange: BotExchange
   const statusLabel = record.teamTask && record.status === 'completed'
     ? record.teamVerification === 'coordinator-reviewed' ? 'reviewed' : record.teamVerification === 'coordinator-rejected' ? 'checks failed' : 'review pending'
     : record.status.replaceAll('_', ' ');
+  const terminalFailure = ['failed', 'cancelled', 'interrupted'].includes(record.status);
+  const partial = terminalFailure && typeof record.reply === 'string' && record.reply.trim();
   return <div className="my-2 rounded-xl border border-line bg-surface/70 text-xs" data-exchange-id={exchange.id}>
     <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-muted hover:bg-neutral cursor-pointer">
       <MessagesSquare size={14} className="shrink-0 text-accent" />
@@ -89,9 +92,13 @@ export function BotExchangeNotice({ exchange, profile }: { exchange: BotExchange
       {!detail && !error && <p role="status" className="text-muted">Loading exchange…</p>}
       {detail && <>
         <div><p className="mb-1 font-semibold text-ink">{record.fromName} sent</p><p className="whitespace-pre-wrap break-words text-muted">{record.message}</p></div>
-        <div><p className="mb-1 font-semibold text-ink">{record.toName} replied</p><p className="whitespace-pre-wrap break-words text-muted">{record.reply || (record.status === 'completed' ? 'No text reply. Inspect the native transcript below.' : 'No reply yet.')}</p></div>
+        <div><p className="mb-1 font-semibold text-ink">{record.status === 'completed' ? `${record.toName} replied` : partial ? `${record.toName} partial output` : `${record.toName} output`}</p><p className="whitespace-pre-wrap break-words text-muted">{record.reply || (record.status === 'completed' ? 'No text reply. Inspect the native transcript below.' : terminalFailure ? 'No output was retained before the run stopped.' : 'No reply yet.')}</p></div>
         {record.replyTruncated && <p className="text-amber-700">This reply preview is truncated. Open the native messages below to inspect the full reply.</p>}
-        {(record.error || record.observationError) && <p role="status" className="text-amber-700">{record.error || record.observationError}</p>}
+        {(record.error || record.observationError) && <p role="status" className="whitespace-pre-wrap break-words text-amber-700">{record.error || record.observationError}</p>}
+        {record.failure && <details className="rounded-lg border border-line p-3">
+          <summary className="cursor-pointer font-medium text-ink">Native run details</summary>
+          <pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap break-words text-[11px] text-muted">{JSON.stringify(record.failure, null, 2)}</pre>
+        </details>}
         {!!record.wakeups?.length && <div className="space-y-1 rounded-lg border border-line p-3"><p className="font-medium text-ink">Automatic follow-up</p>{record.wakeups.map(wake => <p key={wake.id} className="text-muted">{wake.profile === 'default' ? 'Main' : wake.profile}: {wake.status.replaceAll('_', ' ')}{wake.error ? ` · ${wake.error}` : ''}</p>)}</div>}
         {transcript !== null && <details><summary className="cursor-pointer font-medium text-ink">Native messages and tool activity</summary><pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-panel p-3 text-[11px]">{JSON.stringify(transcript, null, 2)}</pre></details>}
         {record.sessionKey && !['completed', 'failed', 'cancelled', 'interrupted'].includes(record.status) && <>

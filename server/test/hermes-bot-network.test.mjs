@@ -154,6 +154,31 @@ test('generated helper authenticates without listener secrets in its terminal en
   } finally { await new Promise(resolve => server.close(resolve)); }
 }));
 
+test('generated helper reports a failed recipient run instead of treating partial output as success', async () => fixture(async root => {
+  const server = createServer(async (req, res) => {
+    const chunks = []; for await (const chunk of req) chunks.push(chunk);
+    const body = chunks.length ? JSON.parse(Buffer.concat(chunks)) : null;
+    assert.equal(new URL(req.url, 'http://fixture.local').pathname, '/api/hermes/bot-relay/send');
+    assert.equal(body.to, 'writer');
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ id: '11111111-1111-4111-8111-111111111111', to: 'writer', toName: 'Writer',
+      status: 'failed', error: 'native run failed: provider unavailable', reply: 'partial answer' }));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const network = new HermesBotNetwork({ roster: async () => ({ profiles: [{ name: 'default', state: 'active' }] }), workspaceRoot: root, credential,
+      relayUrl: `http://127.0.0.1:${server.address().port}/api/hermes/bot-relay` });
+    await network.sync();
+    const helper = path.join(root, 'main', '.hob', 'talk.mjs');
+    const env = { ...process.env, HOB_TALK_WAIT_MS: '10' }; delete env.HOB_TALK_TOKEN;
+    const result = await promisify(execFile)(process.execPath, [helper, 'send', 'writer', 'Do the work.'], { env, cwd: root });
+    assert.match(result.stdout, /did not complete the exchange/);
+    assert.match(result.stdout, /provider unavailable/);
+    assert.match(result.stdout, /Partial output:\npartial answer/);
+    assert.match(result.stdout, /Exchange: 11111111-1111-4111-8111-111111111111 \(failed\)/);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+}));
+
 test('deployment root aliases work while an alias into another bot cannot receive a relay key', async t => fixture(async root => {
   const actual = path.join(root, 'actual'); await mkdir(actual);
   const alias = path.join(root, 'alias');

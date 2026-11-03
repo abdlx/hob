@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHermesBotRelay } from '../hermes-bot-relay.mjs';
+import { HermesExchanges } from '../hermes-exchanges.mjs';
 
 const BASE = '/api/hermes/bot-relay';
 const MAIN = 'a'.repeat(64);
 const WRITER = 'b'.repeat(64);
 const EDITOR = 'c'.repeat(64);
 
-function fixture(team, output = 'the finished answer', teamArtifacts) {
+function fixture(team, output = 'the finished answer', teamArtifacts, behavior = {}) {
   const roster = [
     { name: 'default', displayName: 'Main', display_name: 'Main', state: 'active' },
     { name: 'writer', displayName: 'Scribe', display_name: 'Scribe', state: 'active', description: 'Writes docs.' },
@@ -31,15 +32,22 @@ function fixture(team, output = 'the finished answer', teamArtifacts) {
       if (route === '/api/sessions' && options.method !== 'POST') return { data: [] };
       if (route === '/api/sessions') return { session: { id: `relay-${options.profile}-${++sessionCounter}` } };
       if (route === '/v1/runs') return { run_id: `run-${++runCounter}` };
+      if (/^\/v1\/runs\/[^/]+$/.test(route)) {
+        if (!behavior.run) throw new Error(`unexpected runtime route ${route}`);
+        return typeof behavior.run === 'function' ? behavior.run(route) : behavior.run;
+      }
       throw new Error(`unexpected runtime route ${route}`);
     },
     async *events(runId, { profile }) {
       events.push({ runId, profile });
-      yield { event: 'message.delta', delta: 'partial ' };
-      yield { event: 'run.completed', output };
+      for (const event of behavior.events ?? [
+        { event: 'message.delta', delta: 'partial ' },
+        { event: 'run.completed', output },
+      ]) yield event;
     },
   };
-  const relay = createHermesBotRelay({ client, bots, team, teamArtifacts });
+  const exchanges = new HermesExchanges();
+  const relay = createHermesBotRelay({ client, bots, exchanges, team, teamArtifacts });
   const call = async (path, { method = 'GET', token, input } = {}) => {
     let status, payload;
     const req = { method, headers: token ? { authorization: `Bearer ${token}` } : {} };
@@ -50,7 +58,7 @@ function fixture(team, output = 'the finished answer', teamArtifacts) {
     });
     return { status, body: payload };
   };
-  return { relay, call, roster, runtime, events };
+  return { relay, call, roster, runtime, events, exchanges };
 }
 
 const refuses = (promise, status, code) => assert.rejects(promise,
@@ -167,6 +175,130 @@ test('Main can relay work to a worker by display name and receives the reply', a
   assert.match(run.body.input, /Write the release notes\./);
   assert.match(run.idempotencyKey, /^[a-f0-9-]{36}$/);
   assert.deepEqual(events, [{ runId: 'run-1', profile: 'writer' }]);
+});
+
+test('relay preserves the native failure reason and partial output', async () => {
+  const { call, relay } = fixture(undefined, undefined, undefined, { events: [
+    { event: 'message.delta', delta: 'observed ' },
+    { event: 'run.failed', error: 'max_iterations_reached(60/60)', turn_exit_reason: 'max_iterations_reached(60/60)',
+      partial: true, completed: false, interrupted: false, output: 'partial answer from event' },
+  ] });
+  try {
+    const { status, body } = await call('/send', {
+      method: 'POST', token: MAIN, input: { to: 'writer', message: 'Inspect the repository.', waitMs: 500 },
+    });
+    assert.equal(status, 200);
+    assert.equal(body.status, 'failed');
+    assert.equal(body.completed, false);
+    assert.equal(body.reply, 'partial answer from event');
+    assert.equal(body.error, 'max_iterations_reached(60/60)');
+    assert.deepEqual(body.failure, {
+      status: 'failed', event: 'run.failed', error: 'max_iterations_reached(60/60)',
+      turnExitReason: 'max_iterations_reached(60/60)', partial: true, completed: false, interrupted: false,
+    });
+  } finally { await relay.close(); }
+});
+
+test('relay keeps streamed text when a completed event has no output', async () => {
+  const { call, relay } = fixture(undefined, undefined, undefined, { events: [
+    { event: 'message.delta', delta: 'streamed ' },
+    { event: 'message.delta', delta: 'answer' },
+    { event: 'run.completed' },
+  ] });
+  try {
+    const { body } = await call('/send', {
+      method: 'POST', token: MAIN, input: { to: 'writer', message: 'Answer this.', waitMs: 500 },
+    });
+    assert.equal(body.status, 'completed');
+    assert.equal(body.reply, 'streamed answer');
+    assert.equal(body.failure, undefined);
+  } finally { await relay.close(); }
+});
+
+test('relay explains an iteration-budget failure when Hermes omits an error', async () => {
+  const { call, relay } = fixture(undefined, undefined, undefined, { events: [
+    { event: 'run.failed', turn_exit_reason: 'max_iterations_reached(60/60)',
+      partial: true, completed: false, interrupted: false },
+  ] });
+  try {
+    const { body } = await call('/send', {
+      method: 'POST', token: MAIN, input: { to: 'writer', message: 'Keep working.', waitMs: 500 },
+    });
+    assert.equal(body.status, 'failed');
+    assert.match(body.error, /max_iterations_reached\(60\/60\)/);
+    assert.equal(body.failure.error, undefined);
+    assert.equal(body.failure.turnExitReason, 'max_iterations_reached(60/60)');
+  } finally { await relay.close(); }
+});
+
+test('relay distinguishes a cancelled native run and keeps its flags', async () => {
+  const { call, relay } = fixture(undefined, undefined, undefined, { events: [
+    { event: 'run.cancelled', completed: false, partial: false, interrupted: true },
+  ] });
+  try {
+    const { body } = await call('/send', {
+      method: 'POST', token: MAIN, input: { to: 'writer', message: 'Stop this.', waitMs: 500 },
+    });
+    assert.equal(body.status, 'cancelled');
+    assert.match(body.error, /was cancelled before completing the exchange/);
+    assert.equal(body.failure.status, 'cancelled');
+    assert.equal(body.failure.interrupted, true);
+  } finally { await relay.close(); }
+});
+
+test('relay reports the gateway shutdown reason for an interrupted run', async () => {
+  const { call, relay } = fixture(undefined, undefined, undefined, { events: [
+    { event: 'run.interrupted', error: 'Gateway shutdown interrupted the run.',
+      completed: false, partial: false, interrupted: true },
+  ] });
+  try {
+    const { body } = await call('/send', {
+      method: 'POST', token: MAIN, input: { to: 'writer', message: 'Start this.', waitMs: 500 },
+    });
+    assert.equal(body.status, 'interrupted');
+    assert.equal(body.error, 'Gateway shutdown interrupted the run.');
+    assert.equal(body.failure.event, 'run.interrupted');
+    assert.equal(body.failure.interrupted, true);
+  } finally { await relay.close(); }
+});
+
+test('exchange detail polls a missed native terminal status and keeps its reason', async () => {
+  const { call, relay } = fixture(undefined, undefined, undefined, {
+    events: [],
+    run: { run_id: 'run-1', status: 'failed', error: 'provider unavailable',
+      turn_exit_reason: 'provider_error', partial: true, completed: false, interrupted: false,
+      last_event: 'run.failed' },
+  });
+  try {
+    const sent = await call('/send', {
+      method: 'POST', token: MAIN, input: { to: 'writer', message: 'Try it.', waitMs: 0 },
+    });
+    assert.equal(sent.body.status, 'running');
+    const detail = await call('/exchanges/' + sent.body.id, { token: MAIN });
+    assert.equal(detail.body.status, 'failed');
+    assert.equal(detail.body.error, 'provider unavailable');
+    assert.equal(detail.body.failure.turnExitReason, 'provider_error');
+    assert.equal(detail.body.failure.event, 'run.failed');
+  } finally { await relay.close(); }
+});
+
+test('opening an older failed exchange recovers the native reason from run status', async () => {
+  const { call, relay, exchanges } = fixture(undefined, undefined, undefined, {
+    run: { run_id: 'run-1', status: 'failed', error: 'provider auth expired',
+      turn_exit_reason: 'provider_error', completed: false, partial: false, interrupted: false,
+      last_event: 'run.failed' },
+  });
+  try {
+    const record = exchanges.create({ requestKey: 'legacy-1', from: 'default', fromName: 'Main',
+      to: 'writer', toName: 'Scribe', message: 'Old request' });
+    exchanges.update(record.id, { status: 'failed', runId: 'run-1',
+      error: 'The native run ended before completing the exchange.' });
+    const detail = await call('/exchanges/' + record.id, { token: MAIN });
+    assert.equal(detail.body.status, 'failed');
+    assert.equal(detail.body.error, 'provider auth expired');
+    assert.equal(detail.body.failure.turnExitReason, 'provider_error');
+    assert.equal(detail.body.failure.event, 'run.failed');
+  } finally { await relay.close(); }
 });
 
 test('a worker can ask Main and contact another worker directly', async () => {
