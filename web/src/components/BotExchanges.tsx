@@ -86,7 +86,7 @@ export function BotExchangeNotice({ exchange, profile }: { exchange: BotExchange
       <ChevronDown size={13} className={open ? 'rotate-180' : ''} />
     </button>
     {open && <div className="space-y-3 border-t border-line p-4">
-      <p className="text-[10px] text-faint">{new Date(exchange.createdAt).toLocaleString()} · Exchange {exchange.id.slice(0, 8)}</p>
+      <p className="text-[10px] text-faint">{new Date(exchange.createdAt).toLocaleString()} · Exchange <span className="select-all font-mono">{exchange.id}</span></p>
       {record.teamTask && <p role="status" className="break-words text-muted">{record.teamVerification === 'coordinator-reviewed' ? `${record.fromName} reviewed the output and recorded passing checks.` : record.teamVerification === 'coordinator-rejected' ? `${record.fromName} reviewed the output and recorded failed checks.` : record.teamOutput ? 'The assigned output was received. Coordinator review is still pending.' : record.teamVerification === 'self-reported' ? 'The worker reported completion. Coordinator review is still pending.' : 'This result has not been verified.'}</p>}
       {error && <p role="alert" className="text-red-600">{error}</p>}
       {!detail && !error && <p role="status" className="text-muted">Loading exchange…</p>}
