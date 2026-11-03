@@ -24,8 +24,17 @@ export function useBotExchanges(profile: string | undefined, session: string | n
     const timer = window.setInterval(() => void load(), 10000);
     const visible = () => { if (!document.hidden) void load(); };
     const changed = (event: Event) => {
-      const detail = (event as CustomEvent<{ from: string; to: string }>).detail;
-      if (detail && [detail.from, detail.to].includes(profile)) void load();
+      const detail = (event as CustomEvent<{ id?: string; from: string; to: string; status?: string }>).detail;
+      if (!detail || ![detail.from, detail.to].includes(profile)) return;
+      const status = detail.status;
+      if (detail.id && status) {
+        // Apply the status immediately so the list does not look idle until the
+        // follow-up read completes. The read still supplies the full record.
+        setState(previous => previous.key !== key ? previous : {
+          ...previous, rows: previous.rows.map(row => row.id === detail.id ? { ...row, status } : row),
+        });
+      }
+      void load();
     };
     window.addEventListener('hob:bot-exchange', changed);
     document.addEventListener('visibilitychange', visible);

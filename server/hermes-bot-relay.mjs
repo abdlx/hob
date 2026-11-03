@@ -7,6 +7,9 @@ import { containsTeamCredentials } from './hermes-team.mjs';
 
 const BASE = '/api/hermes/bot-relay';
 const terminal = new Set(['completed', 'failed', 'cancelled', 'interrupted']);
+const active = new Set(['admitting', 'queued', 'running', 'waiting_for_approval', 'stopping']);
+const knownStatuses = new Set([...active, 'unknown', ...terminal]);
+const RETRY_BASE_MS = 2000, RETRY_MAX_MS = 60000, EXPIRED_STATUS_MS = 300000, FAILURE_LOOKUP_MS = 300000;
 const text = value => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
 const label = bot => text(bot.displayName || bot.display_name) || (bot.name === 'default' ? 'Main' : bot.name);
 const invalid = message => new HermesError(400, message, 'INVALID_REQUEST');
@@ -46,6 +49,11 @@ const failureMessage = failure => {
   if (failure?.status === 'interrupted') return 'The native run was interrupted before completing the exchange.';
   return 'The native run failed before completing the exchange.';
 };
+const observationMessage = error => error?.status === 404
+  ? 'Hermes no longer has this run’s status. It may have finished or the gateway restarted; inspect the native conversation before retrying.'
+  : error?.code === 'HERMES_UNAVAILABLE'
+    ? 'HOB could not reach Hermes to check this run. The run may still be executing; HOB will retry.'
+    : `HOB could not check this run: ${failureText(error?.message) || 'unknown error'}.`;
 const nativeTerminalPatch = (run, status) => {
   const failure = ['failed', 'cancelled', 'interrupted'].includes(status)
     ? nativeFailure({ ...run, last_event: run.last_event }, status) : null;
@@ -54,6 +62,7 @@ const nativeTerminalPatch = (run, status) => {
   const output = typeof run.output === 'string' && run.output ? run.output : null;
   return {
     status,
+    ...(status === 'unknown' ? { error: 'The native run outcome is unknown. Inspect the native conversation before retrying.' } : {}),
     ...(output !== null ? { reply: output.slice(0, 512000), replyTruncated: output.length > 512000 } : {}),
     ...(failure ? { failure, error: failureMessage(failure) } : {}),
   };
@@ -62,12 +71,27 @@ const nativeTerminalPatch = (run, status) => {
 /** Each handoff has its own native session and durable correlation record. */
 export function createHermesBotRelay({ client, bots, exchanges = new HermesExchanges(), journal, bridge, onWake, team, teamArtifacts }) {
   const observers = new Map(), admissions = new Map(), controllers = new Set();
+  const retryAt = new Map(), retryAttempts = new Map(), failureChecks = new Map();
   let closed = false, timer, sweep;
   const participant = reference => bots.roster().filter(bot => bot.state === 'active')
     .find(bot => bot.name === reference || label(bot).toLowerCase() === text(reference).toLowerCase());
   const notify = record => client.emit?.('event', { event: 'bot.exchange', payload: { id: record.id, from: record.from, to: record.to, status: record.status } });
+  const clearRetry = id => { retryAt.delete(id); retryAttempts.delete(id); };
+  const deferRetry = (id, error) => {
+    const attempts = (retryAttempts.get(id) || 0) + 1;
+    retryAttempts.set(id, attempts);
+    retryAt.set(id, Date.now() + (error?.status === 404 ? EXPIRED_STATUS_MS : Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** Math.min(attempts - 1, 5))));
+  };
   const patch = async (id, value) => {
     const before = exchanges.get(id);
+    if (!before) throw new HermesError(404, 'Exchange not found.', 'NOT_FOUND');
+    if (value.status !== undefined && !knownStatuses.has(value.status)) throw new Error('Invalid exchange status.');
+    // Terminal outcomes are monotonic. A late status read or duplicate stream
+    // event may add detail, but it must never downgrade completed/failed work.
+    if (terminal.has(before.status) && value.status !== undefined && value.status !== before.status) {
+      value = { ...value };
+      delete value.status;
+    }
     if (before.teamControlled && typeof value.reply === 'string' && containsTeamCredentials(value.reply)) value = { ...value, reply: '[Result withheld: potential credentials were detected. Ask the worker for a non-sensitive result.]', teamVerification: 'unproven' };
     if (before.teamTask && terminal.has(value.status)) {
       try {
@@ -79,6 +103,7 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
       } catch { value = { ...value, teamVerification: 'unproven', teamResultError: 'The native output did not satisfy the pinned TASK reply format. Inspect it before reporting completion.' }; }
     }
     const record = exchanges.update(id, value);
+    if (terminal.has(record.status)) clearRetry(id);
     if (before.status !== record.status) notify(record);
     if (terminal.has(record.status) && !closed) queueMicrotask(() => { void tick(); });
     if (journal && record.sessionId) await journal.update(hermesSessionKey(record.to, record.sessionId), record.id,
@@ -90,7 +115,7 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
     const work = (async () => {
       const controller = new AbortController(); controllers.add(controller);
       const timer = setTimeout(() => controller.abort(), 600000); timer.unref?.();
-      let reply = record.reply || '', replyTruncated = record.replyTruncated === true;
+      let reply = record.reply || '', replyTruncated = record.replyTruncated === true, settled = false;
       try {
         for await (const event of client.events(record.runId, { profile: record.to, signal: controller.signal })) {
           if (event.event === 'message.delta' && typeof event.delta === 'string') {
@@ -99,10 +124,12 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
             reply = combined.slice(0, 512000);
           }
           if (event.event === 'run.completed') {
+            settled = true;
             if (typeof event.output === 'string' && event.output) { reply = event.output.slice(0, 512000); replyTruncated = event.output.length > 512000; }
             await patch(record.id, { status: 'completed', reply, replyTruncated }); return;
           }
           if (['run.failed', 'run.cancelled', 'run.interrupted'].includes(event.event)) {
+            settled = true;
             const status = event.event.slice(4);
             // A failed event can carry its partial answer in `output`; prefer it
             // over the deltas we observed, which may be incomplete. An empty
@@ -112,9 +139,22 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
             await patch(record.id, { status, reply, replyTruncated, failure, error: failureMessage(failure) }); return;
           }
         }
-        await patch(record.id, { reply, replyTruncated }); // End of a stream does not prove completion.
+        // EOF is not completion. A completed run commonly closes the event
+        // stream before the observer attaches, so check once immediately rather
+        // than making the caller wait for the next five-second sweep.
+        if (!settled) {
+          let current;
+          try { current = await reconcile(exchanges.get(record.id)); } catch { current = exchanges.get(record.id); }
+          if (!current || terminal.has(current.status)) return;
+        }
+        await patch(record.id, { reply, replyTruncated });
       } catch (error) {
-        if (!controller.signal.aborted) await patch(record.id, { reply, replyTruncated, observationError: error.message });
+        if (!controller.signal.aborted) {
+          let current;
+          try { current = await reconcile(exchanges.get(record.id)); } catch { current = exchanges.get(record.id); }
+          if (!current || terminal.has(current.status)) return;
+          if (!current.observationError) await patch(record.id, { reply, replyTruncated, observationError: error.message });
+        }
       } finally { clearTimeout(timer); controllers.delete(controller); }
     })();
     observers.set(record.id, work);
@@ -122,43 +162,80 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
     return work;
   };
   const reconcile = async record => {
-    if (record?.teamTask && record.status === 'completed' && teamArtifacts?.reviewState) {
+    if (!record) return record;
+    if (record.teamTask && record.status === 'completed' && teamArtifacts?.reviewState) {
       const reviewed = teamArtifacts.reviewState(record);
       if (reviewed && Object.entries(reviewed).some(([key, value]) => JSON.stringify(record[key]) !== JSON.stringify(value))) record = exchanges.update(record.id, reviewed);
     }
-    if (!record || terminal.has(record.status)) return record;
+    if (terminal.has(record.status)) { clearRetry(record.id); return record; }
+    if ((retryAt.get(record.id) || 0) > Date.now()) return record;
     if (!record.runId && record.sessionId && journal) {
       const correlated = journal.get(hermesSessionKey(record.to, record.sessionId));
       if (correlated?.requestKey === record.id && (correlated.runId || terminal.has(correlated.status))) {
-        record = await patch(record.id, { runId: correlated.runId, status: correlated.status });
-        if (terminal.has(record.status)) return record;
+        // The chat journal also uses `unavailable` for an expired native run.
+        // The exchange has one explicit parked state for that condition.
+        const status = correlated.status === 'unavailable' ? 'unknown' : correlated.status;
+        record = await patch(record.id, { runId: correlated.runId, status });
+        if (terminal.has(record.status)) { clearRetry(record.id); return record; }
       }
     }
     if (!record.runId) {
-      if (!admissions.has(`${record.from}:${record.requestKey}`)) return patch(record.id, { status: 'unknown', error: 'Admission was interrupted. Nothing was replayed; inspect the native conversation before retrying.' });
-      return record;
+      if (admissions.has(`${record.from}:${record.requestKey}`)) return record;
+      const message = 'Admission was interrupted by a restart. Nothing was replayed; inspect the native conversation before retrying.';
+      if (record.status === 'unknown' && record.error === message) return record;
+      return patch(record.id, { status: 'unknown', error: message,
+        failure: { status: 'unknown', phase: 'admission', error: message, retryable: false } });
     }
     try {
       const run = await client.runtime(`/v1/runs/${hermesResource(record.runId)}`, { profile: record.to });
       if (run.run_id !== record.runId) throw new Error('Hermes returned a different run.');
-      const states = new Set(['queued', 'running', 'waiting_for_approval', 'stopping', 'unknown', ...terminal]);
-      if (!states.has(run.status)) return record;
+      const states = new Set([...active, 'unknown', ...terminal]);
+      if (!states.has(run.status)) { clearRetry(record.id); return record; }
       const current = exchanges.get(record.id);
-      if (terminal.has(current.status)) return current;
-      return patch(record.id, nativeTerminalPatch(run, run.status));
-    } catch (error) { return { ...record, observationError: error.message }; }
+      if (terminal.has(current.status)) { clearRetry(record.id); return current; }
+      const next = nativeTerminalPatch(run, run.status);
+      if (current.observationError) next.observationError = null;
+      // `unknown` is not terminal, but it also is not useful to poll every five
+      // seconds. Let Hermes or an operator resolve it before checking again.
+      if (run.status === 'unknown') retryAt.set(record.id, Date.now() + 30000);
+      else clearRetry(record.id);
+      return await patch(record.id, next);
+    } catch (error) {
+      const message = observationMessage(error);
+      deferRetry(record.id, error);
+      // A missing run status is a stable state, not a transient read failure.
+      // Do not keep hammering Hermes every five seconds for an expired run.
+      if (error?.status === 404) {
+        const current = exchanges.get(record.id);
+        if (current.status === 'unknown' && current.error === message) return current;
+        return patch(record.id, { status: 'unknown', error: message,
+          failure: { status: 'unknown', phase: 'observation', error: message,
+            ...(error.code ? { code: error.code } : {}), retryable: false } });
+      }
+      if (record.observationError === message) return { ...record, observationError: message };
+      try { return await patch(record.id, { observationError: message }); }
+      catch { return { ...record, observationError: message }; }
+    }
   };
   // Exchange detail is opened by a person investigating an outcome, so it can
   // afford one native status read when an older record predates failure fields
   // (or when the event stream was missed). List and sweep paths never do this.
   const hydrateFailure = async record => {
     if (!record?.runId || record.failure || !['failed', 'cancelled', 'interrupted'].includes(record.status)) return record;
+    if ((failureChecks.get(record.id) || 0) > Date.now()) return record;
     try {
       const run = await client.runtime(`/v1/runs/${hermesResource(record.runId)}`, { profile: record.to });
-      if (run.run_id !== record.runId || !['failed', 'cancelled', 'interrupted'].includes(run.status)) return record;
+      if (run.run_id !== record.runId || !['failed', 'cancelled', 'interrupted'].includes(run.status)) {
+        failureChecks.set(record.id, Date.now() + 60000);
+        return record;
+      }
+      failureChecks.delete(record.id);
       const failure = nativeFailure({ ...run, last_event: run.last_event }, run.status);
-      return patch(record.id, { failure, error: failureMessage(failure) });
-    } catch { return record; } // Terminal statuses are retained only briefly.
+      return await patch(record.id, { failure, error: failureMessage(failure) });
+    } catch {
+      failureChecks.set(record.id, Date.now() + FAILURE_LOOKUP_MS);
+      return record;
+    }
   };
   const send = async (sender, input) => {
     const receiver = participant(input.to);
@@ -185,13 +262,20 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
     const key = `${sender.name}:${requestKey}`;
     let admission = admissions.get(key);
     if (!existing && !admission) {
-      if (exchanges.pending().filter(record => record.to === receiver.name).length >= 8) throw new HermesError(429, 'This bot already has eight active handoffs. Wait for a result before sending more work.', 'RELAY_BUSY');
+      // Unknown is a parked outcome, not active work. Counting it here would
+      // permanently consume a receiver's capacity after a restart.
+      if (exchanges.pending().filter(record => record.to === receiver.name && record.status !== 'unknown').length >= 8) throw new HermesError(429, 'This bot already has eight active handoffs. Wait for a result before sending more work.', 'RELAY_BUSY');
       const record = exchanges.create({ requestKey, from: sender.name, fromName: label(sender), to: receiver.name, toName: label(receiver), message: input.message, sourceSession, ancestry, parentExchangeId: parent?.id || null,
         ...(team?.policy().coordinatorOnly ? { teamControlled: true } : {}), ...(teamTask ? { teamTask, teamVerification: 'unproven' } : {}), wakeOnComplete: Boolean(bridge), relayHelpers: Object.fromEntries([sender.name, 'default'].map(name => [name, bots.relayHelper?.(name) || '.hob/talk.mjs'])) });
       notify(record);
       admission = (async () => {
         try {
-          const created = await client.runtime('/api/sessions', { profile: receiver.name, method: 'POST', body: { title: `${record.fromName} → ${record.toName} · ${record.id.slice(0, 8)}` } });
+          // Session creation and credential binding are independent. Starting
+          // them together removes one round trip from every handoff.
+          const [created, credentialBinding] = await Promise.all([
+            client.runtime('/api/sessions', { profile: receiver.name, method: 'POST', body: { title: `${record.fromName} → ${record.toName} · ${record.id.slice(0, 8)}` } }),
+            journal ? client.credentialBinding(record.to) : Promise.resolve(null),
+          ]);
           const sessionId = created?.session?.id ?? created?.id; hermesResource(sessionId);
           team?.registerSession?.(receiver.name, sessionId, 'relay', record.message);
           exchanges.update(record.id, { sessionId });
@@ -199,14 +283,25 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
             ? 'If another bot is needed, ask the coordinator (default); do not message another worker.'
             : `If you delegate further, use node .hob/talk.mjs send <bot> <message> --parent ${record.id}.`;
           const prompt = `[HOB relay from ${record.fromName} (${record.from})]\nExchange: ${record.id}. Complete this request with your own tools and reply with the result. Your reply returns to the caller automatically; do not message the caller to return it. ${delegation} Share only context needed for the work.\n\n${record.message}`;
-          if (journal) await journal.reserve(hermesSessionKey(record.to, sessionId), { input: prompt, requestKey: record.id, credentialBinding: await client.credentialBinding(record.to) });
+          if (journal) await journal.reserve(hermesSessionKey(record.to, sessionId), { input: prompt, requestKey: record.id, credentialBinding });
           const run = await client.runtime('/v1/runs', { profile: record.to, method: 'POST', idempotencyKey: record.id, body: { session_id: sessionId, input: prompt } });
           hermesResource(run?.run_id);
           const admitted = await patch(record.id, { runId: run.run_id, status: 'running' });
           void observe(admitted).catch(error => console.warn(`Exchange observation failed: ${error.message}`));
           return admitted;
         } catch (error) {
-          await patch(record.id, { status: 'unknown', error: `Admission could not be confirmed: ${error.message}. Nothing was replayed.` }); throw error;
+          // The exchange is already durable, so admission errors must be
+          // inspectable too. A client-side rejection is a definitive failure;
+          // a transport or gateway error is parked as unknown until checked.
+          const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 ? 'failed' : 'unknown';
+          const reason = failureText(error?.message) || 'Hermes did not provide a reason.';
+          const failure = { status, phase: 'admission', error: reason,
+            ...(error?.code ? { code: error.code } : {}), retryable: status === 'unknown' || [408, 425, 429].includes(error?.status) };
+          const message = status === 'failed'
+            ? `The recipient could not start this handoff: ${reason}`
+            : `Admission could not be confirmed: ${reason}. The run may still have been accepted; inspect this exchange before retrying.`;
+          try { return await patch(record.id, { status, error: message, failure }); }
+          catch (patchError) { console.warn(`Exchange admission state could not be saved: ${patchError.message}`); return { ...record, status, error: message, failure }; }
         }
       })();
       admissions.set(key, admission);
@@ -218,7 +313,7 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
       let timer;
       await Promise.race([observer, new Promise(resolve => { timer = setTimeout(resolve, waitMs); })]); clearTimeout(timer);
     }
-    return summary(exchanges.get(record.id));
+    return summary(exchanges.get(record.id) || record);
   };
   const route = async (req, res, url, { json, body }) => {
     if (!url.pathname.startsWith(BASE)) return false;
@@ -289,12 +384,13 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
     const before = url.searchParams.has('before') ? Number(url.searchParams.get('before')) : Number.MAX_SAFE_INTEGER;
     if (!Number.isSafeInteger(before) || before < 0) throw invalid('Invalid history cursor.');
     const records = session ? exchanges.timeline(profile, session) : exchanges.list(profile, before);
-    const result = [];
-    for (const record of records) {
-      const { message: _message, reply: _reply, ...notice } = summary(await reconcile(record));
-      result.push(notice);
-    }
-    return json(res, 200, { exchanges: result, earlier: Boolean(session && records.length === 100), nextBefore: !session && records.length === 50 ? records.at(-1).createdAt : null });
+    // The observer and the bounded sweep keep active records current. History
+    // reads must not serialize a native GET behind every row, which made the
+    // chat list slow whenever several handoffs were running.
+    return json(res, 200, { exchanges: records.map(record => {
+      const { message: _message, reply: _reply, ...notice } = summary(record);
+      return notice;
+    }), earlier: Boolean(session && records.length === 100), nextBefore: !session && records.length === 50 ? records.at(-1).createdAt : null });
   };
   const wakeups = createHermesWakeups({ bridge, bots, exchanges, onAdmission: onWake, notify: id => { const record = exchanges.get(id); if (record) notify(record); } });
   const tick = () => {
@@ -319,6 +415,7 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
     closed = true; clearInterval(timer);
     for (const controller of controllers) controller.abort();
     await Promise.allSettled([...observers.values(), ...admissions.values(), ...(sweep ? [sweep] : [])]);
+    retryAt.clear(); retryAttempts.clear(); failureChecks.clear();
     exchanges.close();
   };
   return route;

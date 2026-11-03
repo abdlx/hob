@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHermesBotRelay } from '../hermes-bot-relay.mjs';
 import { HermesExchanges } from '../hermes-exchanges.mjs';
+import { HermesError } from '../hermes-client.mjs';
 
 const BASE = '/api/hermes/bot-relay';
 const MAIN = 'a'.repeat(64);
@@ -29,6 +30,7 @@ function fixture(team, output = 'the finished answer', teamArtifacts, behavior =
   const client = {
     async runtime(route, options = {}) {
       runtime.push({ route, ...options });
+      if (behavior.admissionError) throw behavior.admissionError;
       if (route === '/api/sessions' && options.method !== 'POST') return { data: [] };
       if (route === '/api/sessions') return { session: { id: `relay-${options.profile}-${++sessionCounter}` } };
       if (route === '/v1/runs') return { run_id: `run-${++runCounter}` };
@@ -58,7 +60,16 @@ function fixture(team, output = 'the finished answer', teamArtifacts, behavior =
     });
     return { status, body: payload };
   };
-  return { relay, call, roster, runtime, events, exchanges };
+  const dashboard = async (path = '?profile=writer') => {
+    let status, payload;
+    const req = { method: 'GET', headers: {} };
+    const res = { writeHead() {}, end() {} };
+    await relay.dashboard(req, res, new URL(`http://hob.test/api/hermes/exchanges${path}`), {
+      json: (_res, code, value) => { status = code; payload = value; },
+    });
+    return { status, body: payload };
+  };
+  return { relay, call, dashboard, roster, runtime, events, exchanges };
 }
 
 const refuses = (promise, status, code) => assert.rejects(promise,
@@ -298,6 +309,147 @@ test('opening an older failed exchange recovers the native reason from run statu
     assert.equal(detail.body.error, 'provider auth expired');
     assert.equal(detail.body.failure.turnExitReason, 'provider_error');
     assert.equal(detail.body.failure.event, 'run.failed');
+  } finally { await relay.close(); }
+});
+
+test('relay returns an inspectable failed exchange when admission is rejected', async () => {
+  const { call, relay, runtime } = fixture(undefined, undefined, undefined, {
+    admissionError: new HermesError(422, 'provider profile is invalid', 'HERMES_REQUEST_FAILED'),
+  });
+  try {
+    const { status, body } = await call('/send', {
+      method: 'POST', token: MAIN, input: { to: 'writer', message: 'Do it.', waitMs: 500 },
+    });
+    assert.equal(status, 200);
+    assert.ok(body.id);
+    assert.equal(body.status, 'failed');
+    assert.equal(body.completed, false);
+    assert.equal(body.failure.phase, 'admission');
+    assert.equal(body.failure.code, 'HERMES_REQUEST_FAILED');
+    assert.equal(body.failure.retryable, false);
+    assert.match(body.error, /could not start/);
+    assert.equal(runtime.filter(item => item.route === '/v1/runs').length, 0);
+  } finally { await relay.close(); }
+});
+
+test('relay parks an uncertain admission without replaying the request', async () => {
+  const { call, relay, runtime } = fixture(undefined, undefined, undefined, {
+    admissionError: new HermesError(503, 'gateway restarting', 'HERMES_UNAVAILABLE'),
+  });
+  const input = { to: 'writer', message: 'Do it.', waitMs: 0, requestId: 'uncertain-admission' };
+  try {
+    const first = await call('/send', { method: 'POST', token: MAIN, input });
+    assert.equal(first.body.status, 'unknown');
+    assert.equal(first.body.failure.phase, 'admission');
+    assert.equal(first.body.failure.retryable, true);
+    assert.match(first.body.error, /may still have been accepted/);
+    const retried = await call('/send', { method: 'POST', token: MAIN, input });
+    assert.equal(retried.body.id, first.body.id);
+    assert.equal(retried.body.status, 'unknown');
+    assert.equal(runtime.filter(item => item.route === '/api/sessions').length, 1);
+    assert.equal(runtime.filter(item => item.route === '/v1/runs').length, 0);
+  } finally { await relay.close(); }
+});
+
+test('parked unknown exchanges do not permanently consume handoff capacity', async () => {
+  const { call, relay, exchanges } = fixture();
+  try {
+    for (let i = 0; i < 8; i++) {
+      const parked = exchanges.create({ requestKey: `parked-${i}`, from: 'default', fromName: 'Main',
+        to: 'writer', toName: 'Scribe', message: 'Parked work.' });
+      exchanges.update(parked.id, { status: 'unknown', error: 'Admission outcome was never confirmed.' });
+    }
+    const { status, body } = await call('/send', {
+      method: 'POST', token: MAIN, input: { to: 'writer', message: 'Fresh work.', waitMs: 500 },
+    });
+    assert.equal(status, 200);
+    assert.equal(body.status, 'completed');
+    assert.equal(body.reply, 'the finished answer');
+  } finally { await relay.close(); }
+});
+
+test('history reads do not serialize native status checks for every row', async () => {
+  const { dashboard, relay, exchanges, runtime } = fixture(undefined, undefined, undefined, { events: [] });
+  try {
+    for (const id of ['one', 'two', 'three']) {
+      const record = exchanges.create({ requestKey: `history-${id}`, from: 'default', fromName: 'Main',
+        to: 'writer', toName: 'Scribe', message: `Request ${id}.` });
+      exchanges.update(record.id, { status: 'running', runId: `run-${id}` });
+    }
+    const response = await dashboard('?profile=writer');
+    assert.equal(response.status, 200);
+    assert.equal(response.body.exchanges.length, 3);
+    assert.deepEqual(response.body.exchanges.map(record => record.status), ['running', 'running', 'running']);
+    assert.equal(runtime.length, 0, 'a history read returns durable state without waiting on Hermes');
+  } finally { await relay.close(); }
+});
+
+test('observer EOF checks the run status immediately instead of waiting for a sweep', async () => {
+  const { call, relay, runtime } = fixture(undefined, undefined, undefined, {
+    events: [],
+    run: { run_id: 'run-1', status: 'completed', output: 'finished without a live stream', last_event: 'run.completed' },
+  });
+  try {
+    const { body } = await call('/send', {
+      method: 'POST', token: MAIN, input: { to: 'writer', message: 'Finish this.', waitMs: 500 },
+    });
+    assert.equal(body.status, 'completed');
+    assert.equal(body.reply, 'finished without a live stream');
+    assert.equal(runtime.filter(item => item.route === '/v1/runs/run-1').length, 1);
+  } finally { await relay.close(); }
+});
+
+test('transient status failures back off instead of hammering Hermes', async () => {
+  let statusChecks = 0;
+  const { call, relay } = fixture(undefined, undefined, undefined, {
+    events: [],
+    run: () => { statusChecks++; throw new HermesError(503, 'gateway unavailable', 'HERMES_UNAVAILABLE'); },
+  });
+  try {
+    const sent = await call('/send', {
+      method: 'POST', token: MAIN, input: { to: 'writer', message: 'Try this.', waitMs: 500 },
+    });
+    assert.equal(sent.body.status, 'running');
+    assert.match(sent.body.observationError, /could not reach Hermes/);
+    await call('/exchanges/' + sent.body.id, { token: MAIN });
+    await call('/exchanges/' + sent.body.id, { token: MAIN });
+    assert.equal(statusChecks, 1, 'a failed status read is not repeated until the backoff expires');
+  } finally { await relay.close(); }
+});
+
+test('a native unknown outcome is parked instead of polled every sweep', async () => {
+  let statusChecks = 0;
+  const { call, relay } = fixture(undefined, undefined, undefined, {
+    events: [],
+    run: () => { statusChecks++; return { run_id: 'run-1', status: 'unknown', last_event: 'run.unknown' }; },
+  });
+  try {
+    const sent = await call('/send', {
+      method: 'POST', token: MAIN, input: { to: 'writer', message: 'Check this.', waitMs: 500 },
+    });
+    assert.equal(sent.body.status, 'unknown');
+    assert.match(sent.body.error, /outcome is unknown/);
+    await call('/exchanges/' + sent.body.id, { token: MAIN });
+    await call('/exchanges/' + sent.body.id, { token: MAIN });
+    assert.equal(statusChecks, 1, 'a parked unknown outcome is checked on a slower cadence');
+  } finally { await relay.close(); }
+});
+
+test('an expired native run status becomes unknown once and stops polling', async () => {
+  let statusChecks = 0;
+  const { call, relay } = fixture(undefined, undefined, undefined, {
+    events: [],
+    run: () => { statusChecks++; throw new HermesError(404, 'run status expired', 'HERMES_REQUEST_FAILED'); },
+  });
+  try {
+    const sent = await call('/send', {
+      method: 'POST', token: MAIN, input: { to: 'writer', message: 'Old work.', waitMs: 500 },
+    });
+    assert.equal(sent.body.status, 'unknown');
+    assert.equal(sent.body.failure.phase, 'observation');
+    assert.equal(sent.body.failure.retryable, false);
+    await call('/exchanges/' + sent.body.id, { token: MAIN });
+    assert.equal(statusChecks, 1);
   } finally { await relay.close(); }
 });
 

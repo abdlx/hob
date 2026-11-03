@@ -133,11 +133,15 @@ test('a restarted adapter restores exchanges and reconciles native completion wi
 
 test('ambiguous admission is durable and the same request never automatically replays', async () => {
   const f = fixture(undefined, { failAdmission: true });
-  await assert.rejects(f.send(request()), /Connection lost/);
+  const first = await f.send(request());
+  assert.equal(first.status, 'unknown');
+  assert.match(first.error, /may still have been accepted/);
+  assert.equal(first.failure.phase, 'admission');
+  assert.equal(first.failure.retryable, true);
   const retried = await f.send(request());
   assert.equal(retried.status, 'unknown');
+  assert.equal(retried.id, first.id, 'the caller keeps an inspectable exchange after a failed admission');
   assert.equal(f.calls.filter(call => call.route === '/v1/runs').length, 1);
-  assert.match(retried.error, /Nothing was replayed/);
 });
 
 test('archive cursors do not drop exchanges created within the same millisecond', () => {

@@ -59,21 +59,30 @@ if (!token) {
   } catch { /* Report a repairable missing credential without leaking file contents. */ }
   finally { await handle?.close(); }
 }
-const usage = 'Usage: node .hob/talk.mjs roster\n       node .hob/talk.mjs send <bot-id-or-name> <message> [--parent <exchange-id>]\n       node .hob/talk.mjs status <exchange-id>\n       node .hob/talk.mjs artifact <exchange-id>\n       node .hob/talk.mjs artifact-status <exchange-id>\n       node .hob/talk.mjs review <exchange-id> <sha256> <passed|failed> <checks>';
+const usage = 'Usage: node .hob/talk.mjs roster\n       node .hob/talk.mjs send <bot-id-or-name> <message> [--parent <exchange-id>] [--wait <ms>|--no-wait]\n       node .hob/talk.mjs status <exchange-id>\n       node .hob/talk.mjs artifact <exchange-id>\n       node .hob/talk.mjs artifact-status <exchange-id>\n       node .hob/talk.mjs review <exchange-id> <sha256> <passed|failed> <checks>';
 let lastRequestId, lastReviewId;
 if (!token) {
   console.error('This bot has no relay credential. Ask the operator to re-run bot synchronization.');
   process.exit(2);
 }
-const waitMs = Number(process.env.HOB_TALK_WAIT_MS || 120000);
-async function call(pathname, init = {}) {
-  const response = await fetch(endpoint + pathname, {
-    ...init,
-    headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
-    signal: AbortSignal.timeout(Math.max(1000, Math.min(600000, waitMs + 30000))),
-  });
+const configuredWait = process.env.HOB_TALK_WAIT_MS === undefined ? 120000 : Number(process.env.HOB_TALK_WAIT_MS);
+const waitMs = Number.isFinite(configuredWait) ? Math.max(0, Math.min(600000, configuredWait)) : 120000;
+async function call(pathname, init = {}, timeoutMs = waitMs + 30000) {
+  let response;
+  try {
+    response = await fetch(endpoint + pathname, {
+      ...init,
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
+      signal: AbortSignal.timeout(Math.max(1000, Math.min(600000, timeoutMs))),
+    });
+  } catch (error) {
+    const timeout = error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+    throw new Error(timeout
+      ? 'The HOB relay did not answer in time. The handoff may still be running; check its status before retrying.'
+      : 'Could not reach the HOB relay: ' + (error && error.message ? error.message : 'network error') + '. No retry was attempted.');
+  }
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || ('The HOB relay refused the request (' + response.status + ').'));
+  if (!response.ok) throw new Error((body.error || ('The HOB relay refused the request (' + response.status + ').')) + (body.code ? ' [' + body.code + ']' : ''));
   return body;
 }
 const [command, ...args] = process.argv.slice(2);
@@ -81,15 +90,25 @@ const parentIndex = command === 'send' ? args.indexOf('--parent') : -1;
 const parentExchangeId = parentIndex >= 0 ? args.splice(parentIndex, 2)[1] : undefined;
 try {
   if (command === 'roster') {
-    const body = await call('/roster');
+    const body = await call('/roster', {}, 15000);
     for (const bot of body.bots || []) {
       console.log((bot.id === body.self ? '* ' : '  ') + bot.name + ' [' + bot.id + ']' + (bot.main ? ' (Main coordinator)' : '') + (bot.description ? ' — ' + bot.description : ''));
     }
   } else if (command === 'send') {
+    const waitIndex = args.indexOf('--wait');
+    let requestedWait;
+    if (waitIndex >= 0) {
+      requestedWait = Number(args[waitIndex + 1]);
+      if (!Number.isFinite(requestedWait) || requestedWait < 0 || requestedWait > 600000) throw new Error('--wait requires a number of milliseconds between zero and ten minutes.');
+      args.splice(waitIndex, 2);
+    }
+    const noWait = args.includes('--no-wait');
+    if (noWait) args.splice(args.indexOf('--no-wait'), 1);
+    const sendWaitMs = noWait ? 0 : requestedWait ?? waitMs;
     if (args.length < 2) throw new Error(usage);
     lastRequestId = process.env.HOB_TALK_REQUEST_ID || randomUUID();
     console.error('Relay request: ' + lastRequestId);
-    const body = await call('/send', { method: 'POST', body: JSON.stringify({ to: args[0], message: args.slice(1).join(' '), waitMs, requestId: lastRequestId, sourceSession: process.env.HERMES_UI_SESSION_ID || process.env.HERMES_SESSION_ID || undefined, parentExchangeId }) });
+    const body = await call('/send', { method: 'POST', body: JSON.stringify({ to: args[0], message: args.slice(1).join(' '), waitMs: sendWaitMs, requestId: lastRequestId, sourceSession: process.env.HERMES_UI_SESSION_ID || process.env.HERMES_SESSION_ID || undefined, parentExchangeId }) }, sendWaitMs + 30000);
     console.log('Exchange: ' + body.id + ' (' + body.status + ')');
     if (body.teamTask) console.log('Team result verification: ' + (body.teamVerification || 'unproven') + '. Native completion is not independent verification. Check the result and saved files before reporting success.');
     if (['failed', 'cancelled', 'interrupted'].includes(body.status)) {
@@ -97,24 +116,28 @@ try {
       // a nonzero exit code, or an agent may retry the send and duplicate work.
       console.log('The recipient did not complete the exchange: ' + (body.error || body.observationError || 'No failure reason was returned.'));
       if (typeof body.reply === 'string' && body.reply.trim()) console.log('Partial output:\n' + body.reply);
+    } else if (body.status === 'unknown') {
+      console.log('The handoff outcome is unknown: ' + (body.error || body.observationError || 'Hermes did not confirm the run.'));
+      if (typeof body.reply === 'string' && body.reply.trim()) console.log('Partial output:\n' + body.reply);
+      console.log('Do not resend blindly. Check it first with: node .hob/talk.mjs status ' + body.id);
     } else if (typeof body.reply === 'string' && body.reply.trim()) {
       console.log(body.reply);
     } else {
       console.log('Exchange is ' + body.status + '. Read its status with: node .hob/talk.mjs status ' + body.id + '. The exchange is also visible in both bot chats.');
     }
   } else if (command === 'status') {
-    const body = await call('/exchanges/' + encodeURIComponent(args[0] || ''));
+    const body = await call('/exchanges/' + encodeURIComponent(args[0] || ''), {}, 40000);
     console.log(JSON.stringify(body, null, 2));
   } else if (command === 'artifact' || command === 'artifact-status') {
     if (args.length !== 1) throw new Error(usage);
-    const body = await call('/team/artifacts/' + encodeURIComponent(args[0]), command === 'artifact' ? { method: 'POST', body: '{}' } : {});
+    const body = await call('/team/artifacts/' + encodeURIComponent(args[0]), command === 'artifact' ? { method: 'POST', body: '{}' } : {}, 30000);
     console.log(JSON.stringify(body, null, 2));
     if (body.artifact) console.log('Read the coordinator-local snapshot at ' + body.artifact.path + ' and check the assigned outcome before recording a review. A copied file alone does not verify task completion.');
   } else if (command === 'review') {
     if (args.length < 4) throw new Error(usage);
     lastReviewId = process.env.HOB_TALK_REVIEW_ID || randomUUID();
     console.error('Review request: ' + lastReviewId);
-    const body = await call('/team/artifacts/' + encodeURIComponent(args[0]) + '/reviews', { method: 'POST', body: JSON.stringify({ sha256: args[1], verdict: args[2], checks: args.slice(3).join(' '), requestId: lastReviewId }) });
+    const body = await call('/team/artifacts/' + encodeURIComponent(args[0]) + '/reviews', { method: 'POST', body: JSON.stringify({ sha256: args[1], verdict: args[2], checks: args.slice(3).join(' '), requestId: lastReviewId }) }, 30000);
     console.log(JSON.stringify(body, null, 2));
   } else {
     console.log(usage);
@@ -146,13 +169,14 @@ const managedBlock = (self, roster, coordinatorOnly = false) => {
     '```sh',
     'node .hob/talk.mjs roster',
     'node .hob/talk.mjs send <bot-id> "<message>"',
+    'node .hob/talk.mjs send <bot-id> "<message>" --no-wait',
     '```',
     '',
     main
       ? 'You may message any active bot. Delegate clear, self-contained work, include the outcome you need, and wait for the reply before reporting success. Treat a bot reply as that bot’s own work, not as your own.'
       : coordinatorOnly ? 'You may message only the coordinator (stable id: `default`). Ask the coordinator for work needing another bot. Return assigned results through your normal reply; never send a circular completion message.'
       : 'You may contact any active teammate directly when its role fits the work. Keep the main coordinator (`default`) informed of blockers and results. Return results to the calling bot through your normal reply; never start a circular exchange.',
-    'Each send creates a separate, inspectable exchange and native conversation. The recipient receives only the context you send. For further delegation from an exchange, include --parent <exchange-id> from its request. Never delegate back to an ancestor. Do not claim a timed-out exchange failed; use node .hob/talk.mjs status <exchange-id> to check it. Use independent tasks for parallel delegation. For recurring work, use Hermes native scheduled jobs; no schedule exists until Hermes confirms it.',
+    'Each send creates a separate, inspectable exchange and native conversation. The recipient receives only the context you send. For further delegation from an exchange, include --parent <exchange-id> from its request. Never delegate back to an ancestor. Do not claim a timed-out exchange failed; use node .hob/talk.mjs status <exchange-id> to check it. Use independent tasks for parallel delegation; --no-wait starts an independent handoff without blocking, but you must collect its result with status before reporting success. For recurring work, use Hermes native scheduled jobs; no schedule exists until Hermes confirms it.',
     'The relay is a real message to another bot, which acts with its own tools, workspace, memory and approvals. Never claim another bot completed work without its reply. Do not send secrets, credentials, or tokens through bot messages.',
     'Save final deliverables under artifacts/ in your assigned workspace. Copy completed scratch outputs there before reporting delivery, and link the actual saved file. Keep intermediate files separate. Match the user’s requested language in replies and conversation titles; use the conversation language for Roman Urdu and mixed-language chats, and do not import another bot or project’s language preference.',
     ...(coordinatorOnly ? ['', 'Employee-team assignments and replies use these exact fields, in order. Indent multiline continuations by two spaces. A worker OUTPUT is relative to its own workspace; ask the coordinator to publish a nominated artifact.', '```text', TASK_FORMAT, '```', '```text', REPLY_FORMAT, '```', ...(main ? ['After the worker replies, run node .hob/talk.mjs artifact <exchange-id> to receive only its nominated OUTPUT. Read the returned coordinator-local file and check the requested outcome with your own tools. Then run node .hob/talk.mjs review <exchange-id> <returned-sha256> <passed|failed> "<actual checks and findings>". Do not report verified completion merely because a file was copied or the worker said DONE. Artifact-status inspects the existing snapshot and review history.'] : []), 'A session-only fact stays in that session, including its summary. Do not write it to private memory, shared docs or core. Propose eligible core changes to the coordinator; only a user-approved revision is distributed. A DONE reply is self-reported until the coordinator verifies the actual files and result. Attribute worker results by their configured names. External facts require source and observation time; label stale observations stale.'] : []),

@@ -149,6 +149,18 @@ in its normal output and labels any retained text as partial output, so an agent
 does not mistake a failed turn for a completed reply. Native run status is
 retained only briefly, so inspect recent failures first.
 
+Exchange state is monotonic: once a run is `completed`, `failed`, `cancelled` or
+`interrupted`, a late event or status read cannot downgrade it. `unknown` is a
+parked outcome rather than active work, so it does not consume a recipient's
+handoff capacity. Admission failures are stored on the exchange with
+`failure.phase: "admission"` and a `retryable` flag; the caller receives the
+exchange ID even when the recipient never started. Transient status-read failures
+back off, and an expired native run status becomes `unknown` instead of being
+polled every five seconds. History reads return durable state immediately; the
+observer and bounded sweep update active rows without blocking the chat list.
+`talk.mjs send --no-wait` starts an independent handoff for parallel work; collect
+it with `status` before reporting success.
+
 The local native/custom-server proof now covers question display and actual answer
 delivery to a managed worker across adapter restart, plus a real tool side effect
 and persisted history, using a deterministic model. Linux image build and first

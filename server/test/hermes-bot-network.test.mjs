@@ -179,6 +179,59 @@ test('generated helper reports a failed recipient run instead of treating partia
   } finally { await new Promise(resolve => server.close(resolve)); }
 }));
 
+test('generated helper tells an agent to inspect an uncertain handoff instead of resending', async () => fixture(async root => {
+  const server = createServer(async (req, res) => {
+    const chunks = []; for await (const chunk of req) chunks.push(chunk);
+    const body = chunks.length ? JSON.parse(Buffer.concat(chunks)) : null;
+    assert.equal(new URL(req.url, 'http://fixture.local').pathname, '/api/hermes/bot-relay/send');
+    assert.equal(body.to, 'writer');
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ id: '22222222-2222-4222-8222-222222222222', to: 'writer', toName: 'Writer',
+      status: 'unknown', error: 'Admission could not be confirmed. The run may still have been accepted.',
+      reply: 'partial answer' }));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const network = new HermesBotNetwork({ roster: async () => ({ profiles: [{ name: 'default', state: 'active' }] }), workspaceRoot: root, credential,
+      relayUrl: `http://127.0.0.1:${server.address().port}/api/hermes/bot-relay` });
+    await network.sync();
+    const helper = path.join(root, 'main', '.hob', 'talk.mjs');
+    const env = { ...process.env, HOB_TALK_WAIT_MS: '10' }; delete env.HOB_TALK_TOKEN;
+    const result = await promisify(execFile)(process.execPath, [helper, 'send', 'writer', 'Do the work.'], { env, cwd: root });
+    assert.match(result.stderr, /Relay request:/);
+    assert.match(result.stdout, /outcome is unknown/);
+    assert.match(result.stdout, /may still have been accepted/);
+    assert.match(result.stdout, /Partial output:\npartial answer/);
+    assert.match(result.stdout, /Do not resend blindly/);
+    assert.match(result.stdout, /status 22222222-2222-4222-8222-222222222222/);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+}));
+
+test('generated helper supports non-blocking independent handoffs', async () => fixture(async root => {
+  let receivedWait;
+  const server = createServer(async (req, res) => {
+    const chunks = []; for await (const chunk of req) chunks.push(chunk);
+    const body = chunks.length ? JSON.parse(Buffer.concat(chunks)) : null;
+    assert.equal(new URL(req.url, 'http://fixture.local').pathname, '/api/hermes/bot-relay/send');
+    receivedWait = body.waitMs;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ id: '33333333-3333-4333-8333-333333333333', to: 'writer', toName: 'Writer',
+      status: 'running', reply: '' }));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const network = new HermesBotNetwork({ roster: async () => ({ profiles: [{ name: 'default', state: 'active' }] }), workspaceRoot: root, credential,
+      relayUrl: `http://127.0.0.1:${server.address().port}/api/hermes/bot-relay` });
+    await network.sync();
+    const helper = path.join(root, 'main', '.hob', 'talk.mjs');
+    const env = { ...process.env, HOB_TALK_WAIT_MS: '120000' }; delete env.HOB_TALK_TOKEN;
+    const result = await promisify(execFile)(process.execPath, [helper, 'send', 'writer', 'Do the work.', '--no-wait'], { env, cwd: root });
+    assert.equal(receivedWait, 0);
+    assert.match(result.stdout, /Exchange is running/);
+    assert.match(result.stdout, /status 33333333-3333-4333-8333-333333333333/);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+}));
+
 test('deployment root aliases work while an alias into another bot cannot receive a relay key', async t => fixture(async root => {
   const actual = path.join(root, 'actual'); await mkdir(actual);
   const alias = path.join(root, 'alias');
