@@ -95,17 +95,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const getComposerDraft = useCallback((id: string) => workRef.current.draft(id), []);
   const setComposerDraft = useCallback((id: string, text: string) => workRef.current.setDraft(id, text), []);
   const subscribeComposerDraft = useCallback((id: string, listener: () => void) => workRef.current.subscribeDraft(id, listener), []);
-  const [, setQueueVersion] = useState(0);
+  const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([]);
   const [activities, setActivities] = useState<Record<string, TurnActivity & { startTime: number }>>({});
   const [isStopping, setIsStopping] = useState(false);
-  const queuedPrompts = activeSessionId ? workRef.current.getQueue(activeSessionId) : [];
   const activity = activeSessionId ? activities[activeSessionId] || null : null;
+  const sendMessageRef = useRef<(content: string, attachments?: ChatAttachment[]) => Promise<void>>(undefined);
 
   const removeQueuedPrompt = useCallback((id: string) => {
     const session = sessionRef.current;
     if (!session) return;
     if (workRef.current.removeQueued(session, id)) {
-      setQueueVersion(v => v + 1);
+      setQueuedPrompts(workRef.current.getQueue(session));
       setMessages(previous => workRef.current.project(session, previous));
     }
   }, []);
@@ -114,7 +114,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const session = sessionRef.current;
     if (!session) return;
     workRef.current.clearQueue(session);
-    setQueueVersion(v => v + 1);
+    setQueuedPrompts([]);
     setMessages(previous => workRef.current.project(session, previous));
   }, []);
 
@@ -241,6 +241,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         sessionRef.current = initial.id;
         lastSessionsRef.current.set(selectedProfile, initial.id);
         setActiveSessionId(initial.id);
+        setQueuedPrompts(workRef.current.getQueue(initial.id));
         setSessions(available.some(session => session.id === initial.id) ? available : [initial, ...available]);
         const history = await api.getMessages(initial.id);
         if (alive && sessionRef.current === initial.id && viewEpochRef.current === epoch) { setMessages(history); setIsPreparing(false); }
@@ -286,7 +287,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     lastSessionsRef.current.set(profile, id);
     operationErrorRef.current = Boolean(workRef.current.error(id));
     setError(workRef.current.error(id)); setIsLoading(workRef.current.busy(id));
-    setActiveSessionId(id); setMessages(workRef.current.project(id, [])); setActiveNav('chat'); setIsLeftDrawerOpen(false);
+    setActiveSessionId(id); setQueuedPrompts(workRef.current.getQueue(id)); setMessages(workRef.current.project(id, [])); setActiveNav('chat'); setIsLeftDrawerOpen(false);
     try {
       const history = await chatApi.forProfile(profile).getMessages(id);
       if (sessionRef.current === id && viewEpochRef.current === epoch && workRef.current.version(id) === version) setMessages(workRef.current.project(id, history));
@@ -304,7 +305,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const session = await chatApi.forProfile(profile).createSession();
       if (chatApi.getProfile() !== profile || viewEpochRef.current !== epoch) return;
       setSessions(previous => [session, ...previous]);
-      sessionRef.current = session.id; setActiveSessionId(session.id); setMessages([]);
+      sessionRef.current = session.id; setActiveSessionId(session.id); setQueuedPrompts([]); setMessages([]);
       lastSessionsRef.current.set(profile, session.id); setIsLoading(false); operationErrorRef.current = false;
       setActiveNav('chat'); setIsLeftDrawerOpen(false); setError(null);
     } catch (err) { if (chatApi.getProfile() === profile && viewEpochRef.current === epoch) setError(errorText(err)); }
@@ -349,6 +350,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setIsLoading(workRef.current.busy(initial.id));
       operationErrorRef.current = Boolean(workRef.current.error(initial.id)); setError(workRef.current.error(initial.id));
       setActiveSessionId(initial.id);
+      setQueuedPrompts(workRef.current.getQueue(initial.id));
       setSessions(available.some(session => session.id === initial.id) ? available : [initial, ...available]);
       const version = workRef.current.version(initial.id);
       setMessages(workRef.current.project(initial.id, []));
@@ -395,7 +397,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     if (targetSessionId && workRef.current.busy(targetSessionId)) {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       workRef.current.enqueue(profile, targetSessionId, content, requestId(), timestamp, attachments);
-      setQueueVersion(v => v + 1);
+      setQueuedPrompts(workRef.current.getQueue(targetSessionId));
       if (sessionRef.current === targetSessionId) {
         setMessages(previous => workRef.current.project(targetSessionId, previous));
       }
@@ -435,10 +437,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       if (sessionRef.current === id && chatApi.getProfile() === profile) setMessages(previous => [...previous.filter(item => item.id !== current.reply.id).map(item => ({ ...item, status: 'complete' as const })), reply]);
       await refresh();
       const nextQueued = workRef.current.dequeue(id);
-      setQueueVersion(v => v + 1);
+      setQueuedPrompts(workRef.current.getQueue(id));
       if (nextQueued) {
         setTimeout(() => {
-          void sendMessage(nextQueued.content, nextQueued.attachments);
+          void sendMessageRef.current?.(nextQueued.content, nextQueued.attachments);
         }, 50);
       }
     } catch (err) {
@@ -454,6 +456,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       await reconcileMessages();
     }
   }, [refresh, reconcileMessages, isPreparing, sessions, messages]);
+  useEffect(() => {
+    sendMessageRef.current = sendMessage;
+  }, [sendMessage]);
 
   const resolveApproval = useCallback(async (id: string, decision: 'approved' | 'rejected') => {
     const profile = chatApi.getProfile(), api = chatApi.forProfile(profile), epoch = viewEpochRef.current;

@@ -100,17 +100,16 @@ export function ChatMessageList() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   useEffect(() => {
-    if (!isLoading) {
-      setElapsedSeconds(0);
-      return;
-    }
+    if (!isLoading) return;
     const start = activity?.startTime || Date.now();
     const update = () => {
       setElapsedSeconds(Math.max(1, Math.floor((Date.now() - start) / 1000)));
     };
-    update();
     const timer = setInterval(update, 1000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      setElapsedSeconds(0);
+    };
   }, [isLoading, activity?.startTime]);
   const exchanges = useBotExchanges(agent?.id, activeSessionId, runtime === 'hermes');
   const visibleMessages = messages.filter((message) => message.content.trim());
