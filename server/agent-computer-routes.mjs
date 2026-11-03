@@ -4,7 +4,16 @@ import { parseDocument } from 'yaml';
 import { WebSocketServer, WebSocket } from 'ws';
 import { HermesError, hermesProfile } from './hermes-client.mjs';
 
-const BASE = '/api/hermes/agent-computer';
+// Portal speaks the same MCP + REST + VNC surface as Agent Computer, so one
+// parameterized bridge serves both. A source with no configuration reports
+// connected:false and its viewer hides, so a bot with only one computer
+// shows only that one.
+const SOURCES = {
+  agent_computer: { base: '/api/hermes/agent-computer', configKeys: ['agent_computer', 'agent-computer'], envUrl: 'AGENT_COMPUTER_URL', envToken: 'AGENT_COMPUTER_TOKEN', serverName: 'agent_computer' },
+  portal: { base: '/api/hermes/portal', configKeys: ['portal'], envUrl: 'PORTAL_URL', envToken: 'PORTAL_TOKEN', serverName: 'portal' },
+};
+const sourceFor = pathname => pathname.startsWith(SOURCES.portal.base + '/') ? 'portal'
+  : pathname.startsWith(SOURCES.agent_computer.base + '/') ? 'agent_computer' : null;
 const invalid = message => new HermesError(400, message, 'INVALID_REQUEST');
 const computerId = value => {
   if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(value)) throw invalid('Select a computer explicitly.');
@@ -40,7 +49,8 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
     if (knownBot && !await knownBot(profile)) throw new HermesError(404, 'This bot is not enrolled.', 'BOT_NOT_FOUND');
     if (client?.credentialBinding) await client.credentialBinding(profile);
   };
-  async function getAgentComputerConfig(profile = 'default') {
+  async function getComputerConfig(source, profile = 'default') {
+    const desc = SOURCES[source] || SOURCES.agent_computer;
     hermesProfile(profile);
     await authorize(profile);
     let config;
@@ -58,19 +68,23 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
         const document = parseDocument(await readFile(filename, 'utf8'), { uniqueKeys: true, prettyErrors: false, logLevel: 'silent' });
         if (document.errors.length) throw new Error('Invalid config syntax.');
         const native = document.toJS({ maxAliasCount: 50 });
-        config = native?.mcp_servers?.agent_computer ?? native?.mcp_servers?.['agent-computer'];
+        const servers = native?.mcp_servers || {};
+        config = desc.configKeys.map(key => servers[key]).find(Boolean);
       } catch (error) {
         if (error.code !== 'ENOENT') throw new HermesError(503, 'The selected bot’s computer configuration could not be read safely.', 'COMPUTER_CONFIG_INVALID');
       }
     }
     // Environment configuration belongs only to Main, never to another bot.
-    if (!config && profile === 'default' && env.AGENT_COMPUTER_URL) config = { url: env.AGENT_COMPUTER_URL, bearer_token: env.AGENT_COMPUTER_TOKEN || '' };
+    if (!config && profile === 'default' && env[desc.envUrl]) config = { url: env[desc.envUrl], bearer_token: env[desc.envToken] || '' };
     if (!config || config.enabled === false) return { connected: false };
     const url = endpoint(config.url);
     const authorization = config.headers?.Authorization ?? config.headers?.authorization ?? '';
     const token = config.bearer_token ?? (/^Bearer\s+(.+)$/i.exec(authorization)?.[1]) ?? '';
     if (typeof token !== 'string' || token.length > 8192 || /[\r\n]|\$\{|\[stored credential\]/.test(token)) throw invalid('Configure a resolved computer credential for this bot.');
-    return { connected: true, serverName: 'agent_computer', mcpUrl: url.href, origin: url.origin, token };
+    return { connected: true, serverName: desc.serverName, mcpUrl: url.href, origin: url.origin, token };
+  }
+  async function getAgentComputerConfig(profile = 'default') {
+    return getComputerConfig('agent_computer', profile);
   }
   async function callMcpTool(cfg, name, args = {}) {
     // A timeout can happen after a wake/sleep completed. Never replay it at a
@@ -96,11 +110,13 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
     } catch { throw new HermesError(502, 'The configured computer service did not confirm the request. Refresh its status before retrying.', 'COMPUTER_REQUEST_UNCONFIRMED'); }
   }
   async function route(req, res, url, { json, body }) {
-    if (!url.pathname.startsWith(BASE + '/')) return false;
+    const source = sourceFor(url.pathname);
+    if (!source) return false;
+    const base = SOURCES[source].base;
     if (!authenticated(req)) throw new HermesError(401, 'Sign in to hob.', 'UNAUTHORIZED');
     const send = (status, value) => { json(res, status, value); return true; };
-    const profile = profileFrom(url), cfg = await getAgentComputerConfig(profile);
-    if (url.pathname === BASE + '/status' && req.method === 'GET') {
+    const profile = profileFrom(url), cfg = await getComputerConfig(source, profile);
+    if (url.pathname === base + '/status' && req.method === 'GET') {
       if (!cfg.connected) return send(200, { configured: false, connected: false });
       try {
         const result = await callMcpTool(cfg, 'computer_list');
@@ -114,13 +130,13 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
           vncToken: cfg.token, computers: computers.map(publicComputer).filter(Boolean), computer: active ? publicComputer({ ...active, ...current }) : null });
       } catch { return send(200, { configured: true, connected: false, error: 'The configured computer service is unavailable. Refresh before retrying.' }); }
     }
-    const action = new RegExp(`^${BASE}/(wake|sleep)$`).exec(url.pathname);
+    const action = url.pathname === base + '/wake' ? 'wake' : url.pathname === base + '/sleep' ? 'sleep' : null;
     if (action && req.method === 'POST') {
       assertOrigin(req);
       if (!cfg.connected) throw invalid('Configure this bot’s computer connection first.');
       const value = await body(req);
       if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => key !== 'computerId')) throw invalid('Select a computer explicitly.');
-      await callMcpTool(cfg, `computer_${action[1]}`, { computer: computerId(value.computerId) });
+      await callMcpTool(cfg, `computer_${action}`, { computer: computerId(value.computerId) });
       return send(200, { ok: true });
     }
     return false;
@@ -128,7 +144,8 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
   function upgrade(req, socket, head) {
     let url;
     try { url = new URL(req.url, 'http://hob.local'); } catch { return false; }
-    if (url.pathname !== BASE + '/vnc') return false;
+    const source = sourceFor(url.pathname);
+    if (!source || url.pathname !== SOURCES[source].base + '/vnc') return false;
     let profile, id;
     try {
       if (req.method !== 'GET' || !authenticated(req)) throw new Error('Unauthorized.');
@@ -137,7 +154,7 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
       id = computerId(url.searchParams.get('computerId'));
     } catch { socket.destroy(); return true; }
     void (async () => {
-      const cfg = await getAgentComputerConfig(profile);
+      const cfg = await getComputerConfig(source, profile);
       if (!cfg.connected || socket.destroyed) { socket.destroy(); return; }
       wss.handleUpgrade(req, socket, head, downstream => {
         const target = new URL(`/api/computers/${encodeURIComponent(id)}/vnc`, cfg.origin);
@@ -171,5 +188,5 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
     return true;
   }
   const close = () => { for (const socket of upstreams) socket.terminate(); for (const socket of wss.clients) socket.terminate(); wss.close(); };
-  return { route, upgrade, getAgentComputerConfig, close };
+  return { route, upgrade, getAgentComputerConfig, getComputerConfig, close };
 }

@@ -51,7 +51,11 @@ interface AgentComputerStatus {
   error?: string;
 }
 
-export function AgentComputerViewer({ profile }: { profile: string }) {
+export type ComputerSource = 'agent_computer' | 'portal';
+
+export function AgentComputerViewer({ profile, source = 'agent_computer' }: { profile: string; source?: ComputerSource }) {
+  const basePath = source === 'portal' ? '/api/hermes/portal' : '/api/hermes/agent-computer';
+  const sourceTitle = source === 'portal' ? 'Portal' : 'Agent Computer';
   const [status, setStatus] = useState<AgentComputerStatus | null>(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -65,10 +69,10 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
   const loadStatus = useCallback(async () => {
     const current = ++revision.current;
     try {
-      const data = await apiFetch<AgentComputerStatus>(`/api/hermes/agent-computer/status?profile=${encodeURIComponent(profile)}`, { headers: { 'X-Hob-Profile': profile } });
+      const data = await apiFetch<AgentComputerStatus>(`${basePath}/status?profile=${encodeURIComponent(profile)}`, { headers: { 'X-Hob-Profile': profile } });
       if (mounted.current && current === revision.current) { setStatus(data); setError(data.error || ''); }
     } catch (cause) { if (mounted.current && current === revision.current) setError(errorText(cause)); }
-  }, [profile]);
+  }, [profile, basePath]);
   useEffect(() => {
     mounted.current = true;
     let stopped = false;
@@ -86,7 +90,7 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
     if (!isRunning || !id || !screenRef.current) return;
     const element = screenRef.current;
     const Constructor = resolveRfbConstructor(RFB);
-    const proxyUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/hermes/agent-computer/vnc?profile=${encodeURIComponent(profile)}&computerId=${encodeURIComponent(id)}`;
+    const proxyUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${basePath}/vnc?profile=${encodeURIComponent(profile)}&computerId=${encodeURIComponent(id)}`;
     const directUrl = origin && token ? `${origin.replace(/^http/, 'ws')}/api/computers/${encodeURIComponent(id)}/vnc?token=${encodeURIComponent(token)}` : '';
     const stream = createComputerStream({ directUrl, proxyUrl, onState: setConnState, onError: setError,
       create(url) {
@@ -110,12 +114,12 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
     const pump = setInterval(update, 40);
     document.addEventListener('visibilitychange', update);
     return () => { clearInterval(pump); document.removeEventListener('visibilitychange', update); stream.close(); streamRef.current = null; element.replaceChildren(); };
-  }, [profile, id, isRunning, origin, token]);
+  }, [profile, id, isRunning, origin, token, basePath]);
   const control = async (action: 'wake' | 'sleep') => {
     if (!id || busy) return;
     setBusy(action); setError('');
     try {
-      await apiFetch(`/api/hermes/agent-computer/${action}?profile=${encodeURIComponent(profile)}`, { method: 'POST', headers: { 'X-Hob-Profile': profile }, body: JSON.stringify({ computerId: id }) });
+      await apiFetch(`${basePath}/${action}?profile=${encodeURIComponent(profile)}`, { method: 'POST', headers: { 'X-Hob-Profile': profile }, body: JSON.stringify({ computerId: id }) });
       if (mounted.current) await loadStatus();
     } catch (cause) { if (mounted.current) setError(errorText(cause)); }
     finally { if (mounted.current) setBusy(''); }
@@ -123,7 +127,9 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
   const handleWake = () => control('wake');
   const handleSleep = () => control('sleep');
   if (!status) return error ? <Notice error>{error}</Notice> : <Skeleton className="h-40 w-full" />;
-  if (!status.connected && !status.configured) return <Notice>No agent computer is configured for this bot. Connect one in Tools &amp; computer settings.</Notice>;
+  // Unconfigured sources hide so a bot with only one computer shows only
+  // that one; a configured-but-unavailable source keeps its frame + error.
+  if (!status.connected && !status.configured) return null;
   const isWaking = busy === 'wake' || activeComputer?.state === 'starting';
   const isSleeping = busy === 'sleep';
   const displayState = !status.connected ? 'unavailable' : isWaking ? 'Starting...' : isSleeping ? 'Sleeping...' : activeComputer?.state || 'Unknown';
@@ -135,7 +141,7 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
         <div className="flex items-center gap-2 min-w-0">
           <Monitor size={13} className="shrink-0 text-accent" />
           <span className="text-[11px] font-semibold text-gray-200 truncate">
-            {activeComputer?.name || 'Agent Computer'}
+            {activeComputer?.name || sourceTitle}
           </span>
           <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[10px]">
             <span
@@ -231,7 +237,7 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
             </div>
             <div className="space-y-1 max-w-xs">
               <p className="text-xs font-semibold text-gray-200">
-                {!status.connected ? 'Computer service unavailable' : isWaking ? 'Waking agent computer...' : activeComputer ? 'Agent computer is not running' : 'No computer is available'}
+                {!status.connected ? 'Computer service unavailable' : isWaking ? `Waking ${activeComputer?.name || sourceTitle}...` : activeComputer ? `${activeComputer.name} is not running` : 'No computer is available'}
               </p>
               <p className="text-[11px] text-gray-400 leading-relaxed">
                 {!status.connected ? "Check this bot's computer connection and credentials, then refresh." : isWaking
@@ -298,7 +304,7 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
           <div className="flex items-center justify-between text-gray-200 pb-1">
             <span className="inline-flex items-center gap-2 text-sm font-semibold">
               <Monitor size={15} className="text-accent" />
-              <span>{activeComputer?.name || 'Agent Computer'}</span>
+              <span>{activeComputer?.name || sourceTitle}</span>
             </span>
             <button
               type="button"
@@ -315,10 +321,10 @@ export function AgentComputerViewer({ profile }: { profile: string }) {
           <div className="flex items-center justify-between px-0.5 pt-1 pb-0.5">
             <span className="text-[12px] font-semibold text-ink flex items-center gap-1.5">
               <Monitor size={13} className="text-accent" />
-              <span>Agent Computer</span>
+              <span>{sourceTitle}</span>
             </span>
             <span className="text-[10px] text-muted font-mono">
-              {status.serverName || 'agent_computer'}
+              {status.serverName || source}
             </span>
           </div>
         )}
