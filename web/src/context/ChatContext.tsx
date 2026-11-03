@@ -1,12 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { AgentListItem, AgentProfile, ChatMessage, ChatSession, GroupSummary, RightPanelTab, SecurityApproval, SystemStats, TaskItem } from '../types/chat';
+import type { AgentListItem, AgentProfile, ChatMessage, ChatSession, GroupSummary, RightPanelTab, SecurityApproval, SystemStats, TaskItem, TurnActivity } from '../types/chat';
 import { chatApi, apiFetch } from '../services/api';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { ChatAttachment } from '../services/attachments';
 import { requestId } from '../services/id';
 import { displayGatewayNotice } from '../services/errors';
-import { ConversationWork } from '../services/conversation-work';
+import { ConversationWork, type QueuedPrompt } from '../services/conversation-work';
 import { preference, savePreference } from '../services/settings-navigation';
 
 interface ChatContextValue {
@@ -27,6 +27,12 @@ interface ChatContextValue {
   clearError: () => void;
   getComposerDraft: (id: string) => string; setComposerDraft: (id: string, text: string) => void;
   subscribeComposerDraft: (id: string, listener: () => void) => () => void;
+  queuedPrompts: QueuedPrompt[];
+  removeQueuedPrompt: (id: string) => void;
+  clearQueue: () => void;
+  activity: (TurnActivity & { startTime: number }) | null;
+  stopActiveRun: () => Promise<void>;
+  isStopping: boolean;
 }
 const ChatContext = createContext<ChatContextValue | undefined>(undefined);
 const errorText = (error: unknown) => error instanceof Error ? displayGatewayNotice(error.message) : 'Unable to connect. Check gateway settings.';
@@ -89,6 +95,28 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const getComposerDraft = useCallback((id: string) => workRef.current.draft(id), []);
   const setComposerDraft = useCallback((id: string, text: string) => workRef.current.setDraft(id, text), []);
   const subscribeComposerDraft = useCallback((id: string, listener: () => void) => workRef.current.subscribeDraft(id, listener), []);
+  const [, setQueueVersion] = useState(0);
+  const [activities, setActivities] = useState<Record<string, TurnActivity & { startTime: number }>>({});
+  const [isStopping, setIsStopping] = useState(false);
+  const queuedPrompts = activeSessionId ? workRef.current.getQueue(activeSessionId) : [];
+  const activity = activeSessionId ? activities[activeSessionId] || null : null;
+
+  const removeQueuedPrompt = useCallback((id: string) => {
+    const session = sessionRef.current;
+    if (!session) return;
+    if (workRef.current.removeQueued(session, id)) {
+      setQueueVersion(v => v + 1);
+      setMessages(previous => workRef.current.project(session, previous));
+    }
+  }, []);
+
+  const clearQueue = useCallback(() => {
+    const session = sessionRef.current;
+    if (!session) return;
+    workRef.current.clearQueue(session);
+    setQueueVersion(v => v + 1);
+    setMessages(previous => workRef.current.project(session, previous));
+  }, []);
 
   const reconcileMessages = useCallback(async () => {
     const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1';
@@ -104,6 +132,31 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       if (sessionRef.current === id && chatApi.getProfile() === profile && viewEpochRef.current === epoch && !operationErrorRef.current) setError(errorText(err));
     }
   }, []);
+
+  const stopActiveRun = useCallback(async () => {
+    const id = sessionRef.current;
+    if (!id || !workRef.current.busy(id) || isStopping) return;
+    setIsStopping(true);
+    try {
+      let runId = workRef.current.getRunId(id);
+      if (!runId) {
+        const res = await apiFetch<{ run: { runId: string } | null }>(`/api/sessions/${encodeURIComponent(id)}/run`);
+        runId = res.run?.runId;
+      }
+      if (runId) {
+        await chatApi.forProfile(chatApi.getProfile()).abortSession(id, runId);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes('RUN_REVISION_CHANGED')) {
+        console.warn('Failed to stop run:', err);
+      }
+    } finally {
+      setIsStopping(false);
+      setActivities(prev => { const next = { ...prev }; delete next[id]; return next; });
+      await reconcileMessages();
+    }
+  }, [isStopping, reconcileMessages]);
 
   const loadAgents = useCallback(async () => {
     const sequence = ++rosterSequenceRef.current;
@@ -334,9 +387,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       return;
     }
     const profile = chatApi.getProfile(), api = chatApi.forProfile(profile), epoch = viewEpochRef.current;
-    if (!content.trim() || workRef.current.busy(sessionRef.current) || creatingRef.current.has(profile) || isPreparing) return;
-    if (sessions.find(session => session.id === sessionRef.current)?.readOnly) {
+    if ((!content.trim() && !attachments.length) || creatingRef.current.has(profile) || isPreparing) return;
+    const targetSessionId = sessionRef.current;
+    if (targetSessionId && sessions.find(session => session.id === targetSessionId)?.readOnly) {
       setError('This older conversation is read-only. Start a new conversation to continue with Hermes.'); return;
+    }
+    if (targetSessionId && workRef.current.busy(targetSessionId)) {
+      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      workRef.current.enqueue(profile, targetSessionId, content, requestId(), timestamp, attachments);
+      setQueueVersion(v => v + 1);
+      if (sessionRef.current === targetSessionId) {
+        setMessages(previous => workRef.current.project(targetSessionId, previous));
+      }
+      return;
     }
     operationErrorRef.current = false; setIsLoading(true); setError(null);
     let id = sessionRef.current;
@@ -357,16 +420,30 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const current = work = workRef.current.begin(profile, id, content, requestId(), requestId(), timestamp, sessionRef.current === id ? messages : []);
+      setActivities(prev => ({ ...prev, [id]: { label: 'Working…', phase: 'working', startTime: Date.now() } }));
       if (sessionRef.current === id && chatApi.getProfile() === profile) setMessages(previous => workRef.current.project(id, previous));
       const reply = await api.sendMessage(id, content, (chunk, replace) => {
         if (!workRef.current.append(current, chunk, replace)) return;
         if (sessionRef.current === id && chatApi.getProfile() === profile) setMessages(previous => workRef.current.project(id, previous));
-      }, current.user.id, attachments.map(file => file.id));
+      }, current.user.id, attachments.map(file => file.id), activity => {
+        setActivities(prev => ({ ...prev, [id]: { ...prev[id], ...activity } }));
+      }, runId => {
+        workRef.current.setRunId(id, runId);
+      });
       if (!workRef.current.finish(current)) return;
+      setActivities(prev => { const next = { ...prev }; delete next[id]; return next; });
       if (sessionRef.current === id && chatApi.getProfile() === profile) setMessages(previous => [...previous.filter(item => item.id !== current.reply.id).map(item => ({ ...item, status: 'complete' as const })), reply]);
       await refresh();
+      const nextQueued = workRef.current.dequeue(id);
+      setQueueVersion(v => v + 1);
+      if (nextQueued) {
+        setTimeout(() => {
+          void sendMessage(nextQueued.content, nextQueued.attachments);
+        }, 50);
+      }
     } catch (err) {
       if (work) workRef.current.finish(work, errorText(err));
+      setActivities(prev => { const next = { ...prev }; delete next[id]; return next; });
       if (chatApi.getProfile() === profile && (sessionRef.current === id || (!id && viewEpochRef.current === epoch))) {
         operationErrorRef.current = true; setError(errorText(err));
         setMessages(previous => previous.map(item => item.status === 'streaming' || item.status === 'sending' ? { ...item, status: 'error' } : item));
@@ -416,7 +493,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return () => { clearTimeout(timer); window.removeEventListener('hob:open-conversation', receive); };
   }, [isPreparing, selectAgent, selectSession]);
 
-  return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, agents, selectAgent, tasks, activityWarnings, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isBotsSidebarOpen, toggleBotsSidebar, setBotsSidebarOpen, isLoading, activeNav, error, connected, isPreparing, isCreatingConversation, activityFilter, setActivityFilter, groups, loadGroups, selectedGroupId, setSelectedGroupId, setActiveNav, sendMessage, selectSession, createNewSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, getComposerDraft, setComposerDraft, subscribeComposerDraft, clearError: () => { operationErrorRef.current = false; workRef.current.clearError(sessionRef.current); setError(null); } }}>{children}</ChatContext.Provider>;
+  return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, agents, selectAgent, tasks, activityWarnings, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isBotsSidebarOpen, toggleBotsSidebar, setBotsSidebarOpen, isLoading, activeNav, error, connected, isPreparing, isCreatingConversation, activityFilter, setActivityFilter, groups, loadGroups, selectedGroupId, setSelectedGroupId, setActiveNav, sendMessage, selectSession, createNewSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, getComposerDraft, setComposerDraft, subscribeComposerDraft, clearError: () => { operationErrorRef.current = false; workRef.current.clearError(sessionRef.current); setError(null); }, queuedPrompts, removeQueuedPrompt, clearQueue, activity, stopActiveRun, isStopping }}>{children}</ChatContext.Provider>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

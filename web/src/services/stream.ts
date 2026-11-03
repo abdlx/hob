@@ -1,7 +1,12 @@
-import type { ChatMessage } from '../types/chat';
+import type { ChatMessage, TurnActivity } from '../types/chat';
 
 // Decode complete SSE frames rather than treating network reads as messages.
-export async function readTurnStream(body: ReadableStream<Uint8Array>, onChunk?: (text: string, replace?: boolean) => void): Promise<ChatMessage> {
+export async function readTurnStream(
+  body: ReadableStream<Uint8Array>,
+  onChunk?: (text: string, replace?: boolean) => void,
+  onActivity?: (activity: TurnActivity) => void,
+  onAccepted?: (runId: string) => void
+): Promise<ChatMessage> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -15,6 +20,8 @@ export async function readTurnStream(body: ReadableStream<Uint8Array>, onChunk?:
     }
     if (!data.length) return;
     const payload = JSON.parse(data.join('\n'));
+    if (event === 'accepted' && typeof payload.runId === 'string') onAccepted?.(payload.runId);
+    if (event === 'activity' && typeof payload.label === 'string') onActivity?.(payload);
     if (event === 'delta' && typeof payload.text === 'string') onChunk?.(payload.text, payload.replace === true);
     if (event === 'done') message = payload.message;
     if (event === 'error') throw new Error(payload.message || 'The agent turn failed.');

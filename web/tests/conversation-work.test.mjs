@@ -67,3 +67,21 @@ test('unsent composer drafts belong to each conversation and never carry over in
   state.setDraft('coder', ''); assert.equal(state.draft('main'), 'Private Main draft'); assert.equal(state.draft('coder'), '');
   assert.equal(new ConversationWork().draft('main'), ''); // logout/remount has no retained browser state
 });
+
+test('prompts can be queued while busy and projected at the end of messages', () => {
+  const state = new ConversationWork();
+  const main = begin(state, 'default', 'main');
+  state.append(main, 'Answering prompt 1');
+  const q1 = state.enqueue('default', 'main', 'Follow-up 1', 'q-1', '12:00');
+  const q2 = state.enqueue('default', 'main', 'Follow-up 2', 'q-2', '12:01');
+  assert.equal(state.getQueue('main').length, 2);
+  const rows = state.project('main', []);
+  assert.equal(rows.at(-2).content, 'Follow-up 1');
+  assert.equal(rows.at(-2).status, 'queued');
+  assert.equal(rows.at(-1).content, 'Follow-up 2');
+  assert.equal(rows.at(-1).status, 'queued');
+  assert.equal(state.dequeue('main').id, 'q-1');
+  assert.equal(state.getQueue('main').length, 1);
+  state.removeQueued('main', 'q-2');
+  assert.equal(state.getQueue('main').length, 0);
+});

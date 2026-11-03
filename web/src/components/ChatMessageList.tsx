@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useState, useEffect } from 'react';
 import { ArrowDown, ArrowUpRight, CalendarClock, Check, FolderOpen, MessageCircle, ShieldAlert, X } from 'lucide-react';
 import { useChat } from '../context/ChatContext';
 import { ChatMessageItem } from './ChatMessageItem';
@@ -95,8 +95,23 @@ function InlineApprovalPrompt() {
 }
 
 export function ChatMessageList() {
-  const { messages, isLoading, agent, setActiveNav, isPreparing, activeSessionId } = useChat();
+  const { messages, isLoading, agent, setActiveNav, isPreparing, activeSessionId, activity } = useChat();
   const runtime = useRuntime();
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!isLoading) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const start = activity?.startTime || Date.now();
+    const update = () => {
+      setElapsedSeconds(Math.max(1, Math.floor((Date.now() - start) / 1000)));
+    };
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, [isLoading, activity?.startTime]);
   const exchanges = useBotExchanges(agent?.id, activeSessionId, runtime === 'hermes');
   const visibleMessages = messages.filter((message) => message.content.trim());
   const timeline = [
@@ -181,10 +196,25 @@ export function ChatMessageList() {
           <HermesRunPanel key={`inline-controls:${activeSessionId}`} sessionId={activeSessionId} inline />
         )}
 
-        {isLoading && visibleMessages.at(-1)?.role === 'user' && (
-          <div className="flex items-center gap-2.5 text-[13px] text-muted my-3 ml-2" role="status">
-            <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-            <span>{agent?.name || 'hob'} is thinking...</span>
+        {isLoading && (
+          <div className="flex items-center gap-2.5 text-[13px] text-muted my-3 ml-2 select-none" role="status" aria-live="polite">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75 motion-reduce:hidden" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent" />
+            </span>
+            <span className="font-medium text-ink">
+              {activity?.label || (visibleMessages.at(-1)?.role === 'user' ? `${agent?.name || 'Agent'} is thinking…` : `${agent?.name || 'Agent'} is working…`)}
+            </span>
+            {elapsedSeconds > 0 && (
+              <span className="text-[11px] text-faint tabular-nums">
+                {elapsedSeconds >= 60 ? `${Math.floor(elapsedSeconds / 60)}m ${elapsedSeconds % 60}s` : `${elapsedSeconds}s`}
+              </span>
+            )}
+            <span className="flex items-center gap-1 ml-0.5" aria-hidden>
+              <span className="h-1 w-1 rounded-full bg-muted animate-bounce motion-reduce:hidden" style={{ animationDelay: '0ms' }} />
+              <span className="h-1 w-1 rounded-full bg-muted animate-bounce motion-reduce:hidden" style={{ animationDelay: '150ms' }} />
+              <span className="h-1 w-1 rounded-full bg-muted animate-bounce motion-reduce:hidden" style={{ animationDelay: '300ms' }} />
+            </span>
           </div>
         )}
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { LoaderCircle, TriangleAlert } from 'lucide-react';
+import { LoaderCircle, TriangleAlert, Clock } from 'lucide-react';
 import type { ChatMessage } from '../types/chat';
 import { displayGatewayNotice } from '../services/errors';
 import { renderMediaDirectives } from '../services/media';
@@ -42,7 +42,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
         </div>
 
         <div className="flex min-h-8 items-center gap-2 mt-1 mr-1 text-[11px] text-faint">
-          {message.status === 'sending' ? <span className="inline-flex items-center gap-1"><LoaderCircle size={12} className="animate-spin motion-reduce:animate-none" />In progress</span> : message.status === 'error' ? <span className="inline-flex items-center gap-1 text-bad"><TriangleAlert size={12} />Not confirmed</span> : null}
+          {message.status === 'sending' ? <span className="inline-flex items-center gap-1"><LoaderCircle size={12} className="animate-spin motion-reduce:animate-none" />In progress</span> : message.status === 'queued' ? <span className="inline-flex items-center gap-1 text-accent font-medium"><Clock size={12} />Queued</span> : message.status === 'error' ? <span className="inline-flex items-center gap-1 text-bad"><TriangleAlert size={12} />Not confirmed</span> : null}
           <time dateTime={Number.isNaN(Date.parse(message.timestamp)) ? undefined : message.timestamp} title={message.timestamp}>{timeString}</time>
           <span className="transition-opacity md:opacity-0 md:group-hover/message:opacity-100 md:group-focus-within/message:opacity-100"><CopyButton text={content} compact /></span>
         </div>

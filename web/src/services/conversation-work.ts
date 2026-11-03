@@ -1,4 +1,15 @@
 import type { ChatMessage } from '../types/chat';
+import type { ChatAttachment } from './attachments';
+
+export interface QueuedPrompt {
+  id: string;
+  profile: string;
+  sessionId: string;
+  content: string;
+  attachments?: ChatAttachment[];
+  timestamp: string;
+  message: ChatMessage;
+}
 
 interface Work {
   profile: string;
@@ -6,6 +17,7 @@ interface Work {
   user: ChatMessage;
   reply: ChatMessage;
   historyIds: Set<string>;
+  runId?: string;
 }
 
 /** Browser presentation only. Hermes remains the authority for running work. */
@@ -15,6 +27,8 @@ export class ConversationWork {
   private versions = new Map<string, number>();
   private drafts = new Map<string, string>();
   private draftListeners = new Map<string, Set<() => void>>();
+  private queues = new Map<string, QueuedPrompt[]>();
+  private queueListeners = new Map<string, Set<() => void>>();
 
   busy(sessionId: string) { return this.active.has(sessionId); }
   version(sessionId: string) { return this.versions.get(sessionId) || 0; }
@@ -30,6 +44,74 @@ export class ConversationWork {
     const listeners = this.draftListeners.get(sessionId) || new Set<() => void>();
     listeners.add(listener); this.draftListeners.set(sessionId, listeners);
     return () => { listeners.delete(listener); if (!listeners.size) this.draftListeners.delete(sessionId); };
+  }
+
+  setRunId(sessionId: string, runId: string) {
+    const work = this.active.get(sessionId);
+    if (work) work.runId = runId;
+  }
+  getRunId(sessionId: string) {
+    return this.active.get(sessionId)?.runId;
+  }
+
+  getQueue(sessionId: string): QueuedPrompt[] {
+    return [...(this.queues.get(sessionId) || [])];
+  }
+  subscribeQueue(sessionId: string, listener: () => void) {
+    const listeners = this.queueListeners.get(sessionId) || new Set<() => void>();
+    listeners.add(listener); this.queueListeners.set(sessionId, listeners);
+    return () => { listeners.delete(listener); if (!listeners.size) this.queueListeners.delete(sessionId); };
+  }
+  private notifyQueue(sessionId: string) {
+    for (const listener of this.queueListeners.get(sessionId) || []) listener();
+  }
+
+  enqueue(profile: string, sessionId: string, content: string, id: string, timestamp: string, attachments?: ChatAttachment[]): QueuedPrompt {
+    const message: ChatMessage = {
+      id,
+      role: 'user',
+      content,
+      timestamp,
+      status: 'queued',
+      profile,
+    };
+    const item: QueuedPrompt = { id, profile, sessionId, content, attachments, timestamp, message };
+    const list = this.queues.get(sessionId) || [];
+    list.push(item);
+    this.queues.set(sessionId, list);
+    this.versions.set(sessionId, this.version(sessionId) + 1);
+    this.notifyQueue(sessionId);
+    return item;
+  }
+
+  dequeue(sessionId: string): QueuedPrompt | undefined {
+    const list = this.queues.get(sessionId);
+    if (!list || !list.length) return undefined;
+    const item = list.shift();
+    if (!list.length) this.queues.delete(sessionId);
+    this.versions.set(sessionId, this.version(sessionId) + 1);
+    this.notifyQueue(sessionId);
+    return item;
+  }
+
+  removeQueued(sessionId: string, id: string): boolean {
+    const list = this.queues.get(sessionId);
+    if (!list) return false;
+    const filtered = list.filter(item => item.id !== id);
+    if (filtered.length !== list.length) {
+      if (filtered.length) this.queues.set(sessionId, filtered);
+      else this.queues.delete(sessionId);
+      this.versions.set(sessionId, this.version(sessionId) + 1);
+      this.notifyQueue(sessionId);
+      return true;
+    }
+    return false;
+  }
+
+  clearQueue(sessionId: string) {
+    this.queues.delete(sessionId);
+    this.versions.set(sessionId, this.version(sessionId) + 1);
+    this.notifyQueue(sessionId);
   }
 
   begin(profile: string, sessionId: string, content: string, userId: string, replyId: string, timestamp: string, history: ChatMessage[]) {
@@ -57,13 +139,19 @@ export class ConversationWork {
 
   project(sessionId: string, history: ChatMessage[]) {
     const work = this.active.get(sessionId);
-    if (!work) return history;
-    const result = history.filter(message => message.id !== work.user.id && message.id !== work.reply.id);
-    // Native history may already contain the admitted user row, whose stored
-    // ID differs from our optimistic ID. An identical OLD prompt is not a match.
-    const admitted = result.some(message => message.role === 'user' && message.content === work.user.content && !work.historyIds.has(message.id));
-    if (!admitted) result.push({ ...work.user });
-    if (work.reply.content) result.push({ ...work.reply });
+    const queued = this.queues.get(sessionId) || [];
+    if (!work && !queued.length) return history;
+    const result = history.filter(message => (!work || (message.id !== work.user.id && message.id !== work.reply.id)) && !queued.some(q => q.id === message.id));
+    if (work) {
+      const admitted = result.some(message => message.role === 'user' && message.content === work.user.content && !work.historyIds.has(message.id));
+      if (!admitted) result.push({ ...work.user });
+      if (work.reply.content) result.push({ ...work.reply });
+    }
+    for (const item of queued) {
+      if (!result.some(message => message.id === item.id)) {
+        result.push({ ...item.message });
+      }
+    }
     return result;
   }
 }

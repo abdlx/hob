@@ -8,12 +8,18 @@ export interface ToolCall {
   status: 'running' | 'completed' | 'failed';
 }
 
+export interface TurnActivity {
+  label: string;
+  tool?: string;
+  phase?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: Role;
   content: string;
   timestamp: string; // e.g. "7:15 pm" or ISO string
-  status?: 'sending' | 'streaming' | 'complete' | 'error';
+  status?: 'sending' | 'streaming' | 'complete' | 'error' | 'queued';
   /** Who answered; shown above the bubble when several members share a conversation. */
   sender?: string;
   /** Hermes profile that owns local media referenced by this message. */

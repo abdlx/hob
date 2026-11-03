@@ -1,4 +1,4 @@
-import type { ActivityFeed, AgentProfile, AgentListItem, ChatMessage, ChatSession, SecurityApproval, SystemStats, TaskItem } from '../types/chat';
+import type { ActivityFeed, AgentProfile, AgentListItem, ChatMessage, ChatSession, SecurityApproval, SystemStats, TaskItem, TurnActivity } from '../types/chat';
 import { activityFeed } from './activity.ts';
 import { readTurnStream } from './stream.ts';
 
@@ -66,7 +66,8 @@ class ChatApiClient {
   getSecurityApprovals = () => this.request<SecurityApproval[]>('/api/security/approvals');
   getSystemStats = () => this.request<SystemStats>('/api/stats');
   resolveSecurityApproval = (id: string, decision: 'approved' | 'rejected') => this.request<void>(`/api/security/approvals/${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify({ decision }) });
-  async sendMessage(id: string, content: string, onChunk?: (text: string, replace?: boolean) => void, requestKey?: string, attachments?: string[]): Promise<ChatMessage> {
+  abortSession = (id: string, expectedRunId: string) => this.request<{ accepted: boolean }>(`/api/sessions/${encodeURIComponent(id)}/abort`, { method: 'POST', body: JSON.stringify({ expectedRunId }) });
+  async sendMessage(id: string, content: string, onChunk?: (text: string, replace?: boolean) => void, requestKey?: string, attachments?: string[], onActivity?: (activity: TurnActivity) => void, onAccepted?: (runId: string) => void): Promise<ChatMessage> {
     const response = await fetch(`${baseUrl}/api/sessions/${encodeURIComponent(id)}/turns`, {
       method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', 'X-Hob-Profile': this.getProfile() },
       body: JSON.stringify({ content, ...(requestKey ? { idempotencyKey: requestKey } : {}), ...(attachments?.length ? { attachments } : {}) }),
@@ -78,7 +79,7 @@ class ChatApiClient {
     }
     if (!response.body) throw new Error('The server did not return an agent response.');
     if (!response.headers.get('Content-Type')?.includes('text/event-stream')) return response.json();
-    return readTurnStream(response.body, onChunk);
+    return readTurnStream(response.body, onChunk, onActivity, onAccepted);
   }
   subscribe(onEvent: (event: { event: string; payload: unknown }) => void, onConnection: (connected: boolean) => void) {
     const source = new EventSource(`${baseUrl}/api/events`);

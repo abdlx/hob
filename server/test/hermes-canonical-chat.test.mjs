@@ -420,3 +420,14 @@ test('title corrections use the selected native session and its displayed revisi
   assert.equal(mutation.profile, 'default');
   assert.equal((await f.call(`/api/sessions/${session.id}/title`, 'POST', { title: 'Stale edit', revision: 1, requestId: 'c'.repeat(32) })).status, 409);
 });
+
+test('chat turn stream emits activity events for working and tools', async t => {
+  const f = await fixture(t);
+  const session = await f.create('coder');
+  const response = await f.turn(session.id);
+  const text = await response.text();
+  assert.match(text, /event: activity/);
+  assert.match(text, /"label":"Working…"/);
+  assert.match(text, /event: done/);
+});
+

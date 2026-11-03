@@ -26,6 +26,62 @@ const failureReason = receipt => {
     ? reason.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300) : '';
 };
 
+const ACTIVITY_EVENTS = new Set([
+  'message.delta', 'message.complete', 'session.replay_gap',
+  'tool.start', 'tool.started', 'tool.complete', 'tool.completed', 'tool.generating',
+  'reasoning.delta', 'reasoning.available', 'thinking.delta',
+  'subagent.spawn_requested', 'subagent.start', 'subagent.progress', 'subagent.thinking', 'subagent.tool', 'subagent.complete',
+  'agent.print',
+]);
+
+function describeActivity(event) {
+  const type = event.type;
+  const payload = event.payload || {};
+  if (type === 'tool.start' || type === 'tool.started') {
+    const rawTool = String(payload.name || payload.tool || 'tool').toLowerCase();
+    const preview = String(payload.preview || payload.args_text || '').replace(/\s+/g, ' ').trim();
+    if (rawTool.includes('search') || rawTool.includes('tavily') || rawTool.includes('google')) {
+      const match = preview.match(/(?:query|q)["':\s]+([^"',}\]]+)/i);
+      const query = (match ? match[1] : preview).replace(/["'{}[\]]/g, '').trim();
+      return { label: query ? `Searching about ${query.slice(0, 36)}…` : 'Searching…', tool: rawTool, phase: 'tool' };
+    }
+    if (rawTool.includes('terminal') || rawTool.includes('bash') || rawTool.includes('exec') || rawTool === 'sh') {
+      const lower = preview.toLowerCase();
+      if (lower.includes('gh ') || lower.includes('github')) return { label: 'Accessing GitHub…', tool: rawTool, phase: 'tool' };
+      if (lower.includes('git ')) return { label: 'Running git command…', tool: rawTool, phase: 'tool' };
+      if (lower.includes('npm ') || lower.includes('pnpm ') || lower.includes('yarn ')) return { label: 'Running package manager…', tool: rawTool, phase: 'tool' };
+      if (lower.includes('python ') || lower.includes('node ')) return { label: 'Running script…', tool: rawTool, phase: 'tool' };
+      return { label: preview ? `Running ${preview.slice(0, 32)}…` : 'Running terminal command…', tool: rawTool, phase: 'tool' };
+    }
+    if (rawTool.includes('browser')) return { label: 'Accessing browser…', tool: rawTool, phase: 'tool' };
+    if (rawTool.includes('read_file') || rawTool.includes('file_read')) return { label: 'Reading file…', tool: rawTool, phase: 'tool' };
+    if (rawTool.includes('write_file') || rawTool.includes('edit_file')) return { label: 'Writing file…', tool: rawTool, phase: 'tool' };
+    if (rawTool.includes('delegate') || rawTool.includes('subagent')) return { label: 'Delegating to subagent…', tool: rawTool, phase: 'tool' };
+    const cleanName = rawTool.replace(/_/g, ' ');
+    return { label: `Using ${cleanName}…`, tool: rawTool, phase: 'tool' };
+  }
+  if (type === 'tool.completed' || type === 'tool.complete') {
+    const rawTool = String(payload.name || payload.tool || 'tool').toLowerCase().replace(/_/g, ' ');
+    return { label: `Finished ${rawTool}`, phase: 'tool' };
+  }
+  if (type === 'subagent.start' || type === 'subagent.spawn_requested') {
+    return { label: 'Subagent started…', phase: 'subagent' };
+  }
+  if (type === 'subagent.progress' || type === 'subagent.tool') {
+    return { label: 'Subagent working…', phase: 'subagent' };
+  }
+  if (type === 'subagent.complete') {
+    return { label: 'Subagent completed task', phase: 'subagent' };
+  }
+  if (type === 'reasoning.delta' || type === 'reasoning.available' || type === 'thinking.delta') {
+    return { label: 'Thinking…', phase: 'thinking' };
+  }
+  if (type === 'tool.generating') {
+    return { label: 'Preparing tool call…', phase: 'tool' };
+  }
+  return null;
+}
+
 /** Translate custom chat UX into the one native session/FIFO owner, without exposing raw RPC. */
 export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpChat, attachmentSecret = randomUUID(), onCompleted, recoverCompleted = false, telemetry, team }) {
   const attachments = createHermesAttachments({ bridge, client, secret: attachmentSecret });
@@ -319,7 +375,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     const observer = frame => {
       if (frame.profile !== owner.profile) return;
       if (frame.event?.type === 'gateway.disconnected') disconnected = true;
-      else if (frame.event?.session_id === owner.sessionId && ['message.delta', 'message.complete', 'session.replay_gap'].includes(frame.event.type)) {
+      else if (frame.event?.session_id === owner.sessionId && ACTIVITY_EVENTS.has(frame.event.type)) {
         const size = Buffer.byteLength(JSON.stringify(frame.event));
         if (queue.length >= 4096 || bytes + size > 1024 * 1024) disconnected = true;
         else { bytes += size; queue.push(frame.event); }
@@ -333,19 +389,32 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
       accepted = await admit(owner, key, run, content);
       if (res.destroyed) return true;
       startEvents(res); sendEvent(res, 'accepted', { runId: accepted.admission_id, sessionId: key });
+      sendEvent(res, 'activity', { label: 'Working…', phase: 'working' });
       heartbeat = setInterval(() => { if (!res.destroyed && !res.writableEnded) res.write(': keepalive\n\n'); }, 15000);
       heartbeat.unref();
-      let completedText, lastCheck = 0;
+      let completedText, lastCheck = 0, currentPhase = 'working', lastActivityLabel = 'Working…';
       while (!res.destroyed) {
         while (queue.length) {
           const event = queue.shift(); bytes -= Buffer.byteLength(JSON.stringify(event));
           if (event.type === 'session.replay_gap') { disconnected = true; break; }
-          if (event.admission_id !== accepted.admission_id) continue;
+          if (event.admission_id && event.admission_id !== accepted.admission_id) continue;
           if (event.type === 'message.delta' && typeof event.payload?.text === 'string') {
             if (event.payload.text) firstToken?.('ok', { runId: accepted.admission_id });
+            if (currentPhase !== 'writing') {
+              currentPhase = 'writing';
+              sendEvent(res, 'activity', { label: 'Writing reply…', phase: 'writing' });
+            }
             sendEvent(res, 'delta', { text: event.payload.text });
+          } else if (event.type === 'message.complete') {
+            completedText = event.payload?.text; lastCheck = 0;
+          } else {
+            const activity = describeActivity(event);
+            if (activity && activity.label !== lastActivityLabel) {
+              lastActivityLabel = activity.label;
+              currentPhase = activity.phase || currentPhase;
+              sendEvent(res, 'activity', activity);
+            }
           }
-          if (event.type === 'message.complete') { completedText = event.payload?.text; lastCheck = 0; }
         }
         if (disconnected) {
           sendEvent(res, 'error', { message: 'Connection interrupted. Hermes may still be working; refresh conversation status before resending.' }); break;

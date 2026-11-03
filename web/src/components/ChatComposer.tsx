@@ -1,17 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Plus, FolderOpen, ArrowUp, LoaderCircle, Paperclip, ChevronDown } from 'lucide-react';
+import { Plus, FolderOpen, ArrowUp, LoaderCircle, Paperclip, ChevronDown, Square } from 'lucide-react';
 
 export interface ChatComposerProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  onStop?: () => void;
   /** Locks the whole composer (preparing, read-only, disbanded, unconfirmed send). */
   disabled?: boolean;
   /** Blocks submission while typing stays available (e.g. work already in flight). */
   canSend?: boolean;
   working?: boolean;
+  stopping?: boolean;
   attachments?: ReactNode;
+  queuedBanner?: ReactNode;
   voiceInput?: ReactNode;
   hasAttachments?: boolean;
   onAttach?: () => void;
@@ -24,10 +27,13 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   value,
   onChange,
   onSubmit,
+  onStop,
   disabled = false,
   canSend = true,
   working = false,
+  stopping = false,
   attachments,
+  queuedBanner,
   voiceInput,
   hasAttachments = false,
   onAttach,
@@ -60,6 +66,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     <div className="hob-composer relative w-full px-3 sm:px-4 md:px-6 pt-2 md:pb-5 bg-canvas shrink-0 flex flex-col items-center select-none">
       <form aria-label="Message composer" onSubmit={submit} className="w-full max-w-[840px]">
         <div className="rounded-[26px] border border-edge bg-surface shadow-[0_3px_14px_rgba(0,0,0,0.04)] transition-colors focus-within:border-accent-line focus-within:shadow-[0_0_0_3px_var(--color-accent-soft)]">
+        {queuedBanner}
         {attachments}
         <div className="w-full min-h-14 px-2 py-2 flex items-end gap-2">
           {(onAttach || onAddContext) && (
@@ -135,6 +142,11 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             onKeyDown={(event) => {
+              if (event.key === 'Escape' && working && onStop) {
+                event.preventDefault();
+                onStop();
+                return;
+              }
               if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229 && !window.matchMedia('(pointer: coarse)').matches) {
                 event.preventDefault();
                 submit();
@@ -148,15 +160,32 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
           {focused && <button type="button" aria-label="Dismiss keyboard" title="Dismiss keyboard" onClick={() => textareaRef.current?.blur()} className="flex h-10 w-8 shrink-0 items-center justify-center rounded-full text-muted hover:text-ink md:hidden"><ChevronDown size={20} /></button>}
           <div className="hob-voice-slot">{voiceInput}</div>
           <div className="hob-send-action flex items-center shrink-0">
-            <button
-              type="submit"
-              aria-label={working ? 'Waiting for current reply' : 'Send message'}
-              title={working ? 'You can draft while your bot works' : 'Send message'}
-              disabled={disabled || !canSend || (!value.trim() && !hasAttachments)}
-              className="w-10 h-10 rounded-full bg-ink hover:opacity-85 text-canvas flex items-center justify-center transition-colors cursor-pointer shrink-0 disabled:opacity-30 shadow-xs active:scale-95"
-            >
-              {working ? <LoaderCircle size={18} className="animate-spin motion-reduce:animate-none" /> : <ArrowUp size={19} strokeWidth={2.2} />}
-            </button>
+            {working && !value.trim() && !hasAttachments ? (
+              <button
+                type="button"
+                aria-label={stopping ? 'Stopping…' : 'Stop generating'}
+                title={stopping ? 'Stopping…' : 'Stop generating'}
+                disabled={disabled || stopping}
+                onClick={onStop}
+                className="w-10 h-10 rounded-full bg-ink hover:opacity-85 text-canvas flex items-center justify-center transition-colors cursor-pointer shrink-0 disabled:opacity-30 shadow-xs active:scale-95"
+              >
+                {stopping ? (
+                  <LoaderCircle size={18} className="animate-spin motion-reduce:animate-none" />
+                ) : (
+                  <Square size={14} fill="currentColor" strokeWidth={0} />
+                )}
+              </button>
+            ) : (
+              <button
+                type="submit"
+                aria-label={working ? 'Queue message' : 'Send message'}
+                title={working ? 'Queue message (sends when current reply completes)' : 'Send message'}
+                disabled={disabled || !canSend || (!value.trim() && !hasAttachments)}
+                className="w-10 h-10 rounded-full bg-ink hover:opacity-85 text-canvas flex items-center justify-center transition-colors cursor-pointer shrink-0 disabled:opacity-30 shadow-xs active:scale-95"
+              >
+                <ArrowUp size={19} strokeWidth={2.2} />
+              </button>
+            )}
           </div>
         </div>
         </div>
