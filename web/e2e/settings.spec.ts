@@ -108,7 +108,7 @@ async function fixture(page: Page, extraApps = false, savedProviderCards = false
       binding: { configured: false, reason: 'unavailable' },
     });
     if (path === '/api/hermes/browser/activity') return route.fulfill({ contentType: 'text/event-stream', body: ': fixture\n\n' });
-    if (path === '/api/hermes/agent-computer/status') return json({ configured: false, connected: false });
+    if (path === '/api/hermes/agent-computer/status' || path === '/api/hermes/portal/status') return json({ configured: false, connected: false });
     if (path === '/api/hermes/setup/plugins') {
       expect(profile).toBe('default');
       const example = { name: 'example', description: 'A test integration', sha, tier: 'community', maintainer: 'Example', repo: 'https://github.com/example/plugin', docs_url: 'https://example.com/docs', requires_hermes: '>=0.22.0', platforms: ['linux', 'darwin'], installed, update_available: false, capabilities: { provides_tools: ['lookup'], provides_hooks: ['on_start'], provides_middleware: ['request_context'], requires_env: ['EXAMPLE_KEY'] } };
@@ -578,10 +578,28 @@ test('opening the computer inspector loads its deferred module and shows actual 
   await expect(page.getByRole('alert').filter({ hasText: 'No Chromium-family browser was found on the host.' })).toBeVisible();
   await page.getByRole('tab', { name: 'Computer', exact: true }).click();
   await computerStatus;
-  await expect(page.getByText('No agent computer is configured for this bot.', { exact: false })).toBeVisible();
+  await expect(page.getByText('Agent Computer', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Portal', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('alert').filter({ hasText: 'No Chromium-family browser was found on the host.' })).toHaveCount(0);
   await expect(page.getByText('Agent Computer is Sleeping', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Live stream', { exact: true })).toHaveCount(0);
+  expect(state.errors).toEqual([]);
+});
+
+for (const both of [false, true]) test(`computer inspector shows ${both ? 'both configured sources' : 'Portal without an unconfigured Agent Computer'}`, async ({ page }) => {
+  const state = await fixture(page);
+  for (const source of ['agent-computer', 'portal']) await page.route(`**/api/hermes/${source}/status*`, route => route.fulfill({ json: {
+    configured: source === 'portal' || both, connected: source === 'portal' || both,
+    serverName: source, computers: [{ id: source, name: `${source} fixture`, state: 'sleeping' }],
+    computer: { id: source, name: `${source} fixture`, state: 'sleeping' },
+  } }));
+  await page.goto('/chat');
+  await page.getByRole('tab', { name: 'Browser', exact: true }).click();
+  await page.getByRole('button', { name: 'Open browser', exact: true }).click();
+  await page.getByRole('tab', { name: 'Computer', exact: true }).click();
+  await expect(page.getByText('Portal', { exact: true })).toBeVisible();
+  await expect(page.getByText('portal fixture', { exact: true })).toBeVisible();
+  await expect(page.getByText('Agent Computer', { exact: true })).toHaveCount(both ? 1 : 0);
   expect(state.errors).toEqual([]);
 });
 

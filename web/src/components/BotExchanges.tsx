@@ -103,8 +103,8 @@ export function BotExchangeNotice({ exchange, profile }: { exchange: BotExchange
         </details>}
         {!!record.wakeups?.length && <div className="space-y-1 rounded-lg border border-line p-3"><p className="font-medium text-ink">Automatic follow-up</p>{record.wakeups.map(wake => <p key={wake.id} className="text-muted">{wake.profile === 'default' ? 'Main' : wake.profile}: {wake.status.replaceAll('_', ' ')}{wake.error ? ` · ${wake.error}` : ''}</p>)}</div>}
         {transcript !== null && <details><summary className="cursor-pointer font-medium text-ink">Native messages and tool activity</summary><pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-panel p-3 text-[11px]">{JSON.stringify(transcript, null, 2)}</pre></details>}
-        {record.sessionKey && !['completed', 'failed', 'cancelled', 'interrupted'].includes(record.status) && <>
-          <HermesRunPanel key={record.sessionKey} sessionId={record.sessionKey} />
+        {record.sessionKey && record.to && !['completed', 'failed', 'cancelled', 'interrupted'].includes(record.status) && <>
+          <HermesRunPanel key={record.sessionKey} sessionId={record.sessionKey} profile={record.to} />
           {record.to && <ExchangeApprovals key={record.sessionKey} record={record} />}
         </>}
       </>}

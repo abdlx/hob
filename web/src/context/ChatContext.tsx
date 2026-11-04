@@ -99,7 +99,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [activities, setActivities] = useState<Record<string, TurnActivity & { startTime: number }>>({});
   const [isStopping, setIsStopping] = useState(false);
   const activity = activeSessionId ? activities[activeSessionId] || null : null;
-  const sendMessageRef = useRef<(content: string, attachments?: ChatAttachment[]) => Promise<void>>(undefined);
+  const sendMessageRef = useRef<(content: string, attachments?: ChatAttachment[], queued?: QueuedPrompt) => Promise<void>>(undefined);
 
   const removeQueuedPrompt = useCallback((id: string) => {
     const session = sessionRef.current;
@@ -127,24 +127,24 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     try {
       const history = await chatApi.forProfile(profile).getMessages(id);
       if (sessionRef.current === id && chatApi.getProfile() === profile && viewEpochRef.current === epoch
-        && workRef.current.version(id) === version && !workRef.current.busy(id)) setMessages(history);
+        && workRef.current.version(id) === version && !workRef.current.busy(id)) setMessages(workRef.current.project(id, history));
     } catch (err) {
       if (sessionRef.current === id && chatApi.getProfile() === profile && viewEpochRef.current === epoch && !operationErrorRef.current) setError(errorText(err));
     }
   }, []);
 
   const stopActiveRun = useCallback(async () => {
-    const id = sessionRef.current;
+    const id = sessionRef.current, profile = chatApi.getProfile(), api = chatApi.forProfile(profile);
     if (!id || !workRef.current.busy(id) || isStopping) return;
     setIsStopping(true);
     try {
       let runId = workRef.current.getRunId(id);
       if (!runId) {
-        const res = await apiFetch<{ run: { runId: string } | null }>(`/api/sessions/${encodeURIComponent(id)}/run`);
+        const res = await apiFetch<{ run: { runId: string } | null }>(`/api/sessions/${encodeURIComponent(id)}/run`, { headers: { 'X-Hob-Profile': profile } });
         runId = res.run?.runId;
       }
       if (runId) {
-        await chatApi.forProfile(chatApi.getProfile()).abortSession(id, runId);
+        await api.abortSession(id, runId);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -364,7 +364,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   }, [isPreparing, refresh, setActiveNav, agents]);
 
-  const sendMessage = useCallback(async (content: string, attachments: ChatAttachment[] = []) => {
+  const sendMessage = useCallback(async (content: string, attachments: ChatAttachment[] = [], queued?: QueuedPrompt) => {
     const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1';
     if (isPreview) {
       const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -388,23 +388,25 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }, 250);
       return;
     }
-    const profile = chatApi.getProfile(), api = chatApi.forProfile(profile), epoch = viewEpochRef.current;
-    if ((!content.trim() && !attachments.length) || creatingRef.current.has(profile) || isPreparing) return;
-    const targetSessionId = sessionRef.current;
-    if (targetSessionId && sessions.find(session => session.id === targetSessionId)?.readOnly) {
+    const profile = queued?.profile ?? chatApi.getProfile(), api = chatApi.forProfile(profile), epoch = viewEpochRef.current;
+    if ((!content.trim() && !attachments.length) || !queued && (creatingRef.current.has(profile) || isPreparing)) return;
+    const targetSessionId = queued?.sessionId ?? sessionRef.current;
+    if (!queued && targetSessionId && sessions.find(session => session.id === targetSessionId)?.readOnly) {
       setError('This older conversation is read-only. Start a new conversation to continue with Hermes.'); return;
     }
     if (targetSessionId && workRef.current.busy(targetSessionId)) {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      workRef.current.enqueue(profile, targetSessionId, content, requestId(), timestamp, attachments);
-      setQueuedPrompts(workRef.current.getQueue(targetSessionId));
-      if (sessionRef.current === targetSessionId) {
+      workRef.current.enqueue(profile, targetSessionId, content, queued?.id ?? requestId(), timestamp, attachments);
+      if (sessionRef.current === targetSessionId && chatApi.getProfile() === profile) {
+        setQueuedPrompts(workRef.current.getQueue(targetSessionId));
         setMessages(previous => workRef.current.project(targetSessionId, previous));
       }
       return;
     }
-    operationErrorRef.current = false; setIsLoading(true); setError(null);
-    let id = sessionRef.current;
+    if (chatApi.getProfile() === profile && sessionRef.current === targetSessionId) {
+      operationErrorRef.current = false; setIsLoading(true); setError(null);
+    }
+    let id = targetSessionId;
     let work: ReturnType<ConversationWork['begin']> | undefined;
     let creating = false;
     try {
@@ -421,7 +423,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         }
       }
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const current = work = workRef.current.begin(profile, id, content, requestId(), requestId(), timestamp, sessionRef.current === id ? messages : []);
+      const current = work = workRef.current.begin(profile, id, content, queued?.id ?? requestId(), requestId(), timestamp, sessionRef.current === id && chatApi.getProfile() === profile ? messages : []);
       setActivities(prev => ({ ...prev, [id]: { label: 'Working…', phase: 'working', startTime: Date.now() } }));
       if (sessionRef.current === id && chatApi.getProfile() === profile) setMessages(previous => workRef.current.project(id, previous));
       const reply = await api.sendMessage(id, content, (chunk, replace) => {
@@ -434,14 +436,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       });
       if (!workRef.current.finish(current)) return;
       setActivities(prev => { const next = { ...prev }; delete next[id]; return next; });
-      if (sessionRef.current === id && chatApi.getProfile() === profile) setMessages(previous => [...previous.filter(item => item.id !== current.reply.id).map(item => ({ ...item, status: 'complete' as const })), reply]);
+      if (sessionRef.current === id && chatApi.getProfile() === profile) setMessages(previous => [...previous.filter(item => item.id !== current.reply.id).map(item => item.id === current.user.id ? { ...item, status: 'complete' as const } : item), reply]);
       await refresh();
-      const nextQueued = workRef.current.dequeue(id);
-      setQueuedPrompts(workRef.current.getQueue(id));
+      const nextQueued = workRef.current.busy(id) ? undefined : workRef.current.dequeue(id);
+      if (sessionRef.current === id && chatApi.getProfile() === profile) setQueuedPrompts(workRef.current.getQueue(id));
       if (nextQueued) {
-        setTimeout(() => {
-          void sendMessageRef.current?.(nextQueued.content, nextQueued.attachments);
-        }, 50);
+        // Keep the admitted destination and request key even if the operator
+        // switched chats/bots while the preceding native response was running.
+        void sendMessageRef.current?.(nextQueued.content, nextQueued.attachments, nextQueued);
       }
     } catch (err) {
       if (work) workRef.current.finish(work, errorText(err));

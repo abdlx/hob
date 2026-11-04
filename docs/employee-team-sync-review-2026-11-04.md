@@ -1,0 +1,39 @@
+# Employee-team review after syncing GitHub
+
+Reviewed 4 November 2026 against `43d621a8` on `main`, including the changes after the last employee-team checkpoint, `582922ec`. The five existing local session-summary files were preserved during the fast-forward. This review updates the engineering order; it does not qualify or activate the employee team.
+
+## What GitHub already adds
+
+| Change | Current behavior | Implication for the team work |
+| --- | --- | --- |
+| Native profile adoption and reconciliation | Existing Hermes profiles can be adopted into HOB without creating a second native profile. The default mirror mode enrolls additions, retires absent profiles after two successful reads, preserves operator tombstones and rotates credentials when reopening an automatically retired record. | Reuse this roster machinery. Team enrollment and identity continuity still need qualification, especially when a deleted native profile is recreated under the same name. |
+| Roster diagnostics | Settings exposes stale dashboard entries and browser bindings can be repaired at startup. | Roster availability is already implemented; role assignment and trusted team membership remain separate. |
+| Relay failure detail and recovery | Failed, cancelled and interrupted runs retain their reasons and partial output. Stream EOF triggers reconciliation; transient status errors back off; expired native runs become unknown. CLI sends support explicit wait/no-wait and show complete exchange IDs. | Do not rebuild relay recovery. Extend its tests to actual native delayed results, restarts, revocation and once-only delivery for A9. |
+| Prompt queue and live activity | Follow-ups can wait behind a running reply; native tool/subagent activity appears in chat; the composer offers stop controls. | The new UI needs destination and cancellation checks across bot/chat switches. This does not supply session-memory or group isolation. |
+| Chrome extensions | The browser launcher and isolation broker support configured extensions. | Keep this capability; include its broker/helper and network capabilities in the native isolation/spending audit. |
+| Portal computer viewer | The Computer view supports independently configured Agent Computer and Portal sources. Unconfigured sources hide; configured unavailable sources retain their state. | Add explicit dual-source/profile tests. A computer viewer does not establish private team workspace or paid-tool enforcement. |
+| Background-work guidance | Managed identity/roster text tells bots to arm watchers and use native background/delegation tools. | This is guidance. Verify actual watcher admission, destination, process lifetime and result delivery before counting it as live evidence. |
+
+## Concrete issues found during review
+
+1. The queued prompt recorded its original profile/session, but the completion callback called the ordinary send function using the currently selected profile/session. Switching bots could therefore send the follow-up to another bot. The correction carries the original destination and idempotency key through dispatch, scopes UI updates to that destination, and captures stop-action ownership before awaiting a status lookup. Cancelled optimistic queue rows are also removed instead of remaining in history.
+2. The latest web CI failed its browser-test step. Existing expectations still required the previous disabled-send button and unconfigured-computer message. They must reflect queueing and independently hidden computer sources while preserving draft, scrolling and availability checks. The full browser run also exposed an actual regression: inline native stop controls were hidden for restored running tasks, even when the composer had no live response to stop. Retain that fallback control while avoiding a duplicate during an attached response. New browser checks exercise cross-bot queue routing and single/dual computer sources; a native HTTP test checks Portal credentials remain source/profile scoped.
+3. Mobile CI failed `expo install --check`. The CLI reproduced six incompatible package versions. Update Expo, constants, dev client, notifications, sharing and safe-area-context to the SDK's declared compatible versions, preserving a reproducible lockfile. Run the compatibility check, type checks, tests and both platform bundle exports.
+
+The checked-in `43d621a8` run passed backend validation and both Linux image first-run modes; it failed web browser tests. Its mobile run passed the Android preview build but failed dependency compatibility in the cross-platform bundle job. These are distinct from the fully green older `582922ec` checkpoint. See [application CI](https://github.com/abdlx/hob/actions/runs/41684861841) and [mobile CI](https://github.com/abdlx/hob/actions/runs/41684861860).
+
+## Next implementation order
+
+1. Verify the corrections in CI after pushing. Local checks now cover queue destination/request-key ownership, restored native stop controls and profile-bound inspector actions, single/dual computer sources, and the mobile dependency mismatch.
+2. Qualify the structured session-summary checkpoint on the shipped Linux image and real tasks. Local changes cover source-attributed decisions, open items, file references and tool outcomes; bounded same-session reconstruction after native archive resume; no automatic memory writes; and no stale observation disclosure into another session or group. This remains part of the dormant adapter.
+3. Complete the native authority boundary before activation: actual filesystem/terminal/MCP/provider capabilities, protected app-owned state, trusted team membership over mirrored profiles, native subagent/background scopes and public group isolation. Ordinary-mode compatibility does not establish the employee-team permission matrix.
+4. Complete private learning classification. Eligible task learnings must retain their native approval behavior; unknown chat facts and explicitly session-only material cannot become durable notes automatically. Existing source-checked observations/retained-skill excerpts are a conservative subset, not the complete learning workflow.
+5. Complete shared publication: atomic core/document generation visibility, content admission for binary documents, and then the narrow read-only shared-media capability. Preserve nominated-artifact handoffs for Main's verification.
+6. Finish no-paid-lane enforcement at every real execution owner, including auxiliary models, computer/MCP tools, search/media, terminal/network and plugins. Existing non-metered subscriptions remain allowed; model-route receipts alone cannot establish every tool's billing behavior.
+7. Complete result source/time/freshness metadata and the A1–A12 live acceptance run, including open-session refresh, delayed results, the two original orphan failures and phone delivery. Roles and messaging channel/account/recipient still require the user's choices. Verify the production image and isolation mode before deployment or activation.
+
+The detailed acceptance matrix remains in [the implementation checkpoint](employee-team-implementation.md). `nativeContext` stays disabled and `qualification.live` remains false until the outstanding boundaries and acceptance evidence are complete.
+
+## Local validation of this correction
+
+All 58 browser tests and 66 web unit tests passed, with lint and the production build passing. The nine computer-route tests passed, including the new Portal/profile separation case. All 43 deployment tests passed with the clean pinned source supplied and the isolated native environment used for the retention probe. Mobile dependency compatibility, TypeScript, all three unit tests and both Android/iOS bundle exports passed. The existing backend and Linux first-run successes cited above belong to the synced commit; the corrected commit still needs its own CI results. No live account, production deployment or employee-team activation was changed.

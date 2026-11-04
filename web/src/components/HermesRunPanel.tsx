@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../services/api';
-import { buttonClass, inputClass, Notice } from './WorkspaceUI';
+import { buttonClass, inputClass, Notice, StatusPill } from './WorkspaceUI';
 import { errorText } from './workspaceUtils';
-import { Check, MessageCircle } from 'lucide-react';
+import { Check, MessageCircle, Square } from 'lucide-react';
 
 interface Question { id: string; generation: number; question: string; choices: string[]; multiSelect: boolean }
 interface Run { runId: string | null; status: string; submittedAt: string; revision: string; canRecover: boolean; canResolveUnknown: boolean; questions: Question[] }
@@ -31,7 +31,7 @@ function Clarification({ question, busy, answer }: { question: Question; busy: b
 
 // Mounted with the conversation ID as React's key so late requests cannot
 // populate the controls of a different conversation or bot.
-export function HermesRunPanel({ sessionId, inline = false }: { sessionId: string; inline?: boolean }) {
+export function HermesRunPanel({ sessionId, profile, inline = false, composerHasRun = false }: { sessionId: string; profile: string; inline?: boolean; composerHasRun?: boolean }) {
   const [run, setRun] = useState<Run | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -42,10 +42,10 @@ export function HermesRunPanel({ sessionId, inline = false }: { sessionId: strin
   const load = useCallback(async (signal?: AbortSignal) => {
     const sequence = ++loadSequence.current;
     try {
-      const result = await apiFetch<{ run: Run | null }>(`${root}/run`, { signal });
+      const result = await apiFetch<{ run: Run | null }>(`${root}/run`, { signal, headers: { 'X-Hob-Profile': profile } });
       if (alive.current && sequence === loadSequence.current) { setRun(result.run); setError(''); }
     } catch (error) { if (alive.current && sequence === loadSequence.current && !signal?.aborted) setError(errorText(error)); }
-  }, [root]);
+  }, [root, profile]);
   useEffect(() => {
     alive.current = true;
     const controller = new AbortController();
@@ -58,7 +58,7 @@ export function HermesRunPanel({ sessionId, inline = false }: { sessionId: strin
     pending.current = true; loadSequence.current++;
     setBusy(true); setError('');
     try {
-      await apiFetch(`${root}/${action}`, { method: 'POST', body: JSON.stringify(body) });
+      await apiFetch(`${root}/${action}`, { method: 'POST', headers: { 'X-Hob-Profile': profile }, body: JSON.stringify(body) });
       if (alive.current) { setConfirmedRevision(''); await load(); }
     } catch (error) { if (alive.current) setError(errorText(error)); }
     finally { pending.current = false; if (alive.current) setBusy(false); }
@@ -66,7 +66,7 @@ export function HermesRunPanel({ sessionId, inline = false }: { sessionId: strin
   const hasInlinePrompt = Boolean(run?.questions?.length || run?.status === 'waiting_for_approval' || (run && ['unknown', 'admitting', 'unavailable'].includes(run.status)));
   if (!run && !error) return null;
   const active = run && ['queued', 'running', 'waiting_for_approval', 'stopping'].includes(run.status);
-  if (inline && !error && !hasInlinePrompt) return null;
+  if (inline && !error && !hasInlinePrompt && !(active && !composerHasRun)) return null;
   const unknown = run && ['unknown', 'admitting', 'unavailable'].includes(run.status);
   return <div className={inline ? 'hob-chat-prompt my-3 w-full max-w-full space-y-3 text-xs md:text-sm sm:max-w-[92%]' : 'px-5 py-2.5 space-y-2.5 text-xs md:text-sm'}>
     {error && <Notice error>{error}</Notice>}
@@ -75,6 +75,7 @@ export function HermesRunPanel({ sessionId, inline = false }: { sessionId: strin
       <div className="flex gap-2"><button className={buttonClass} disabled={busy} onClick={() => load()}>Refresh status</button>
         {active && <button className={buttonClass} disabled={busy || run.status === 'stopping'} onClick={() => control('abort', { expectedRunId: run.runId })}>Stop run</button>}</div>
     </div>}
+    {inline && active && !composerHasRun && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-hair bg-panel px-3 py-2" aria-label="Current run"><StatusPill status={run.status} /><button type="button" className="inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2 text-xs text-muted transition-colors hover:bg-neutral hover:text-ink disabled:opacity-50 cursor-pointer" disabled={busy || run.status === 'stopping' || !run.runId} onClick={() => control('abort', { expectedRunId: run.runId })}><Square size={12} />{run.status === 'stopping' ? 'Stopping…' : 'Stop run'}</button></div>}
     {run?.questions?.map(question => <Clarification key={`${question.id}:${question.generation}`} question={question} busy={busy}
       answer={answer => control('clarify', { promptId: question.id, expectedRevision: run.revision, answer })} />)}
     {inline && run?.status === 'waiting_for_approval' && !run.questions.length && <Notice>Permission is required before Hermes can continue. Review the permission request in this conversation.</Notice>}

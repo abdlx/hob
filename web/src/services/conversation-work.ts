@@ -140,8 +140,8 @@ export class ConversationWork {
   project(sessionId: string, history: ChatMessage[]) {
     const work = this.active.get(sessionId);
     const queued = this.queues.get(sessionId) || [];
-    if (!work && !queued.length) return history;
-    const result = history.filter(message => (!work || (message.id !== work.user.id && message.id !== work.reply.id)) && !queued.some(q => q.id === message.id));
+    if (!work && !queued.length && !history.some(message => message.status === 'queued')) return history;
+    const result = history.filter(message => message.status !== 'queued' && (!work || (message.id !== work.user.id && message.id !== work.reply.id)) && !queued.some(q => q.id === message.id));
     if (work) {
       const admitted = result.some(message => message.role === 'user' && message.content === work.user.content && !work.historyIds.has(message.id));
       if (!admitted) result.push({ ...work.user });

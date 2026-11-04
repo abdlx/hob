@@ -34,6 +34,7 @@ docs/*
 !docs/employee-team-spec-original.md
 !docs/employee-team-spec-review.md
 !docs/employee-team-implementation.md
+!docs/employee-team-sync-review-2026-11-04.md
 !docs/assets/
 !docs/assets/**
 server/*.out

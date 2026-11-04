@@ -136,7 +136,10 @@ test('exchange inspector reviews worker permissions and stops the exact receivin
   const record = { id: ids[0], fromName: 'Main', toName: 'Scribe', to: 'writer', status: 'waiting_for_approval', createdAt: Date.now(), message: 'Review a document.', reply: '', sessionKey: key };
   await page.route('**/api/hermes/exchanges?*', route => route.fulfill({ json: { exchanges: [record], nextBefore: null } }));
   await page.route(`**/api/hermes/exchanges/${ids[0]}?*`, route => route.fulfill({ json: record }));
-  await page.route(`**/api/sessions/${key}/run`, route => route.fulfill({ json: { run: { runId: 'worker-run', status: stopped ? 'cancelled' : approved ? 'running' : 'waiting_for_approval', revision: 'rev-1', questions: [], canRecover: false, canResolveUnknown: false } } }));
+  await page.route(`**/api/sessions/${key}/run`, route => {
+    expect(route.request().headers()['x-hob-profile']).toBe('writer');
+    return route.fulfill({ json: { run: { runId: 'worker-run', status: stopped ? 'cancelled' : approved ? 'running' : 'waiting_for_approval', revision: 'rev-1', questions: [], canRecover: false, canResolveUnknown: false } } });
+  });
   await page.route(`**/api/sessions/${key}/approvals`, route => route.fulfill({ json: { approvals: approved ? [] : [{ id: 'permission-1', description: 'Create the reviewed document.', commandSnippet: 'touch reviewed.md', status: 'pending' }] } }));
   await page.route('**/api/security/approvals/permission-1', async route => {
     expect(route.request().headers()['x-hob-profile']).toBe('writer');
@@ -144,6 +147,7 @@ test('exchange inspector reviews worker permissions and stops the exact receivin
     approved = true; await route.fulfill({ json: { accepted: true } });
   });
   await page.route(`**/api/sessions/${key}/abort`, async route => {
+    expect(route.request().headers()['x-hob-profile']).toBe('writer');
     expect(route.request().postDataJSON()).toEqual({ expectedRunId: 'worker-run' });
     stopped = true; await route.fulfill({ json: { accepted: true } });
   });

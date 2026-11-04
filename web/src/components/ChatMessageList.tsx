@@ -191,8 +191,8 @@ export function ChatMessageList() {
 
         <InlineApprovalPrompt />
 
-        {runtime === 'hermes' && activeSessionId && (
-          <HermesRunPanel key={`inline-controls:${activeSessionId}`} sessionId={activeSessionId} inline />
+        {runtime === 'hermes' && activeSessionId && agent && (
+          <HermesRunPanel key={`inline-controls:${activeSessionId}`} sessionId={activeSessionId} profile={agent.id} composerHasRun={isLoading} inline />
         )}
 
         {isLoading && (

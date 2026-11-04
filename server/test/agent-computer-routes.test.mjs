@@ -76,6 +76,25 @@ test('disabled, invalid and unresolved configurations fail closed', async t => {
   assert.equal(f.calls.length, 0);
 });
 
+test('Portal and Agent Computer keep their own source, bot credentials and authenticated routes', async t => {
+  const f = await fixture(t, { env: { PORTAL_URL: 'https://environment.test/mcp', PORTAL_TOKEN: 'environment-fixture' } });
+  await writeFile(path.join(f.home, 'profiles', 'alpha', 'config.yaml'), stringify({ mcp_servers: {
+    portal: { url: 'https://alpha-portal.test/mcp', bearer_token: 'portal-fixture' },
+    agent_computer: { url: 'https://alpha-computer.test/mcp', bearer_token: 'computer-fixture' },
+  } }));
+  assert.equal((await f.routes.getComputerConfig('portal', 'alpha')).token, 'portal-fixture');
+  assert.equal((await f.routes.getAgentComputerConfig('alpha')).token, 'computer-fixture');
+  const status = await fetch(f.origin + '/api/hermes/portal/status?profile=alpha', { headers: { 'x-test-session': 'yes' } });
+  assert.equal(status.status, 200);
+  assert.equal((await status.json()).serverName, 'portal');
+  assert.equal(f.calls.at(-1).url, 'https://alpha-portal.test/mcp');
+  assert.equal(f.calls.at(-1).headers.Authorization, 'Bearer portal-fixture');
+  assert.equal((await fetch(f.origin + '/api/hermes/portal/status?profile=alpha')).status, 401);
+  await f.config('alpha', { url: 'https://alpha-computer.test/mcp', bearer_token: 'computer-fixture' });
+  assert.deepEqual(await f.routes.getComputerConfig('portal', 'alpha'), { connected: false });
+  assert.equal((await f.routes.getComputerConfig('portal', 'default')).token, 'environment-fixture');
+});
+
 test('a bot home aliased to Main cannot read Main computer credentials', async t => {
   const f = await fixture(t);
   await f.config('default', { url: 'https://main.test/mcp', bearer_token: 'main-fixture' });

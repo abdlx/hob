@@ -85,3 +85,12 @@ test('prompts can be queued while busy and projected at the end of messages', ()
   state.removeQueued('main', 'q-2');
   assert.equal(state.getQueue('main').length, 0);
 });
+
+test('cancelled queued prompts disappear from optimistic history after the preceding turn finishes', () => {
+  const state = new ConversationWork(), main = begin(state, 'default', 'main');
+  state.enqueue('default', 'main', 'Cancelled private follow-up', 'queued-one', '12:00');
+  const optimistic = state.project('main', []);
+  state.finish(main);
+  state.removeQueued('main', 'queued-one');
+  assert.equal(state.project('main', optimistic).some(row => row.id === 'queued-one'), false);
+});

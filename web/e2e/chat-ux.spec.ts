@@ -223,7 +223,8 @@ test('typing stays available during a reply, drafts survive and new content resp
   await input.fill('Send this first'); await input.press('Enter');
   await expect.poll(state.submitted).toBe(true);
   await expect(input).toBeEnabled(); await input.fill('A draft for later');
-  await expect(page.getByRole('button', { name: 'Waiting for current reply' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Queue message', exact: true })).toBeEnabled();
+  await expect.poll(() => chat.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(100);
   await chat.evaluate(node => { node.scrollTop = 200; });
   const latest = page.getByRole('button', { name: 'Latest messages' });
   await expect(latest).toBeVisible();
@@ -238,6 +239,56 @@ test('typing stays available during a reply, drafts survive and new content resp
   // This is the same mounted app: responsive layouts must share one draft.
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('A draft for later');
   expect(state.writes.filter(write => write.path.endsWith('/turns'))).toHaveLength(1);
+  expect(state.errors).toEqual([]);
+});
+
+test('queued prompts keep their bot, conversation and request key after switching bots', async ({ page }) => {
+  const state = await fixture(page);
+  const sends: { path: string; profile: string; content: string; key: string }[] = [];
+  const releases: (() => void)[] = [];
+  const histories: Record<string, { id: string; role: string; content: string; timestamp: string }[]> = { 'ux-session': [], 'research-session': [] };
+  await page.route('**/api/agents', route => route.fulfill({ json: { agents: [{ id: 'default', name: 'Main' }, { id: 'research', name: 'Research' }] } }));
+  await page.route('**/api/agent', route => {
+    const profile = route.request().headers()['x-hob-profile'];
+    return route.fulfill({ json: { id: profile, name: profile === 'research' ? 'Research' : 'Main', status: 'connected', avatarUrl: '' } });
+  });
+  await page.route('**/api/sessions', route => {
+    const profile = route.request().headers()['x-hob-profile'];
+    return route.fulfill({ json: [{ id: profile === 'research' ? 'research-session' : 'ux-session', agentId: profile, title: profile === 'research' ? 'Research chat' : 'Main chat', createdAt: stamp }] });
+  });
+  await page.route('**/api/sessions/*/messages', route => {
+    const id = new URL(route.request().url()).pathname.split('/')[3];
+    return route.fulfill({ json: histories[id] });
+  });
+  await page.route('**/api/sessions/*/run', route => route.fulfill({ json: { run: null } }));
+  await page.route('**/api/sessions/*/turns', async route => {
+    const path = new URL(route.request().url()).pathname, id = path.split('/')[3], body = route.request().postDataJSON();
+    const count = sends.length;
+    sends.push({ path, profile: route.request().headers()['x-hob-profile'], content: body.content, key: body.idempotencyKey });
+    await new Promise<void>(resolve => { releases[count] = resolve; });
+    const message = { id: `reply-${count}`, role: 'assistant', content: `Finished ${count}`, timestamp: stamp };
+    histories[id].push({ id: `user-${count}`, role: 'user', content: body.content, timestamp: stamp }, message);
+    return route.fulfill({ contentType: 'text/event-stream', body: `event: done\ndata: ${JSON.stringify({ message })}\n\n` });
+  });
+  await openChat(page);
+  const input = page.getByRole('textbox', { name: 'Message', exact: true });
+  await input.fill('First Main request'); await input.press('Enter');
+  await expect.poll(() => sends.length).toBe(1);
+  await input.fill('Private Main follow-up'); await input.press('Enter');
+  await expect(page.getByRole('status', { name: 'Queued messages' })).toContainText('Private Main follow-up');
+  const queuedId = await page.locator('[data-message-id]').filter({ hasText: 'Private Main follow-up' }).getAttribute('data-message-id');
+  await page.getByRole('listitem').filter({ has: page.getByText('Research', { exact: true }) }).click();
+  await expect(input).toBeEnabled();
+  await expect(page.getByRole('status', { name: 'Queued messages' })).toHaveCount(0);
+  await input.fill('Research draft stays here');
+  releases[0]();
+  await expect.poll(() => sends.length).toBe(2);
+  expect(sends[1]).toEqual({ path: '/api/sessions/ux-session/turns', profile: 'default', content: 'Private Main follow-up', key: queuedId });
+  await expect(input).toHaveValue('Research draft stays here');
+  await expect(page.getByRole('region', { name: 'Conversation messages', exact: true })).not.toContainText('Private Main follow-up');
+  releases[1]();
+  await page.getByRole('listitem').filter({ has: page.getByText('Main', { exact: true }) }).click();
+  await expect(page.getByRole('region', { name: 'Conversation messages', exact: true })).toContainText('Private Main follow-up');
   expect(state.errors).toEqual([]);
 });
 
