@@ -46,7 +46,9 @@ Hermes source is vendored only as a reference. The image applies checksum-guarde
 
 In **Settings → Plugins & integrations**, browse app tiles and open a tile for its full details and install controls. In **Settings → Automation**, select a bot's native conversation to start a goal or configure a heartbeat, including pause, resume and clear. Scheduled tasks use Hermes's own scheduler; `0 9 * * *` runs daily at 9 AM in the bot's configured timezone. Background handoff results are delivered to the caller and Main through Hermes's **Bot Chat**, while each exchange keeps its own transcript.
 
-The coordinator's **Settings → Memory & history → Shared team core & documents** includes an opt-in employee-team preview: review and approve core revisions, restore a historical revision as a new proposal, synchronize eligible shared text documents, and optionally require workers to route requests through the coordinator. These controls do not make the employee team live: native context/privacy, artifact handoffs, paid-execution restrictions, and device acceptance remain pending. See the [implementation checkpoint](docs/employee-team-implementation.md).
+The coordinator's **Settings → Memory & history → Shared team core & documents** provides revision-bound shared-core proposals and approvals, opt-in document distribution, worker routing controls, and per-bot synchronization status. HOB also includes bot-to-bot relay, group rooms, activity provenance, nominated artifact handoffs, and reviewed model-route controls. The operator reports that their deployed Employee Team is operational; however, the repository's [employee-team implementation checkpoint](docs/employee-team-implementation.md) and [4 November sync review](docs/employee-team-sync-review-2026-11-04.md) still mark the complete native authority/privacy/billing qualification and production acceptance as outstanding. Do not treat those safeguards as independently certified.
+
+**Computer integrations:** HOB supports separately configured [Agent Computer](https://github.com/abdlx/Agent-Computer) and [Portal](https://github.com/abdlx/Portal) sources in its Computer view. Agent Computer supplies managed persistent container desktops; Portal supplies a physical Linux host with isolated Camoufox profiles, live TigerVNC/noVNC browser viewing, and agent-compatible MCP operations.
 
 Activity preserves scheduled runs' original outcomes. Historical failures for verified deleted jobs stay in history; existing jobs, unavailable status checks, and unlinked legacy entries have distinct labels. Incomplete scheduler history produces a visible warning. These annotations do not acknowledge failures, delete records, or mark work successful.
 
@@ -73,6 +75,13 @@ The dormant team adapter also keeps unproven chat notes in private review propos
 - [Contributing](#contributing)
 - [License](#license)
 
+## Current implementation highlights
+
+- **Multi-bot employee workflows:** Group chats, profile-scoped conversations, bot-to-bot relay, task handoffs, queueing, recovery of interrupted and failed exchanges, and operator review surfaces. These are distinct from the still-unqualified stricter employee-team isolation mode documented below.
+- **Computer sources:** Connect HOB to Agent Computer and Portal independently; a configured source appears in the Computer view and unavailable integrations retain their visible state.
+- **Modern browser operations:** Persistent per-bot Chromium, CDP automation, live viewing, human takeover, precision input, and configurable extensions.
+- **Operational automation:** Native Hermes scheduling, heartbeats and background task controls, plus recorded results and error provenance.
+
 ## Features
 
 | Area | What you get |
@@ -82,7 +91,7 @@ The dormant team adapter also keeps unproven chat notes in private review propos
 | **Browser** | One managed Chromium identity per bot, persistent cookies and tabs, live frame streaming, human takeover, tab actions, precision input methods over CDP, and opt-in CAPTCHA challenge handling. |
 | **Media** | Inline images in chat bubbles from `MEDIA:`, `@image:`, `#media:` links, and Markdown image syntax. Local files are served through an authenticated, profile-scoped endpoint. |
 | **Providers** | Private saved-provider cards, one-click API-key reuse across bots, model catalogs, custom OpenAI-compatible endpoints, device sign-in where supported, and separate model selection. |
-| **Tools and MCP** | Native toolset controls, dependency setup, messaging channels, MCP servers, OAuth sign-in, connection probes, and per-bot enable/disable. |
+| **External computers** | Configurable Agent Computer and Portal integrations with source-specific credentials, connection state and Computer viewing. |\n| **Tools and MCP** | Native toolset controls, dependency setup, messaging channels, MCP servers, OAuth sign-in, connection probes, and per-bot enable/disable. |
 | **Memory and learning** | Built-in or external memory providers, personality/identity editing, task-memory and user-profile switches, and approval-gated skill/memory writes. |
 | **Workspace** | Goals and scheduled tasks, workspace files, skill review in Workshop, activity, approvals, and a live browser side panel. |
 | **Review and delivery** | Complete, revision-bound memory/skill proposals, explicit approve/reject decisions and decision history; supported result files copied into workspace `artifacts/`, with scoped downloads up to 25 MB. |
