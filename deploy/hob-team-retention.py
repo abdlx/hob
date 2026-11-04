@@ -238,9 +238,14 @@ def observe_tool(agent, function_name, status):
         return
 
 
-def learning_evidence():
+def learning_evidence(agent):
     scope = _turn.get()
     if not scope or not scope["active"] or scope["kind"] not in ("user", "relay"):
+        return ""
+    state = context._state(agent)
+    if (state is None or state["kind"] not in ("user", "relay") or agent.session_id != scope["session"]
+            or any(state[key] != scope[key] for key in ("authority", "profile", "kind"))
+            or Path(state["metadata"]["home"]).resolve() != Path(scope["home"]).resolve()):
         return ""
     with _lock:
         observations = sorted(scope["observations"])

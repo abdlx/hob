@@ -178,6 +178,67 @@ class ContextTests(unittest.TestCase):
             with self.assertRaisesRegex(team.TeamContextError, "tool"):
                 team.bound_messages(self.agent, rows)
 
+    def test_structured_summary_keeps_attribution_decisions_open_items_and_file_references(self):
+        turns = [[
+            {"role": "user", "content": "Decision: keep SESSION_ONLY_MANGO_7 private to this chat."},
+            {"role": "assistant", "content": "Decision: use CSV.\nFILES: artifacts/analysis.csv\nNext: check the totals.", "tool_calls": [
+                {"id": "read-one", "function": {"name": "read_file", "arguments": '{"path":"inputs/source.csv"}'}}]},
+            {"role": "tool", "tool_call_id": "read-one", "content": json.dumps({"output": "Many output lines. " * 200, "exit_code": 1, "error": "The source file was missing."})},
+        ]]
+        original = copy.deepcopy(turns)
+        summary = team._summary(turns)
+        self.assertLessEqual(len(summary), 2000)
+        self.assertIn("not verified results", summary)
+        data = json.loads(summary.split("\n", 1)[1])
+        sections = data["sections"]
+        self.assertTrue(any(row["role"] == "user" and "SESSION_ONLY_MANGO_7" in row["quote"] for row in sections["Reported decisions"]))
+        self.assertIn("Next: check the totals", sections["Open items"][0]["quote"])
+        self.assertTrue(any("inputs/source.csv" in row["quote"] for row in sections["File references"]))
+        self.assertIn('"exit_code": 1', sections["Tool results"][0]["quote"])
+        self.assertIn("missing", sections["Tool results"][0]["quote"])
+        self.assertEqual(sections["Tool results"][0]["source"], "turn 1, message 3")
+        self.assertEqual(turns, original)
+
+    def test_summary_handles_multimodal_content_bounds_and_known_credentials(self):
+        turns = [[{"role": "user", "content": [
+            {"type": "text", "text": "Decision: keep the café open."},
+            {"type": "image_url", "image_url": {"url": "ATTACHMENT_PRIVATE_CANARY"}},
+            {"type": "thinking", "text": "THINKING_PRIVATE_CANARY"},
+        ], "api_content": "SIDECAR_PRIVATE_CANARY"},
+            {"role": "assistant", "content": 'api_key="synthetic-secret-credential-value"\nNext: do not repeat this secret.'}]]
+        summary = team._summary(turns)
+        self.assertIn("café", summary)
+        for forbidden in ("ATTACHMENT_PRIVATE_CANARY", "THINKING_PRIVATE_CANARY", "SIDECAR_PRIVATE_CANARY", "synthetic-secret-credential-value"):
+            self.assertNotIn(forbidden, summary)
+        self.assertTrue(json.loads(summary.split("\n", 1)[1])["omitted"])
+        # Huge or non-text messages cannot create an unbounded summary scan.
+        summary = team._summary([[{"role": "user", "content": "x" * 100000}], [{"role": "user", "content": "A later small request."}]])
+        self.assertLessEqual(len(summary), 2000)
+        bounded = team._summary([[{"role": "user", "content": "Question " + str(index)}] for index in range(300)])
+        self.assertIn("Question 299", bounded)
+        self.assertNotIn('"quote":"Question 0"', bounded)
+        self.assertTrue(json.loads(bounded.split("\n", 1)[1])["omitted"])
+        self.assertLessEqual(len(team._summary(turns, 256)), 256)
+
+    def test_summary_compacts_before_discarding_another_complete_turn_and_is_rebuilt_after_restart(self):
+        messages = self.history(21)
+        messages[1]["content"] = "Decision: use a local report. Next: inspect artifacts/report.csv."
+        # Fit the 20 complete turns plus a smaller summary, not the full summary.
+        original = copy.deepcopy(messages)
+        full = team.bound_messages(self.agent, messages)
+        full_tokens = sys.modules["agent.model_metadata"].estimate_request_tokens_rough(full, tools=[])
+        self.agent.context_compressor.context_length = int((full_tokens - 25) / 0.75)
+        compact = team.bound_messages(self.agent, messages)
+        self.assertEqual(sum(row["role"] == "user" for row in compact), 20)
+        self.assertLess(len(compact[1]["content"]), len(full[1]["content"]))
+        team._validate_tools(compact[1:])
+        restarted = load("restarted_team_context", "hob-team-context.py")
+        with patch.object(restarted, "_home", return_value=self.home), patch.object(restarted, "_room", return_value=None):
+            self.assertEqual(restarted.bound_messages(copy.copy(self.agent), messages), compact)
+        fresh = team.bound_messages(self.agent, [{"role": "user", "content": "A separate session starts here."}])
+        self.assertNotIn("local report", json.dumps(fresh))
+        self.assertEqual(messages, original)
+
     def test_final_request_budget_includes_middleware_tools_and_system_once(self):
         rows = team.bound_messages(self.agent, self.history(25))
         original = copy.deepcopy(rows)

@@ -139,6 +139,58 @@ class NativeRetentionTests(unittest.TestCase):
         finally:
             reset_hermes_home_override(token)
 
+    def test_native_archive_resume_rebuilds_only_its_own_session_summary(self):
+        from hermes_state import SessionDB
+        database = self.home / "state.db"
+        writer = SessionDB(db_path=database)
+        try:
+            writer.create_session("writer-chat", "cli")
+            writer.create_session("fresh-chat", "cli")
+            for index in range(24):
+                prompt = "Decision: SESSION_ONLY_MANGO_7 must stay in this chat." if index == 0 else f"Question {index}"
+                reply = "Decision: use CSV.\nFILES: artifacts/report.csv\nNext: inspect the totals." if index == 0 else f"Answer {index}"
+                call_id = f"read-{index}"
+                writer.append_message("writer-chat", "user", prompt)
+                writer.append_message("writer-chat", "assistant", None, tool_calls=[{"id": call_id, "type": "function", "function": {"name": "read_file", "arguments": '{"path":"inputs/source.csv"}'}}])
+                writer.append_message("writer-chat", "tool", '{"exit_code":0,"output":"Fixture file contents"}', tool_call_id=call_id, tool_name="read_file")
+                writer.append_message("writer-chat", "assistant", reply)
+            writer.append_message("fresh-chat", "user", "An independent conversation.")
+        finally:
+            writer.close()
+        before = database.read_bytes()
+        def restored(session):
+            reader = SessionDB(db_path=database, read_only=True)
+            try:
+                model, display = reader.get_resume_conversations(session)
+                return model, display
+            finally:
+                reader.close()
+        messages, display = restored("writer-chat")
+        original = json.dumps(messages, ensure_ascii=False)
+        agent = types.SimpleNamespace(session_id="writer-chat", api_mode="chat_completions", tools=[], context_compressor=types.SimpleNamespace(context_length=32000))
+        context.turn_start(agent)
+        projected = context.bound_messages(agent, messages)
+        self.assertEqual(sum(row["role"] == "user" for row in projected), 20)
+        self.assertIn("SESSION_ONLY_MANGO_7", projected[0]["content"])
+        self.assertIn("Reported decisions", projected[0]["content"])
+        self.assertIn("File references", projected[0]["content"])
+        self.assertIn("Open items", projected[0]["content"])
+        context._validate_tools(projected)
+        self.assertEqual(json.dumps(messages, ensure_ascii=False), original)
+        # A fresh DB/agent instance reconstructs the same projection, with no
+        # serialized summary cache and no writes to the native conversation.
+        restarted_messages, restarted_display = restored("writer-chat")
+        self.assertEqual(display, restarted_display)
+        self.assertEqual(projected, context.bound_messages(agent, restarted_messages))
+        self.db.execute("INSERT INTO runtime_sessions VALUES('writer','fresh-chat','user','')"); self.db.commit()
+        agent.session_id = "fresh-chat"
+        context.turn_start(agent)
+        fresh, _ = restored("fresh-chat")
+        self.assertNotIn("MANGO", json.dumps(context.bound_messages(agent, fresh)))
+        self.assertNotIn("MANGO", (self.home / "memories" / "MEMORY.md").read_text())
+        self.assertNotIn("MANGO", (self.other / "memories" / "MEMORY.md").read_text())
+        self.assertEqual(database.read_bytes(), before)
+
     def test_eligible_task_observation_and_retained_skill_excerpt_write_without_extra_approval(self):
         emit_terminal_post_tool_call(self.agent, function_name="terminal", function_args={"command": "unused"},
                                     result={"output": "SESSION_ONLY_MANGO_7_CANARY"}, effective_task_id="task", tool_call_id="call", status="success")
@@ -151,6 +203,20 @@ class NativeRetentionTests(unittest.TestCase):
         self.assertIn(observation, text); self.assertIn(self.lesson, text); self.assertNotIn("MANGO", text)
         self.assertFalse(write_approval.list_pending("memory"))
         self.assertIn("write_approval: false", (self.home / "config.yaml").read_text())
+
+    def test_task_observations_cannot_follow_another_session_or_group_projection(self):
+        retention.observe_tool(self.agent, "terminal", "success")
+        self.assertIn("Verified own task observations", retention.learning_evidence(self.agent))
+        self.db.execute("INSERT INTO runtime_sessions VALUES('writer','another-chat','user','')"); self.db.commit()
+        another = types.SimpleNamespace(session_id="another-chat", api_mode="chat_completions", tools=[], context_compressor=types.SimpleNamespace(context_length=32000))
+        # Deliberately retain the old ContextVar, as a stale renderer callback
+        # might. The request's trusted agent/session still controls disclosure.
+        self.assertEqual(retention.learning_evidence(another), "")
+        self.assertNotIn("Verified own task observations", json.dumps(context.bound_messages(another, [{"role": "user", "content": "Fresh question."}])))
+        room_agent = types.SimpleNamespace(session_id="unbound-room", api_mode="chat_completions", tools=[], context_compressor=types.SimpleNamespace(context_length=32000))
+        with patch.object(context, "_room", return_value=types.SimpleNamespace(target_profile="writer")):
+            self.assertEqual(retention.learning_evidence(room_agent), "")
+            self.assertNotIn("Verified own task observations", json.dumps(context.bound_messages(room_agent, [{"role": "user", "content": "Public room question."}])))
 
     def test_confirmed_private_promotion_applies_once_to_its_own_profile(self):
         record = self.record(self.memory(action="add", target="memory", content="An explicitly retained private interaction note."))
