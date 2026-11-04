@@ -14,6 +14,7 @@ import sqlite3
 import sys
 import tempfile
 from types import SimpleNamespace
+from unittest.mock import patch
 import uuid
 
 assert sys.platform == "linux" and os.environ.get("HOB_SMOKE_NATIVE_ISOLATION") == "1"
@@ -49,7 +50,7 @@ from hermes_constants import set_hermes_home_override, reset_hermes_home_overrid
 from gateway.session_context import set_session_vars, clear_session_vars
 from tools.terminal_scope import install_profile_terminal_scope, reset_terminal_scope, set_terminal_scope
 from tools.skill_provenance import set_current_write_origin, reset_current_write_origin
-from tools import terminal_tool as terminal, file_tools as files
+from tools import terminal_tool as terminal, file_tools as files, approval_context
 from agent import hob_team_context as context, hob_team_retention as retention, hob_team_isolation as guard
 
 
@@ -79,13 +80,24 @@ def call(name, **args):
     handler = {"terminal": terminal._handle_terminal, "read_file": files._handle_read_file,
                "write_file": files._handle_write_file, "patch": files._handle_patch,
                "search_files": files._handle_search_files}[name]
-    value = handler(args, task_id="same-task-id", session_id="native-isolation")
+    # Exercise the native approval gate with a one-operation fixture answer.
+    # Never invoke its optional model guardian or alter a profile's settings.
+    # Only this harness supplies tool arguments; there is no model/input loop.
+    interactive = approval_context.set_hermes_interactive_context(True)
+    previous_callback = terminal._get_approval_callback()
+    terminal.set_approval_callback(lambda *args, **kwargs: "once")
+    try:
+        with patch.object(approval_context, "_get_approval_mode", return_value="manual"):
+            value = handler(args, task_id="same-task-id", session_id="native-isolation")
+    finally:
+        terminal.set_approval_callback(previous_callback)
+        approval_context.reset_hermes_interactive_context(interactive)
     return json.loads(value) if isinstance(value, str) else value
 
 
 def command(argv):
     result = call("terminal", command=shlex.join(argv), timeout=20)
-    assert result.get("exit_code") == 0, "Native terminal did not confirm the fixture command"
+    assert result.get("exit_code") == 0, "Native terminal did not confirm the fixture command: " + json.dumps(result)[:800]
     return result.get("output", "")
 
 
@@ -210,7 +222,13 @@ with tempfile.TemporaryDirectory(prefix="native-isolation-", dir=state) as tempo
                           "distinctUids": True, "crossBotAndPrivateStateDenied": True, "cachedOwnerChecked": True,
                           "localFallbackDenied": True, "revocationDeniedBeforeReconnect": True}))
     finally:
+        environments = list(terminal._active_environments.values())
         terminal.cleanup_all_environments()
+        # BaseEnvironment.__del__ calls cleanup again. Explicit cleanup above
+        # already synced these native clients; do not sync after their private
+        # ControlMaster directory has been removed by TemporaryDirectory.
+        for environment in environments:
+            environment._sync_manager = None
         tempfile.tempdir = previous_tmp
         db.close()
         authority.unlink(missing_ok=True)
