@@ -361,6 +361,14 @@ export function createHermesSmokeApi({ origin, password, modelUrl, authorizeMcp,
   };
 
   return { firstBoot, afterRestart, checks,
+    withNativeIsolationFixture: async probe => {
+      assert.equal(isolation, true, 'Native isolation fixture requires disposable users mode.');
+      const name = 'native-isolation-' + randomUUID().replaceAll('-', '').slice(0, 12);
+      const bot = await api('/api/hermes/profiles', 'POST', { name, soul: 'Disposable native isolation fixture. No model execution.' });
+      assert.equal(bot.name, name); assert.equal(bot.state, 'active');
+      try { return await probe(name); }
+      finally { await api('/api/hermes/profiles/' + name, 'DELETE'); }
+    },
     activeCrashRecovery: ({ fixture, crash, diagnose, leaseSeconds }) => verifyActiveCrashRecovery({ api, request, retry, check, fixture, crash, diagnose, leaseSeconds }),
   };
 }

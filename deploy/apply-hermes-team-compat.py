@@ -26,6 +26,9 @@ SOURCES = {
     "agent/skill_utils.py": "9cb773037fe97940cdfcbf8b0d6bbfe60e366985749d3ae3bec3b274a83e33c4",
     "hermes_cli/write_approval_commands.py": "f861762fed993aedbdd3a1dc95862d6237e881b9e159fe205193925a7d32a3d4",
     "agent/inline_tool_executors.py": "20ec06265f1629b32a932a1abc892e0965baac39f79719f99aec651ff44a7065",
+    "tools/terminal_tool.py": "a09910c7c61a93d89e8b9e83efd3abcb5eff4b58a3cb53e3bd0162d2ee59e909",
+    "tools/terminal_tool_lifecycle.py": "4952fc0e1c49cd693d6228350abad7ea3bba20e6a3fef495aea3d575eb0c4dd6",
+    "tools/file_tools.py": "49ce5a793eed1035efbfcc636e3b913a41226f7495ad99a11c10eb89ff6a73a6",
 }
 
 
@@ -241,6 +244,18 @@ if _hob_retention.private_skill_root() is not None:
     lines = out[key].splitlines(keepends=True)
     lines.insert(turn.lineno - 1, "@__import__('agent.hob_team_retention', fromlist=['turn_scope']).turn_scope\n")
     out[key] = "".join(lines)
+    for key, name, decorator in (
+        ("tools/terminal_tool_lifecycle.py", "_create_configured_env", "factory"),
+        ("tools/terminal_tool_lifecycle.py", "ensure_task_env", "lazy_environment"),
+        ("tools/terminal_tool.py", "_acquire_env", "acquire"),
+        ("tools/file_tools.py", "_get_file_ops", "file_operations"),
+    ):
+        matches = [node for node in ast.walk(ast.parse(out[key])) if isinstance(node, ast.FunctionDef) and node.name == name]
+        if len(matches) != 1:
+            raise RuntimeError("Expected one qualified native isolation owner: " + name)
+        lines = out[key].splitlines(keepends=True)
+        lines.insert(matches[0].lineno - 1, "@__import__('agent.hob_team_isolation', fromlist=['" + decorator + "'])." + decorator + "\n")
+        out[key] = "".join(lines)
     for text in out.values():
         ast.parse(text)
     return out
@@ -259,7 +274,7 @@ def install(root, expected=None):
         if hashlib.sha256(raw).hexdigest() != digest:
             raise RuntimeError("Team source differs from the qualified upstream commit: " + relative)
         source[relative] = raw.decode("utf-8")
-    helpers = {"agent/hob_team_context.py": "hob-team-context.py", "agent/hob_team_execution.py": "hob-team-execution.py", "agent/hob_team_retention.py": "hob-team-retention.py"}
+    helpers = {"agent/hob_team_context.py": "hob-team-context.py", "agent/hob_team_execution.py": "hob-team-execution.py", "agent/hob_team_retention.py": "hob-team-retention.py", "agent/hob_team_isolation.py": "hob-team-isolation.py"}
     for relative in helpers:
         helper = root / relative
         if helper.exists() or helper.is_symlink():

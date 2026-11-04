@@ -410,6 +410,43 @@ class Broker:
                     "workspace": str(workspace), "host": "127.0.0.1", "port": SSH_PORT,
                     "keyPath": str(self.state / "isolation-keys" / (name + ".key"))}
 
+    def binding(self, name):
+        """Read an already prepared principal without creating or repairing it."""
+        name = profile_name(name)
+        with self.lock:
+            self.enrolled(name)
+            record = self.data["bots"].get(name)
+            if not record or record.get("revoked") or name not in self.prepared:
+                raise ValueError("bot_not_prepared")
+            uid = record["uid"]
+            account = pwd.getpwnam("hob" + str(uid))
+            if account.pw_uid != uid or account.pw_gid != uid:
+                raise ValueError("isolation_account_conflict")
+            workspace = PRIVATE / "workspaces" / ("main" if name == "default" else "bots/" + name)
+            parent = os.dup(self.workspace_root_fd)
+            try:
+                for part in (("main",) if name == "default" else ("bots", name)):
+                    child = os.open(part, DIR_FLAGS, dir_fd=parent)
+                    os.close(parent); parent = child
+                if os.fstat(parent).st_uid != uid:
+                    raise ValueError("isolation_workspace_conflict")
+            finally:
+                os.close(parent)
+            keys = os.open("isolation-keys", DIR_FLAGS, dir_fd=self.state_fd)
+            try:
+                key = os.open(name + ".key", FD_FLAGS, dir_fd=keys)
+                try:
+                    info = os.fstat(key)
+                    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != self.uid or stat.S_IMODE(info.st_mode) != 0o600:
+                        raise ValueError("unsafe_state_file")
+                finally:
+                    os.close(key)
+            finally:
+                os.close(keys)
+            return {"version": 1, "profile": name, "uid": uid, "gid": uid, "user": account.pw_name,
+                    "workspace": str(workspace), "host": "127.0.0.1", "port": SSH_PORT,
+                    "keyPath": str(self.state / "isolation-keys" / (name + ".key"))}
+
     def install_key(self, name, username, uid):
         key = PRIVATE / (username + ".key")
         if not key.exists():
@@ -682,6 +719,8 @@ LogLevel ERROR
                     return
                 if operation == "ensure":
                     result = self.ensure(request.get("profile"))
+                elif operation == "binding":
+                    result = self.binding(request.get("profile"))
                 elif operation == "revoke":
                     result = self.revoke(request.get("profile"))
                 elif operation == "status":

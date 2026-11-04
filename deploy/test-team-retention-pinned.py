@@ -360,6 +360,68 @@ class NativeRetentionTests(unittest.TestCase):
         self.record(self.memory(action="add", target="memory", content=self.lesson))
         self.assertNotIn(self.lesson, (self.home / "memories" / "MEMORY.md").read_text())
 
+    def isolation_contract(self):
+        from agent import hob_team_isolation as guard
+        from tools.environments.ssh import SSHEnvironment
+        binding = {"version": 1, "profile": "writer", "uid": 20001, "gid": 20001, "user": "hob20001",
+                   "workspace": str(self.workspace), "host": "127.0.0.1", "port": 22220,
+                   "keyPath": str(self.base / "isolation-keys" / "writer.key")}
+        patch.object(guard, "_platform_supported", return_value=True).start()
+        patch.object(guard, "_broker", return_value=binding).start()
+        config = {"env_type": "ssh", "ssh_host": binding["host"], "ssh_user": binding["user"], "ssh_port": binding["port"], "ssh_key": binding["keyPath"]}
+        # Real native class, no constructor/network: this is an explicit owner
+        # contract seam. The Linux image probe exercises actual SSH bring-up.
+        env = SSHEnvironment.__new__(SSHEnvironment)
+        env.host, env.user, env.port, env.key_path = binding["host"], binding["user"], binding["port"], binding["keyPath"]
+        return guard, config, env
+
+    def test_isolation_factory_refuses_local_and_another_principal_before_creation(self):
+        guard, config, env = self.isolation_contract()
+        calls = []
+        create = guard.factory(lambda *args, **kwargs: calls.append(True) or env)
+        for change in ({"env_type": "local"}, {"ssh_user": "hob20002"}, {"ssh_key": "other-profile.key"}, {"ssh_host": "remote.invalid"}):
+            invalid = {**config, **change}
+            with self.assertRaises(context.TeamContextError):
+                create(invalid, invalid["env_type"])
+        self.assertFalse(calls)
+        self.assertIs(create(config, "ssh"), env)
+        self.assertEqual(calls, [True])
+
+    def test_isolation_cached_environment_cannot_change_principal_or_use_a_legacy_cache(self):
+        guard, config, env = self.isolation_contract()
+        plan = types.SimpleNamespace(config=config, env_type="ssh")
+        get = guard.acquire(lambda *args: env)
+        with self.assertRaises(context.TeamContextError):
+            get(plan, "shared-task")
+        guard.factory(lambda *args, **kwargs: env)(config, "ssh")
+        self.assertIs(get(plan, "shared-task"), env)
+        env.user = "hob20002"
+        with self.assertRaises(context.TeamContextError):
+            get(plan, "shared-task")
+
+    def test_isolation_revocation_and_missing_scope_stop_cached_execution(self):
+        guard, config, env = self.isolation_contract()
+        guard.factory(lambda *args, **kwargs: env)(config, "ssh")
+        calls = []
+        get = guard.acquire(lambda *args: calls.append(True) or env)
+        with patch.object(guard, "_broker", side_effect=context.TeamContextError("fixture revoked")):
+            with self.assertRaises(context.TeamContextError):
+                get(types.SimpleNamespace(config=config, env_type="ssh"), "shared-task")
+        self.assertFalse(calls)
+        retention._turn.set(None)
+        with self.assertRaises(context.TeamContextError):
+            get(types.SimpleNamespace(config=config, env_type="ssh"), "unbound-task")
+
+    def test_isolation_wrappers_leave_ordinary_mode_execution_unchanged(self):
+        from agent import hob_team_isolation as guard
+        self.policy["nativeContext"] = False
+        self.db.execute("UPDATE settings SET value=?", (json.dumps(self.policy),)); self.db.commit()
+        retention._turn.set(None)
+        local = object()
+        with patch.object(guard, "_broker", side_effect=AssertionError("Ordinary mode queried broker")):
+            self.assertIs(guard.factory(lambda *args, **kwargs: local)({"env_type": "local"}, "local"), local)
+            self.assertIs(guard.acquire(lambda *args: local)(types.SimpleNamespace(config={}, env_type="local"), "task"), local)
+
     def tearDown(self):
         self.assertEqual(network_attempts, [])
 

@@ -275,6 +275,10 @@ try {
   if (usersIsolation) console.log('OS isolation proof: ' + docker(['exec', container, '/usr/bin/python3', '/app/deploy/isolation-proof.py'], 120000));
   if (usersIsolation) console.log('Nominated artifact handoff: ' + docker(['exec', '--user', '10000:10000', '--env', 'HOB_SMOKE_TEAM_ARTIFACTS=1', container,
     '/usr/local/bin/node', '/app/deploy/probe-team-artifacts.mjs'], 120000));
+  if (usersIsolation) await smoke.withNativeIsolationFixture(async profile => {
+    console.log('Native tool isolation: ' + docker(['exec', '--user', '10000:10000', '--env', 'HOB_SMOKE_NATIVE_ISOLATION=1',
+      '--env', 'HOB_NATIVE_ISOLATION_PROFILE=' + profile, container, '/usr/local/bin/node', '/app/deploy/probe-native-isolation.mjs'], 210000));
+  });
   console.log('Actual image first boot passed ' + smoke.checks.length + ' authenticated native checks.');
   compose('up', '-d', '--no-build', '--pull', 'never', '--force-recreate', '--wait', '--wait-timeout', '300');
   await ready();
