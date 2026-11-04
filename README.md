@@ -91,7 +91,8 @@ The dormant team adapter also keeps unproven chat notes in private review propos
 | **Browser** | One managed Chromium identity per bot, persistent cookies and tabs, live frame streaming, human takeover, tab actions, precision input methods over CDP, and opt-in CAPTCHA challenge handling. |
 | **Media** | Inline images in chat bubbles from `MEDIA:`, `@image:`, `#media:` links, and Markdown image syntax. Local files are served through an authenticated, profile-scoped endpoint. |
 | **Providers** | Private saved-provider cards, one-click API-key reuse across bots, model catalogs, custom OpenAI-compatible endpoints, device sign-in where supported, and separate model selection. |
-| **External computers** | Configurable Agent Computer and Portal integrations with source-specific credentials, connection state and Computer viewing. |\n| **Tools and MCP** | Native toolset controls, dependency setup, messaging channels, MCP servers, OAuth sign-in, connection probes, and per-bot enable/disable. |
+| **External computers** | Configurable Agent Computer and Portal integrations with source-specific credentials, connection state and Computer viewing. |
+| **Tools and MCP** | Native toolset controls, dependency setup, messaging channels, MCP servers, OAuth sign-in, connection probes, and per-bot enable/disable. |
 | **Memory and learning** | Built-in or external memory providers, personality/identity editing, task-memory and user-profile switches, and approval-gated skill/memory writes. |
 | **Workspace** | Goals and scheduled tasks, workspace files, skill review in Workshop, activity, approvals, and a live browser side panel. |
 | **Review and delivery** | Complete, revision-bound memory/skill proposals, explicit approve/reject decisions and decision history; supported result files copied into workspace `artifacts/`, with scoped downloads up to 25 MB. |

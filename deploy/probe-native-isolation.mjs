@@ -11,7 +11,11 @@ assert.equal(process.getuid(), status.operatorUid);
 const owners = await Promise.all(['default', profile].map(name => isolationRequest('ensure', name)));
 const result = execFileSync('/opt/hermes/.venv/bin/python', ['/app/deploy/probe-native-isolation.py'], {
   input: JSON.stringify(owners), timeout: 180000, maxBuffer: 1024 * 1024,
-  env: { ...process.env, HERMES_HOME: '/opt/data', PYTHONPATH: '/opt/hermes' },
+  env: { ...process.env, HERMES_HOME: '/opt/data', PYTHONPATH: '/opt/hermes',
+    // docker exec inherits the base-image default, not the gateway supervisor's
+    // runtimeEnv. Match bootstrapHermes' user-mode roots; kernel users and the
+    // native guards must still deny private state and every other workspace.
+    HERMES_WRITE_SAFE_ROOT: '/opt/data:/var/lib/hob-isolation/workspaces' },
   encoding: 'utf8', windowsHide: true,
 });
 process.stdout.write(result);
