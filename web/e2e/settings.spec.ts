@@ -226,25 +226,17 @@ test('phone navigation opens Settings and follows browser navigation', async ({ 
   expect(state.errors).toEqual([]);
 });
 
-test('goals require a current native schedule preview and reject malformed input', async ({ page }) => {
+test('goals new goal opens bot selector modal, selects bot, transitions to chat, prefills and focuses', async ({ page }) => {
   const state = await fixture(page);
   await page.goto('/goals');
   await page.getByRole('button', { name: 'New goal', exact: true }).click();
-  await page.getByLabel('Goal name', { exact: true }).fill('Daily research');
-  await page.getByLabel('Instructions', { exact: true }).fill('Review approved sources.');
-  const scheduleInput = page.getByRole('textbox', { name: /^Schedule/ });
-  await scheduleInput.fill('99 99 * * *');
-  await expect(page.getByRole('button', { name: 'Save goal', exact: true })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Preview next run', exact: true })).toBeDisabled();
-  await scheduleInput.fill('0 9 * * *');
-  await expect(page.getByRole('button', { name: 'Save goal', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'Preview next run', exact: true }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Next run:' })).toContainText('Asia/Karachi');
-  await scheduleInput.fill('0 10 * * *');
-  await expect(page.getByRole('button', { name: 'Save goal', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'Preview next run', exact: true }).click();
-  await page.getByRole('button', { name: 'Save goal', exact: true }).click();
-  expect(state.writes.filter(row => row.path.endsWith('/jobs'))).toEqual([{ path: '/api/hermes/workspace/jobs', profile: 'default', body: { name: 'Daily research', prompt: 'Review approved sources.', schedule: '0 10 * * *' } }]);
+  const selector = page.getByRole('dialog', { name: 'Select a Bot' });
+  await expect(selector).toBeVisible();
+  await selector.getByRole('button', { name: 'Research' }).click();
+  await expect(page).toHaveURL(/\/chat$/);
+  const composer = page.locator('textarea[aria-label="Message"]');
+  await expect(composer).toBeFocused();
+  await expect(composer).toHaveValue('set a goal ');
   expect(state.errors).toEqual([]);
 });
 

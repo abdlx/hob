@@ -281,6 +281,15 @@ test('native and old API history keep distinct IDs and old reads retain their or
   assert.equal(f.legacyCalls.some(url => url.includes('/v1/runs')), false);
 });
 
+test('cron_* background sessions are filtered from session history', async t => {
+  const f = await fixture(t);
+  const native = await f.create('coder');
+  f.shared.sessions.set('coder:cron_daily_review', { session_id: 'cron_daily_review', id: 'cron_daily_review', title: 'Background run', messages: [], prompts: [], pending: [], revision: 1 });
+  const sessions = await (await f.call('/api/sessions', 'GET', undefined, 'coder')).json();
+  assert.equal(sessions.some(item => item.id === native.id), true);
+  assert.equal(sessions.some(item => item.id.includes('cron_')), false);
+});
+
 test('chat uses native durable receipts and never dispatches through HTTP runs', async t => {
   const f = await fixture(t); const session = await f.create('coder');
   const response = await f.turn(session.id); const stream = await response.text();

@@ -209,13 +209,16 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     }
     const rows = new Map();
     for (const row of [...stored.sessions, ...live.sessions]) {
-      const sid = row.session_id || row.resolved_id || row.id;
+      const sid = String(row.session_id || row.resolved_id || row.id || '');
+      if (!sid || sid.startsWith('cron_') || row.source === 'cron') continue;
       const id = hermesNativeSessionKey(profile, sid);
       rows.set(id, { id, agentId: profile, title: row.title || 'New conversation', createdAt: iso(row.started_at), lastMessageSnippet: '', transport: 'canonical' });
     }
     // Keep pre-migration API conversations accessible through their original
     // HTTP owner. Never reinterpret their IDs as canonical local sessions.
     for (const row of old.data.filter(row => !row.source || row.source === 'api')) {
+      const sid = String(row.id || '');
+      if (!sid || sid.startsWith('cron_') || row.source === 'cron') continue;
       const id = hermesSessionKey(profile, row.id);
       rows.set(id, { id, agentId: profile, title: row.title || 'API conversation', createdAt: iso(row.started_at), lastMessageSnippet: row.preview || '', transport: 'api', readOnly: true });
     }

@@ -55,6 +55,18 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     }
   }, [value]);
 
+  useEffect(() => {
+    const onFocus = () => {
+      textareaRef.current?.focus();
+      if (textareaRef.current) {
+        const len = textareaRef.current.value.length;
+        textareaRef.current.setSelectionRange(len, len);
+      }
+    };
+    window.addEventListener('hob:focus-composer', onFocus);
+    return () => window.removeEventListener('hob:focus-composer', onFocus);
+  }, []);
+
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
     if (disabled || !canSend || (!value.trim() && !hasAttachments)) return;

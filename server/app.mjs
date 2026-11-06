@@ -492,8 +492,8 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
           return json(res, 200, { tokensUsed: status.sessions?.recent?.reduce((n, s) => n + (s.totalTokens || 0), 0) || 0, maxTokens: status.sessions?.defaults?.contextTokens || 0, memoryUsageMb: Math.round(process.memoryUsage().rss / 1024 / 1024), latencyMs: Math.round(performance.now() - start), activeProcesses: status.sessions?.recent?.filter(s => s.runStatus === 'running').length || 0, gateway: status });
         }
         if (route === '/api/goals' && method === 'GET') return json(res, 200, await paged('cron.list', 'jobs', { includeDisabled: true }));
-        if (route === '/api/goals' && method === 'POST') return json(res, 201, await rpc('cron.add', await body(req)));
-        if (segments[1] === 'goals' && segments.length === 3 && method === 'PATCH') { const input = await body(req); return json(res, 200, await rpc('cron.update', { id: segments[2], patch: input.patch, ...(input.expectedConfigRevision ? { expectedConfigRevision: input.expectedConfigRevision } : {}) })); }
+        if (route === '/api/goals' && method === 'POST') { const input = await body(req); return json(res, 201, await rpc('cron.add', { ...input, deliver: 'local' })); }
+        if (segments[1] === 'goals' && segments.length === 3 && method === 'PATCH') { const input = await body(req); const patch = input.patch ? { ...input.patch, deliver: 'local' } : input.patch; return json(res, 200, await rpc('cron.update', { id: segments[2], patch, ...(input.expectedConfigRevision ? { expectedConfigRevision: input.expectedConfigRevision } : {}) })); }
         if (segments[1] === 'goals' && segments.length === 3 && method === 'DELETE') return json(res, 200, await rpc('cron.remove', { id: segments[2] }));
         if (segments[1] === 'goals' && segments.length === 4 && segments[3] === 'run' && method === 'POST') { const input = await body(req); return json(res, 200, await rpc('cron.run', { id: segments[2], mode: input.mode || 'force' })); }
         if (route === '/api/settings' && method === 'GET') return json(res, 200, await rpc('config.get'));

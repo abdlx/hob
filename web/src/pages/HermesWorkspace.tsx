@@ -1,4 +1,4 @@
-import { ArrowLeft, Heart, Cloud, Pencil, CalendarClock, ChevronRight, Plus, MoreVertical, Users, DollarSign, Building, Palette, Laptop, Target } from 'lucide-react';
+import { ArrowLeft, Heart, Cloud, Pencil, CalendarClock, ChevronRight, Plus, MoreVertical, Users, DollarSign, Building, Palette, Laptop, Target, Bot, X } from 'lucide-react';
 import { AgentModelSettings } from '../components/AgentModelSettings';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '../context/ChatContext';
@@ -41,11 +41,39 @@ function useWorkspaceResource<T>(profile: string, operation: string, query: Reco
   return { api, data, error, busy, load, action };
 }
 
+function focusComposerTextarea() {
+  const tryFocus = () => {
+    window.dispatchEvent(new CustomEvent('hob:focus-composer'));
+    const textarea = Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea[aria-label="Message"]')).find(element => element.getClientRects().length > 0)
+      || document.querySelector<HTMLTextAreaElement>('.hob-composer textarea');
+    if (textarea) {
+      textarea.focus();
+      const len = textarea.value.length;
+      textarea.setSelectionRange(len, len);
+      return true;
+    }
+    return false;
+  };
+
+  if (!tryFocus()) {
+    const frame = requestAnimationFrame(() => {
+      if (!tryFocus()) {
+        setTimeout(tryFocus, 60);
+        setTimeout(tryFocus, 180);
+        setTimeout(tryFocus, 350);
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }
+}
+
 interface Job { id: string; name: string; prompt?: string; schedule: string | Record<string, unknown>; enabled?: boolean; state?: string; next_run_at?: string; last_run_at?: string; last_status?: string; last_error?: string }
 
 export function HermesGoals({ profile, compact = false }: { profile: string; compact?: boolean }) {
   const { api, data, error, busy, load, action } = useWorkspaceResource<Job[]>(profile, 'jobs');
+  const { agents, selectAgent, setActiveNav } = useChat();
   const { toast } = useToast();
+  const [botSelectorOpen, setBotSelectorOpen] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -57,16 +85,35 @@ export function HermesGoals({ profile, compact = false }: { profile: string; com
   const editor = useRef<HTMLDivElement>(null);
   useEffect(() => { if (editing) { const frame = requestAnimationFrame(() => { editor.current?.scrollIntoView({ block: 'nearest' }); editor.current?.querySelector('input')?.focus(); }); return () => cancelAnimationFrame(frame); } }, [editing]);
   const problem = editing ? scheduleProblem(schedule) : null;
-  const edit = (job?: Job) => { setPreview(null); setScheduleType('advanced'); setEditing(job?.id || 'new'); setName(job?.name || ''); setPrompt(job?.prompt || ''); setSchedule(typeof job?.schedule === 'string' ? job.schedule : String(job?.schedule?.display || job?.schedule?.value || job?.schedule?.expr || '0 9 * * *')); };
+  const edit = (job?: Job) => {
+    if (!job) {
+      setBotSelectorOpen(true);
+      return;
+    }
+    setPreview(null);
+    setScheduleType('advanced');
+    setEditing(job.id);
+    setName(job.name || '');
+    setPrompt(job.prompt || '');
+    setSchedule(typeof job.schedule === 'string' ? job.schedule : String(job.schedule?.display || job.schedule?.value || job.schedule?.expr || '0 9 * * *'));
+  };
+
+  const handleSelectBot = async (botId: string) => {
+    setBotSelectorOpen(false);
+    await selectAgent(botId, { draft: 'set a goal ' });
+    setActiveNav('chat');
+    focusComposerTextarea();
+  };
+
   const submit = () => action(async () => {
     if (!preview || preview.schedule !== schedule) throw new Error('Preview this schedule with Hermes before saving.');
-    await api(editing === 'new' ? 'jobs' : `jobs/${encodeURIComponent(editing!)}`, jsonWrite(editing === 'new' ? 'POST' : 'PUT', { name: name.trim(), prompt: prompt.trim(), schedule: schedule.trim() }));
+    await api(`jobs/${encodeURIComponent(editing!)}`, jsonWrite('PUT', { name: name.trim(), prompt: prompt.trim(), schedule: schedule.trim() }));
     setEditing(null);
-    toast(editing === 'new' ? 'Goal created.' : 'Goal updated.');
+    toast('Goal updated.');
   });
   return <div className={`hob-goals ${compact ? 'hob-goals-compact' : ''}`}>
     <div className="hob-goals-heading"><h2>{compact ? 'Daily' : 'Goals'}</h2><button className="hob-refresh-goals" title="Refresh goals" onClick={load} disabled={busy}>Refresh</button></div>
-    {!compact && <div className="hob-goal-group-heading"><span><i />Tracking</span><button aria-label="New goal" title="New goal" onClick={() => edit()}><Plus size={22} /></button></div>}
+    {!compact && <div className="hob-goal-group-heading"><span><i />Tracking</span><button aria-label="New goal" title="New goal" onClick={() => setBotSelectorOpen(true)}><Plus size={22} /></button></div>}
     {error && <Notice error>{error}</Notice>}
     {editing && <div ref={editor} className={`${cardClass} space-y-3`}><Field label="Goal name"><input className={inputClass} value={name} onChange={event => setName(event.target.value)} /></Field><Field label="Instructions"><textarea className={`${inputClass} min-h-24`} value={prompt} onChange={event => setPrompt(event.target.value)} /></Field><Field label="Schedule type"><select className={inputClass} value={scheduleType} onChange={event => { const kind = event.target.value; setScheduleType(kind); setSchedule(kind === 'daily' ? '0 9 * * *' : kind === 'interval' ? 'every 2h' : kind === 'once' ? new Date(Date.now() + 3600000).toISOString() : schedule); }}><option value="daily">Daily at 9 AM (bot timezone)</option><option value="interval">Recurring interval</option><option value="once">One-time date</option><option value="advanced">Advanced schedule</option></select></Field><Field label="Schedule" hint="Cron expression (0 9 * * *), an interval (every 2h), or a one-time date supported by Hermes."><input className={inputClass} value={schedule} onChange={event => setSchedule(event.target.value)} /></Field>{problem && <p role="alert" className="text-xs text-bad">{problem}</p>}<p className="text-xs text-muted">Cron uses this bot's configured timezone. Include an explicit UTC offset for one-time dates. Preview uses Hermes's own parser and timezone.</p><button className={buttonClass} disabled={busy || Boolean(problem)} onClick={() => action(async () => { const value = schedule; const result = await api<{ nextRun: string; timezone: string }>('schedule-preview', jsonWrite('POST', { schedule: value })); setPreview({ schedule: value, nextRun: result.nextRun, timezone: result.timezone }); })}>Preview next run</button>{preview?.schedule === schedule && <Notice>Next run: {schedulePreviewTime(preview.nextRun, preview.timezone)} | Bot timezone: {preview.timezone}</Notice>}<button className={buttonClass} disabled={busy || !name.trim() || !prompt.trim() || Boolean(problem) || preview?.schedule !== schedule} onClick={submit}>Save goal</button> <button className={buttonClass} disabled={busy} onClick={() => setEditing(null)}>Cancel</button></div>}
     {!data && !error && <div className="space-y-3">{[0, 1].map((index) => <div key={index} className={`${cardClass} space-y-2`}><Skeleton className="h-4 w-1/3" /><Skeleton className="h-3 w-1/2" /><Skeleton className="h-3 w-2/3" /></div>)}</div>}{data?.length === 0 && <EmptyState title="No scheduled goals for this bot" description="Create a goal to have Hermes run instructions on your schedule." />}
@@ -78,9 +125,73 @@ export function HermesGoals({ profile, compact = false }: { profile: string; com
       </div>
       {expanded === job.id && <div className="hob-goal-actions space-y-3"><p className="text-sm text-muted">{typeof job.schedule === 'string' ? job.schedule : JSON.stringify(job.schedule)}</p>{job.next_run_at && <p className="text-xs text-muted">Next run: {new Date(job.next_run_at).toLocaleString()}</p>}{job.last_error && <Notice error>{job.last_error}</Notice>}<div className="flex flex-wrap gap-2"><button className={buttonClass} disabled={busy} onClick={() => edit(job)}>Edit</button><button className={buttonClass} disabled={busy} onClick={() => action(() => api(`jobs/${encodeURIComponent(job.id)}/${job.enabled === false || job.state === 'paused' ? 'resume' : 'pause'}`, jsonWrite('POST', {})))}>{job.enabled === false || job.state === 'paused' ? 'Resume' : 'Pause'}</button><button className={buttonClass} disabled={busy} onClick={() => action(() => api(`jobs/${encodeURIComponent(job.id)}/trigger`, jsonWrite('POST', {})))}>Run now</button><button className={buttonClass} disabled={busy} onClick={() => action(async () => setRuns(await api(`jobs/${encodeURIComponent(job.id)}/runs`)))}>Run history</button><ConfirmButton className={buttonClass} disabled={busy} tone="danger" confirmLabel="Delete" message="Delete this goal? This cannot be undone." onConfirm={() => { void action(async () => { await api(`jobs/${encodeURIComponent(job.id)}`, { method: 'DELETE' }); toast('Goal deleted.'); }); }}>Delete</ConfirmButton></div></div>}
     </article>)}</div>
-    {!compact && <section className="hob-create-goal"><h3>Create a goal</h3>{[{ label: 'Health', icon: Heart }, { label: 'Relationships', icon: Users }, { label: 'Finance', icon: DollarSign }, { label: 'Career', icon: Building }, { label: 'Interests', icon: Palette }, { label: 'Productivity', icon: Laptop }, { label: 'Something else', icon: Target }].map(({ label, icon: Icon }) => <button key={label} onClick={() => { edit(); setName(label === 'Something else' ? '' : label); }}><Icon size={24} /><span>{label}</span><Plus size={22} /></button>)}</section>}
-    {compact && <button className="hob-schedule-add" onClick={() => edit()}><Plus size={18} />New scheduled task</button>}
+    {!compact && <section className="hob-create-goal"><h3>Create a goal</h3>{[{ label: 'Health', icon: Heart }, { label: 'Relationships', icon: Users }, { label: 'Finance', icon: DollarSign }, { label: 'Career', icon: Building }, { label: 'Interests', icon: Palette }, { label: 'Productivity', icon: Laptop }, { label: 'Something else', icon: Target }].map(({ label, icon: Icon }) => <button key={label} onClick={() => setBotSelectorOpen(true)}><Icon size={24} /><span>{label}</span><Plus size={22} /></button>)}</section>}
+    {compact && <button className="hob-schedule-add" onClick={() => setBotSelectorOpen(true)}><Plus size={18} />New scheduled task</button>}
     {runs !== null && <div className={cardClass}><button className={buttonClass} onClick={() => setRuns(null)}>Close history</button><pre className="text-xs whitespace-pre-wrap text-muted mt-3">{JSON.stringify(runs, null, 2)}</pre></div>}
+    {botSelectorOpen && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150"
+        role="presentation"
+        onClick={() => setBotSelectorOpen(false)}
+      >
+        <div
+          className="w-full max-w-md max-h-[85dvh] flex flex-col bg-surface border border-edge rounded-[26px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="bot-selector-title"
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-hair">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-accent-soft flex items-center justify-center text-accent">
+                <Bot size={17} />
+              </div>
+              <div>
+                <h3 id="bot-selector-title" className="text-base font-semibold text-ink">
+                  Select a Bot
+                </h3>
+                <p className="text-xs text-muted">Choose a bot to set a goal with</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              aria-label="Close bot selector"
+              onClick={() => setBotSelectorOpen(false)}
+              className="p-1.5 rounded-full text-faint hover:text-ink hover:bg-neutral transition-colors cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            {agents.map((bot) => (
+              <button
+                key={bot.id}
+                type="button"
+                onClick={() => void handleSelectBot(bot.id)}
+                className="w-full flex items-center gap-3.5 p-3 rounded-2xl border border-edge/60 bg-panel hover:bg-sunken hover:border-accent/40 transition-colors text-left cursor-pointer group"
+              >
+                <AgentAvatar size={42} showEditBadge={false} avatarUrl={bot.avatarUrl || '/brand/hob-mark.png'} hideBorder hideStatusDot />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-sm text-ink group-hover:text-accent transition-colors">{bot.name}</span>
+                    {bot.tags && bot.tags.length > 0 && (
+                      <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-neutral text-muted truncate max-w-[120px]">
+                        {bot.tags.join(', ')}
+                      </span>
+                    )}
+                  </div>
+                  {bot.roleDescription && (
+                    <p className="text-xs text-muted truncate mt-0.5">{bot.roleDescription}</p>
+                  )}
+                </div>
+                <ChevronRight size={16} className="text-muted group-hover:text-ink shrink-0 transition-transform group-hover:translate-x-0.5" />
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    )}
   </div>;
 }
 

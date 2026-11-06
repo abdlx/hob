@@ -12,7 +12,7 @@ import { preference, savePreference } from '../services/settings-navigation';
 interface ChatContextValue {
   messages: ChatMessage[]; sessions: ChatSession[]; activeSessionId: string;
   agent: AgentProfile | null; tasks: TaskItem[]; activityWarnings: string[]; approvals: SecurityApproval[]; stats: SystemStats | null;
-  agents: AgentListItem[]; selectAgent: (id: string, options?: { stayOnPage?: boolean }) => Promise<void>;
+  agents: AgentListItem[]; selectAgent: (id: string, options?: { stayOnPage?: boolean; draft?: string }) => Promise<void>;
   activeTab: RightPanelTab; isRightPanelOpen: boolean; isLeftDrawerOpen: boolean; isLoading: boolean;
   isBotsSidebarOpen: boolean; toggleBotsSidebar: () => void; setBotsSidebarOpen: (open: boolean) => void;
   activeNav: string; error: string | null; connected: boolean; isPreparing: boolean; isCreatingConversation: boolean;
@@ -312,7 +312,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     finally { creatingRef.current.delete(profile); if (chatApi.getProfile() === profile) setIsCreatingConversation(false); }
   }, [setActiveNav, isPreparing]);
 
-  const selectAgent = useCallback(async (id: string, options: { stayOnPage?: boolean } = {}) => {
+  const selectAgent = useCallback(async (id: string, options: { stayOnPage?: boolean; draft?: string } = {}) => {
     const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1';
     if (isPreview) {
       const found = agents.find((a) => a.id === id) || { id, name: id.charAt(0).toUpperCase() + id.slice(1), model: 'OpenAI GPT-4o' };
@@ -327,10 +327,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ]);
+      if (options.draft !== undefined) {
+        workRef.current.setDraft(`preview-${id}`, options.draft);
+      }
       if (!options.stayOnPage) setActiveNav('chat');
       return;
     }
-    if (profileLoadingRef.current || isPreparing || id === chatApi.getProfile()) return;
+    if (id === chatApi.getProfile()) {
+      if (options.draft !== undefined && sessionRef.current) {
+        workRef.current.setDraft(sessionRef.current, options.draft);
+      }
+      if (!options.stayOnPage) setActiveNav('chat');
+      return;
+    }
+    if (profileLoadingRef.current || isPreparing) return;
     profileLoadingRef.current = true;
     const epoch = ++viewEpochRef.current, api = chatApi.forProfile(id);
     setIsCreatingConversation(false);
@@ -350,6 +360,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setIsLoading(workRef.current.busy(initial.id));
       operationErrorRef.current = Boolean(workRef.current.error(initial.id)); setError(workRef.current.error(initial.id));
       setActiveSessionId(initial.id);
+      if (options.draft !== undefined) {
+        workRef.current.setDraft(initial.id, options.draft);
+      }
       setQueuedPrompts(workRef.current.getQueue(initial.id));
       setSessions(available.some(session => session.id === initial.id) ? available : [initial, ...available]);
       const version = workRef.current.version(initial.id);

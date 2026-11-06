@@ -268,7 +268,7 @@ test('reference chat and every agent tab fit the phone and retain their data', a
   expect(state.errors).toEqual([]);
 });
 
-test('goals use real scoped pause actions and category creation opens a usable editor', async ({ page }) => {
+test('goals use real scoped pause actions and category creation opens bot selector modal', async ({ page }) => {
   const state = await fixture(page);
   await page.goto('/goals');
   await expect(page.getByRole('heading', { name: 'Goals', exact: true })).toBeVisible();
@@ -278,8 +278,13 @@ test('goals use real scoped pause actions and category creation opens a usable e
   await expect(page.getByRole('button', { name: 'Resume ACCA FA1 and MA1 7-week study push', exact: true })).toBeVisible();
   expect(state.writes).toEqual(['POST /api/hermes/workspace/jobs/study/pause']);
   await page.getByRole('button', { name: 'Health', exact: true }).click();
-  await expect(page.getByLabel('Goal name', { exact: true })).toHaveValue('Health');
-  await expect(page.getByRole('button', { name: 'Save goal', exact: true })).toBeDisabled();
+  const selector = page.getByRole('dialog', { name: 'Select a Bot' });
+  await expect(selector).toBeVisible();
+  await selector.getByRole('button', { name: 'Aster' }).click();
+  await expect(page).toHaveURL(/\/chat$/);
+  const composer = page.locator('textarea[aria-label="Message"]');
+  await expect(composer).toBeFocused();
+  await expect(composer).toHaveValue('set a goal ');
   expect(state.errors).toEqual([]);
 });
 
