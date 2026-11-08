@@ -269,3 +269,38 @@ test('scanAll iterates roster and delivers across multiple profiles', async t =>
   assert.deepEqual(allDelivered.map(d => d.profile).sort(), ['leo', 'theo']);
 });
 
+test('scanProfile suppresses delivery when report is [SILENT]', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'cron-delivery-silent-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const profileDir = path.join(root, 'profiles', 'theo');
+  fs.mkdirSync(path.join(profileDir, 'cron'), { recursive: true });
+
+  const stateDbPath = path.join(profileDir, 'state.db');
+  createMockStateDb(stateDbPath, { withCronRun: false });
+
+  const db = new DatabaseSync(stateDbPath);
+  const cronSessionId = 'local-cron-silent';
+  db.prepare(`INSERT INTO sessions (id, source, started_at, last_activity_at, title) VALUES (?, 'cron', 1010, 1020, 'Cron')`).run(cronSessionId);
+  db.prepare(`INSERT INTO session_admissions VALUES ('adm-silent', ?, 'cron:job-silent:exec-silent', 'cron-owner', 'terminal', 1010, 1020)`).run(cronSessionId);
+  db.prepare(`INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, 'assistant', '[SILENT]', 1020)`).run(cronSessionId);
+  db.close();
+
+  const delivery = createHermesCronDelivery({
+    stateDir: root,
+    hermesHome: root,
+    autoStart: false,
+  });
+  t.after(() => delivery.close());
+
+  const delivered = delivery.scanProfile('theo');
+  assert.equal(delivered.length, 0);
+  assert.equal(delivery.isDelivered('exec-silent'), true);
+
+  const verifyDb = new DatabaseSync(stateDbPath, { readOnly: true });
+  const messages = verifyDb.prepare("SELECT * FROM messages WHERE session_id = 'local-user-chat-123'").all();
+  verifyDb.close();
+  assert.equal(messages.length, 1);
+});
+
+
