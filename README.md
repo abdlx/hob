@@ -58,6 +58,17 @@ Team controls also provide exact model-route review for free/local models and ex
 
 The dormant team adapter also keeps unproven chat notes in private review proposals until you explicitly approve retention across chats. Source-checked task observations and existing private skill excerpts preserve each bot's native memory approval setting. Skill proposals retain their reviewed diff and require a fresh proposal if the source changes. This preview does not yet establish complete session-only memory or native process isolation.
 
+## Team memory
+
+On top of that revision-bound core, hob runs a Muse-style team memory and follow-up system, packaged with hob and layered over Hermes without modifying it. The approved core lives in the team database and is synced into every bot's `AGENTS.md` as a managed block; shared documents are copied from the coordinator's `shared/` directory into each worker's `shared/` directory.
+
+- **Three memory layers.** A shared team core (durable facts only), private per-bot memory (native Hermes MEMORY.md / USER.md), and transient session memory that is never auto-promoted.
+- **How work runs.** Plan first, segmented work with a visible step list and a progress update at each segment boundary, and mid-task interruptions answered while the long task keeps running. Main never blocks on a long job: it delegates to a worker and stays responsive.
+- **Follow-ups.** Anything owed to the user becomes a tracked item in `shared/FOLLOWUPS.md`; an open-thread detector drafts items from session summaries and relay replies; a sweep job checks each open item's current state before delivering, deferring, or closing it — never messaging about a finished item, never re-offering a declined one. The task board (`shared/TASKS.md`) tracks planned, in-progress, blocked, waiting, and done work with per-task step lists.
+- **Promotion.** A worker's `PROMOTE:` lines are proposals, staged through the team database. Tier 1 facts follow the team promotion policy; Tier 2 (standing rules, preferences, money, outsiders, credentials policy) always needs the user's explicit approval. Conflicts surface to the user; user-stated facts always win.
+
+Operate it with `node server/team-memory-cli.mjs` (`init`, `sweep`, `detect`, `promote`, `followup`, `tasks`, `core`). The engine is `server/hermes-team-memory.mjs`; the core, formats, and sync live in `server/hermes-team.mjs`, `server/hermes-team-protocol.mjs`, and `server/hermes-bot-network.mjs`.
+
 ## Contents
 
 - [Android and iPhone app](mobile/README.md)

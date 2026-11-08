@@ -7,6 +7,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createServer } from 'node:http';
 import { HermesBotNetwork, botRelayUrl } from '../hermes-bot-network.mjs';
+import { HermesTeam } from '../hermes-team.mjs';
 
 const ENDPOINT = 'https://hob.example.com/api/hermes/bot-relay';
 const credential = name => (name === 'default' ? 'a' : 'b').repeat(64);
@@ -283,4 +284,68 @@ test('a hard-linked AGENTS file cannot copy operator secrets into a bot workspac
   assert.equal((await network.sync()).failed.length, 1);
   assert.equal(await readFile(secret, 'utf8'), 'private-operator-secret');
   await assert.rejects(readFile(path.join(root, 'main', '.hob', 'relay.json')), { code: 'ENOENT' });
+}));
+
+async function teamFixture(run) {
+  const root = await mkdtemp(path.join(tmpdir(), 'hob-team-rules-'));
+  const workspaceRoot = path.join(root, 'workspaces'), stateDir = path.join(root, 'state');
+  const roster = ['default', 'writer'].map(name => ({ name, displayName: name === 'default' ? 'Main' : 'Writer', state: 'active' }));
+  await mkdir(path.join(workspaceRoot, 'main', 'shared'), { recursive: true });
+  const team = new HermesTeam({ stateDir, workspaceRoot, roster: () => roster, nativeHome: path.join(root, 'native') });
+  const network = new HermesBotNetwork({ team, workspaceRoot, roster: async () => ({ profiles: roster }), credential: () => 'a'.repeat(64), relayUrl: ENDPOINT });
+  try { await run({ root, workspaceRoot, team, network }); }
+  finally {
+    team.close();
+    assert.equal(path.dirname(root), tmpdir());
+    assert.ok(path.basename(root).startsWith('hob-team-rules-'));
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+function teamSettings(team, changes = {}) {
+  const { revision, coordinatorOnly, shareDocuments, coreBudget, sessionWindow } = team.policy();
+  return team.configure({ revision, coordinatorOnly: true, shareDocuments: true, coreBudget, sessionWindow, ...changes, confirm: true });
+}
+
+function teamPublish(team) {
+  const proposal = team.propose({ author: 'user', content: '# Essential\n\n- Shared fact.\n\n# Reference\n\n- Retrieval-only detail.\n', base: team.core().revision, evidence: 'Reviewed project fact' });
+  team.decide({ id: proposal.id, base: proposal.base, digest: proposal.digest, decision: 'approve', confirm: true });
+}
+
+test('managed blocks teach the team how to run work', async () => teamFixture(async ({ workspaceRoot, team, network }) => {
+  teamSettings(team);
+  teamPublish(team);
+  await network.sync();
+  const main = await readFile(path.join(workspaceRoot, 'main', 'AGENTS.md'), 'utf8');
+  assert.match(main, /TASK <id> — <short title>/);
+  assert.match(main, /OUTCOME: <what done looks like, verifiable>/);
+  assert.match(main, /waiting on <bot>/);
+  assert.match(main, /How to run work/);
+  assert.match(main, /Plan first/);
+  assert.match(main, /Work in segments/);
+  assert.match(main, /Interruptions/);
+  assert.match(main, /Main never blocks on a long job/);
+  assert.match(main, /Tier 1 \(project status, contact details, tool notes\)/);
+  assert.match(main, /Tier 2 \(standing rules, preferences, money, outsiders, credentials policy\)/);
+  assert.match(main, /follow-up sweep/);
+
+  const writer = await readFile(path.join(workspaceRoot, 'bots', 'writer', 'AGENTS.md'), 'utf8');
+  assert.match(writer, /TASK <id> — <DONE \| BLOCKED \| PARTIAL>/);
+  assert.match(writer, /PROMOTE: <facts proposed for core/);
+  assert.match(writer, /How to run work/);
+  assert.match(writer, /Interruptions/);
+  assert.doesNotMatch(writer, /Main never blocks on a long job/);
+  assert.doesNotMatch(writer, /follow-up sweep/);
+}));
+
+test('a session fact that was never promoted never reaches another bot', async () => teamFixture(async ({ workspaceRoot, team, network }) => {
+  teamSettings(team);
+  teamPublish(team);
+  await network.sync();
+  await writeFile(path.join(workspaceRoot, 'bots', 'writer', 'MEMORY.md'), 'The user secretly prefers the mango workflow.\n');
+  await network.sync();
+  const main = await readFile(path.join(workspaceRoot, 'main', 'AGENTS.md'), 'utf8');
+  assert.doesNotMatch(main, /mango workflow/);
+  assert.match(main, /Shared fact\./);
+  assert.doesNotMatch(team.core().content, /mango workflow/);
 }));
