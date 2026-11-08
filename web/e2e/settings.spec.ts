@@ -19,6 +19,7 @@ async function fixture(page: Page, extraApps = false, savedProviderCards = false
     const profile = url.searchParams.get('profile') || 'default';
     const json = (value: unknown, status = 200) => route.fulfill({ status, json: value });
     if (request.method() !== 'GET') writes.push({ path, body: request.postDataJSON(), profile: request.headers()['x-hob-profile'] || null });
+    if (path === '/api/hermes/team/work/inbox') return json({ items: [] });
     if (path === '/api/auth/status') return json({ authenticated: true, configured: true });
     if (path === '/api/runtime') return json({ runtime: 'hermes' });
     if (path === '/api/readiness') return json({ ready: true, status: 'ready' });
@@ -710,6 +711,7 @@ test('team core review requires an explicit approval and reports incomplete dist
   await page.route('**/api/hermes/team**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     const json = (value: unknown) => route.fulfill({ json: value });
+    if (path === '/api/hermes/team/work/inbox') return json({ items: [] });
     if (request.method() === 'GET' && path.endsWith('/history')) return json({ revisions: [{ revision: 1, content: team.core.content, committed: Date.parse('2026-10-30T10:00:00Z') }] });
     if (request.method() === 'GET') return json(team);
     const body = request.postDataJSON(); writes.push({ path, body });
@@ -723,7 +725,8 @@ test('team core review requires an explicit approval and reports incomplete dist
       team.bots[0] = { ...team.bots[0], revision: 1, status: 'synced' };
     }
     if (path.endsWith('/settings')) {
-      expect(Object.keys(body).sort()).toEqual(['confirm', 'coordinatorOnly', 'coreBudget', 'revision', 'sessionWindow', 'shareDocuments']);
+      expect(Object.keys(body).sort()).toEqual(['architectureEnabled', 'confirm', 'coordinatorOnly', 'coreBudget', 'revision', 'sessionWindow', 'shareDocuments']);
+      expect(body.architectureEnabled).toBe(true);
       team.policy = { ...team.policy, ...body, revision: team.policy.revision + 1 };
     }
     return json({ ...team, sync: { updated: incomplete ? [] : ['default'], failed: incomplete ? [{ name: 'Main', error: 'Fixture sync failure' }] : [] } });
@@ -747,7 +750,9 @@ test('team core review requires an explicit approval and reports incomplete dist
   await controls.getByRole('button', { name: 'Restore revision 1 as a proposal' }).click();
   await expect(controls.getByLabel('Proposed team core')).toHaveValue('Checked project fact.');
   expect(writes.length).toBe(2); // Restoring only prepares a draft; it cannot bypass approval.
-  await controls.getByRole('checkbox', { name: 'Route worker requests through the coordinator' }).check();
+  await controls.getByRole('checkbox', { name: /Enable HOB team architecture/ }).check();
+  await expect(controls.getByRole('checkbox', { name: 'Route worker requests through the coordinator' })).toBeChecked();
+  await expect(controls.getByRole('checkbox', { name: 'Route worker requests through the coordinator' })).toBeDisabled();
   await controls.getByRole('button', { name: 'Save team distribution settings' }).click();
   await expect(controls.getByText('Saved and synchronized. This does not mark the employee team live.')).toBeVisible();
   incomplete = true;
@@ -768,6 +773,7 @@ test('non-metered routes require exact billing review and expose revocation on a
   const writes: string[] = [];
   await page.route('**/api/hermes/team**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
+    if (path === '/api/hermes/team/work/inbox') return route.fulfill({ json: { items: [] } });
     if (request.method() === 'GET') return route.fulfill({ json: path.endsWith('/execution/routes') ? execution : team });
     const body = request.postDataJSON(); writes.push(path);
     if (path.endsWith('/preview')) {

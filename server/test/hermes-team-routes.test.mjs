@@ -19,7 +19,7 @@ test('only dashboard authentication can approve core; bot identity cannot be sup
   const app = createApp({ gateway, hermes: gateway, bots, team, password: 'test-password', accessToken: '', sessionSecret: 'synthetic-secret', stateDir: path.join(root, 'state') });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => {
-    app.closeAllConnections(); await new Promise(resolve => app.close(resolve)); team.close();
+    app.closeAllConnections(); await new Promise(resolve => app.close(resolve)); await app.drain(); team.close();
     assert.equal(path.dirname(root), tmpdir()); assert.ok(path.basename(root).startsWith('hob-team-http-'));
     await rm(root, { recursive: true, force: true });
   });
@@ -52,4 +52,16 @@ test('only dashboard authentication can approve core; bot identity cannot be sup
   const approved = await call('/api/hermes/team/decisions', decision, user); assert.equal(approved.status, 200);
   const status = await approved.json(); assert.equal(status.core.revision, 1); assert.deepEqual(status.sync.failed, []);
   assert.equal((await call('/api/hermes/team/decisions', decision, user)).status, 409);
+  const policy = team.policy();
+  team.configure({ revision: policy.revision, coordinatorOnly: true, architectureEnabled: true, shareDocuments: false, coreBudget: 4000, sessionWindow: 20, confirm: true });
+  assert.equal((await call('/api/hermes/team/work', undefined, main)).status, 401);
+  assert.equal((await call('/api/hermes/team/work')).status, 401);
+  const planned = await call('/api/hermes/team/work/plan', { requestId: 'operator-plan', id: 'report-1', owner: 'writer', title: 'Report', outcome: 'A checked report', output: 'artifacts/report.md', deadline: 'none', steps: ['Draft', 'Check'] }, user);
+  assert.equal(planned.status, 200);
+  const tasks = await (await call('/api/hermes/bot-relay/work/tasks', undefined, worker)).json(); assert.equal(tasks.items[0].id, 'report-1');
+  assert.equal((await call('/api/hermes/team/work/preferences', {}, { ...user, Origin: 'https://other.invalid' })).status, 403);
+  assert.equal((await call('/api/hermes/bot-relay/work/remember', { requestId: 'writer-note', summary: 'Writer lesson', evidence: 'Own task' }, worker)).status, 200);
+  const privateMain = await (await call('/api/hermes/bot-relay/work/episodes?profile=writer', undefined, main)).json(); assert.deepEqual(privateMain.items, []);
+  const privateOperator = await (await call('/api/hermes/team/work/episodes?profile=writer', undefined, user)).json(); assert.equal(privateOperator.items[0].summary, 'Writer lesson');
+  assert.equal((await call('/api/hermes/bot-relay/work/candidates/decide', { requestId: 'fake-user', decision: 'stage', confirm: true }, main)).status, 403);
 });

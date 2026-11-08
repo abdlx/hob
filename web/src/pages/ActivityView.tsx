@@ -4,6 +4,7 @@ import { apiFetch } from '../services/api';
 import { useChat } from '../context/ChatContext';
 import { useRuntime } from '../context/RuntimeContext';
 import { AgentAvatar } from '../components/AgentAvatar';
+import { HobTeamWorkspace } from '../components/HobTeamWorkspace';
 import { buttonClass, CardList, CardRow, EmptyState, Notice, sectionLabelClass, Skeleton, StatusPill } from '../components/WorkspaceUI';
 import { errorText } from '../components/workspaceUtils';
 import type { ActivityFeed, TaskItem } from '../types/chat';
@@ -239,6 +240,7 @@ export function ActivityView() {
 
   return (
     <div className="space-y-5">
+      {runtime === 'hermes' && <HobTeamWorkspace key={activityFilter || 'default'} profile={activityFilter || 'default'} />}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
           <p className="text-xs md:text-sm text-muted truncate">

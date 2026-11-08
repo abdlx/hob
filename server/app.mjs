@@ -14,6 +14,8 @@ import { createHermesSetupRoutes } from './hermes-setup.mjs';
 import { createHermesGroups } from './hermes-groups.mjs';
 import { createHermesMcpOAuth } from './hermes-mcp-oauth.mjs';
 import { createHermesBotRelay } from './hermes-bot-relay.mjs';
+import { HobTeamOrchestrator } from './hob-team-orchestrator.mjs';
+import { HermesExchanges } from './hermes-exchanges.mjs';
 import { createHermesCronDelivery } from './hermes-cron-delivery.mjs';
 import { createHermesTeamRoutes } from './hermes-team-routes.mjs';
 import { createBrowserRoutes } from './browser-routes.mjs';
@@ -28,7 +30,7 @@ const SESSION_RENEW_WINDOW = 7 * 86400_000;
 const MAX_BODY = 2 * 1024 * 1024;
 const PROFILE_FILES = new Set(['SOUL.md', 'MEMORY.md', 'IDENTITY.md', 'USER.md', 'AGENTS.md', 'TOOLS.md', 'HEARTBEAT.md']);
 const MEDIA = /\.(png|jpe?g|gif|webp|svg|avif|mp4|webm|mov|mp3|wav|ogg|m4a|flac)$/i;
-const EXPOSED_EVENTS = /^(bot\.exchange|chat|agent|session\.|sessions\.changed|cron|exec\.approval\.|plugin\.approval\.|openclaw\.approval\.|question\.|health|models\.snapshot)/;
+const EXPOSED_EVENTS = /^(team\.changed|bot\.exchange|chat|agent|session\.|sessions\.changed|cron|exec\.approval\.|plugin\.approval\.|openclaw\.approval\.|question\.|health|models\.snapshot)/;
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
 export const SETTINGS_RPC_METHODS = new Set([
   'models.list', 'models.authStatus', 'models.authLogin', 'models.authSetApiKey', 'models.authLogout', 'models.authRefresh', 'models.authOrderSet', 'models.probe',
@@ -117,13 +119,18 @@ async function browserImage(stateDir, filename) {
 }
 
 export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gateway : undefined, bots, browser, runJournal, nativeSessions, exchanges, telemetry, team, teamArtifacts, password = hobEnv().HOB_PASSWORD, accessToken = hobEnv().HOB_ACCESS_TOKEN, sessionSecret = hobEnv().HOB_SESSION_SECRET, publicUrl = hobEnv().HOB_PUBLIC_URL, secureCookies = hobEnv().HOB_SECURE_COOKIES === 'true', stateDir = process.env.OPENCLAW_STATE_DIR, viewerTicketTtlMs, sessionNow = Date.now, staticDir = fileURLToPath(new URL('../web/dist', import.meta.url)) }) {
+  // Production supplies the durable store. Embedded/test hosts must still share
+  // one correlation owner across relay, transcript filtering, and bookkeeping.
+  if (!exchanges && hermes && bots) exchanges = new HermesExchanges();
   const configured = Boolean(password || accessToken);
   const secret = sessionSecret || createHash('sha256').update(`hob-session:${password || accessToken || randomBytes(32).toString('hex')}`).digest();
   const fingerprint = createHash('sha256').update(`${password || ''}:${accessToken || ''}`).digest('base64url');
   const mobile = new MobileDevices({ stateDir: process.env.HOB_STATE_DIR || stateDir, fingerprint, now: sessionNow });
   const bootstrapTickets = new Map();
   const publicationAttempts = new Set();
+  const memory = team && bots?.roster ? new HobTeamOrchestrator({ stateDir: process.env.HOB_STATE_DIR || stateDir, team, roster: () => bots.roster(), exchanges, artifacts: teamArtifacts, notify: frame => gateway.emit?.('event', frame) }) : null;
   const notifyCompleted = value => {
+    try { memory?.observeTurn(value); } catch { console.warn('[hob] A private work-log entry could not be recorded.'); }
     try { mobile.completed(value); } catch { console.warn('[hob] A mobile notification could not be queued.'); }
     const identity = `${value.profile}:${value.admissionId}`;
     if (artifacts && value.output && !publicationAttempts.has(identity)) {
@@ -172,8 +179,8 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat, attachmentSecret: secret, onCompleted: notifyCompleted, recoverCompleted: Boolean(artifacts), telemetry, team, cronDelivery, exchanges }) : null;
   // The relay authenticates each bot with its own relay-scoped credential, not the
   // dashboard session, so it is mounted before the `/api/*` login gate.
-  const botRelay = hermes && bots ? createHermesBotRelay({ client: hermes, bots, exchanges, journal: runJournal, bridge: nativeSessions, team, teamArtifacts, onWake: key => canonicalChat?.watch(key) }) : null;
-  const teamRoutes = team && bots ? createHermesTeamRoutes({ team, bots }) : null;
+  const botRelay = hermes && bots ? createHermesBotRelay({ client: hermes, bots, exchanges, journal: runJournal, bridge: nativeSessions, team, teamArtifacts, memory, onWake: key => canonicalChat?.watch(key) }) : null;
+  const teamRoutes = team && bots ? createHermesTeamRoutes({ team, bots, memory }) : null;
   // The managed browser is only meaningful with a bot roster to scope it to.
   const browserRoutes = browser && bots ? createBrowserRoutes({
     browser, json, body, startEvents, sendEvent,
@@ -636,6 +643,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   const pushTimer = setInterval(() => { void mobile.flush().catch(() => console.warn('Mobile notification delivery could not be checked.')); }, 10000); pushTimer.unref();
   server.once('close', () => { clearInterval(pushTimer); nativeSessions?.off('event', mobileEvent); mobile.close(); });
   server.once('listening', () => {
+    memory?.start();
     botRelay?.start();
     cronDelivery?.start();
   });
@@ -643,7 +651,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   const stopBackground = () => {
     if (backgroundClose) return backgroundClose;
     clearInterval(runPoll);
-    backgroundClose = Promise.allSettled([() => botRelay?.close(), () => cronDelivery?.close(), () => canonicalChat?.close(), () => nativeSessions?.close(), () => browserRoutes?.close(), () => agentComputerRoutes?.close()]
+    backgroundClose = Promise.allSettled([() => botRelay ? botRelay.close() : memory?.close(), () => cronDelivery?.close(), () => canonicalChat?.close(), () => nativeSessions?.close(), () => browserRoutes?.close(), () => agentComputerRoutes?.close()]
       .map(close => Promise.resolve().then(close)));
     return backgroundClose;
   };

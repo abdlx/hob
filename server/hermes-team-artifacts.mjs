@@ -140,5 +140,15 @@ export function createTeamArtifactHandoffs({ team, workspaceRoot, roster }) {
       ...(review ? { teamVerification: review.verdict === 'passed' ? 'coordinator-reviewed' : 'coordinator-rejected',
         teamReview: { id: review.requestId, sha256: review.sha256, verdict: review.verdict, at: review.at } } : {}) };
   }
-  return { receive, inspect, review, reviewState };
+  async function readReviewed(record) {
+    const receipt = await inspect(record), state = reviewState(record);
+    if (!receipt || state?.teamVerification !== 'coordinator-reviewed' || state.teamReview?.sha256 !== receipt.sha256) throw refuse('This output needs a current passing coordinator review before delivery.', 409);
+    const current = await readPinned(workspaceRoot, ['main', ...receipt.path.split('/')]);
+    if (current.sha256 !== receipt.sha256) throw refuse('The reviewed snapshot changed before download.', 409, 'TEAM_ARTIFACT_CHANGED');
+    authorize(record);
+    // Recheck the verdict after I/O; a new failed review can revoke delivery.
+    if (reviewState(record)?.teamReview?.id !== state.teamReview.id || reviewState(record)?.teamVerification !== 'coordinator-reviewed') throw refuse('The output review changed. Refresh before downloading.', 409);
+    return { bytes: current.bytes, sha256: receipt.sha256, name: path.basename(parseTeamTask(record.message).fields.OUTPUT) };
+  }
+  return { receive, inspect, review, reviewState, readReviewed };
 }

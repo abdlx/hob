@@ -18,7 +18,7 @@ export function createHermesWakeups({ bridge, bots, exchanges, notify, onAdmissi
           || (!result.admission_id && result.refused !== true)) throw new Error('Hermes returned an invalid wake-up receipt.');
       const status = { queued: 'admitted', claimed: 'admitted', settled: 'completed', failed: 'failed', cancelled: 'cancelled', ambiguous: 'unknown' }[result.status];
       const reason = typeof result.reason === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(result.reason) ? result.reason : null;
-      exchanges.updateWakeup(job.id, { status, nextAt: Date.now() + 15000, sessionKey: hermesNativeSessionKey(job.profile, result.session_id), admissionId: result.retry_admission_id || result.admission_id || null,
+      exchanges.updateWakeup(job.id, { status, nextAt: Date.now() + 15000, sessionId: result.session_id, sessionKey: hermesNativeSessionKey(job.profile, result.session_id), admissionId: result.retry_admission_id || result.admission_id || null,
         error: ['failed', 'unknown'].includes(status) ? `Native follow-up ${status}${reason ? ` (${reason})` : ''}. Inspect its Bot Chat before retrying.` : null });
       onAdmission?.(hermesNativeSessionKey(job.profile, result.session_id));
       notify?.(job.exchangeId);

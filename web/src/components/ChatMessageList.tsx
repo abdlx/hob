@@ -11,6 +11,7 @@ import { errorText } from './workspaceUtils';
 import type { SecurityApproval } from '../types/chat';
 import { useConversationScroll } from '../hooks/useConversationScroll';
 import { Skeleton } from './WorkspaceUI';
+import { HobTeamInbox } from './HobTeamWorkspace';
 
 function InlineApprovalPrompt() {
   const { approvals, resolveApproval } = useChat();
@@ -185,6 +186,7 @@ export function ChatMessageList() {
         )}
 
         {runtime === 'hermes' && agent && <BotExchangeHistory key={agent.id} profile={agent.id} />}
+        {runtime === 'hermes' && agent && <HobTeamInbox key={`inbox:${agent.id}`} profile={agent.id} />}
         {exchanges.earlier && <p className="mb-2 text-center text-xs text-muted">Earlier bot conversations are available in Bot conversations.</p>}
         {exchanges.error && <p className="my-2 text-xs text-red-600" role="alert">Bot exchanges: {exchanges.error}</p>}
         {timeline.map((item, index) => <Fragment key={item.id}>

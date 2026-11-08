@@ -320,6 +320,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }, 15000);
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = preview ? () => {} : chatApi.subscribe(frame => {
+      if (frame.event === 'team.changed') {
+        window.dispatchEvent(new CustomEvent('hob:team-changed', { detail: frame.payload }));
+        return;
+      }
       if (frame.event === 'bot.exchange') {
         window.dispatchEvent(new CustomEvent('hob:bot-exchange', { detail: frame.payload }));
         return;

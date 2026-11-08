@@ -142,7 +142,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
             telemetry.record(owner.profile, 'turn.settlement', Math.max(0, Date.now() - record.submittedAt), record.status === 'completed' ? 'ok' : record.status === 'cancelled' ? 'cancelled' : record.status === 'failed' ? 'error' : 'unknown', { runId: record.runId });
           }
           if (record.status === 'completed') onCompleted?.({ profile: owner.profile, sessionId: owner.sessionId, admissionId: record.runId, createdAt: record.submittedAt,
-            output: messageContentText(receipt.result?.final_response) });
+            input: record.input || '', output: messageContentText(receipt.result?.final_response) });
         }
       }
       // Native work from another attached viewer also fences new UI submissions.

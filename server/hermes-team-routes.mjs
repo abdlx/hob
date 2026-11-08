@@ -1,9 +1,12 @@
+import { HOB_OPERATOR } from './hob-team-orchestrator.mjs';
 import { HermesError } from './hermes-client.mjs';
+import { hobTeamRoute } from './hob-team-routes.mjs';
 
 // Called only after the dashboard session gate. Bot relay credentials never reach decisions.
-export function createHermesTeamRoutes({ team, bots }) {
+export function createHermesTeamRoutes({ team, bots, memory }) {
   return async (req, res, url, { body, json }) => {
     const resource = url.pathname.slice('/api/hermes/team'.length);
+    if (resource === '/work' || resource.startsWith('/work/')) return hobTeamRoute(memory, HOB_OPERATOR, req, res, resource.slice(5), url, { body, json });
     if (!resource && req.method === 'GET') return json(res, 200, team.status());
     if (resource === '/history' && req.method === 'GET') return json(res, 200, { revisions: team.history() });
     if (resource === '/draft' && req.method === 'GET') return json(res, 200, { content: await team.draft(), base: team.core().revision });

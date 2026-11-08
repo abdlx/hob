@@ -11,6 +11,7 @@ async function fixture(page: Page) {
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     const json = (value: unknown) => route.fulfill({ json: value });
+    if (path === '/api/hermes/team/work/inbox') return json({ items: [] });
     if (path === '/api/auth/status') return json({ authenticated: true, configured: true });
     if (path === '/api/runtime') return json({ runtime: 'hermes' });
     if (path === '/api/readiness') return json({ ready: true, status: 'ready' });

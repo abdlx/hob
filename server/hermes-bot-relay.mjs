@@ -3,6 +3,7 @@ import { HermesError, hermesResource, hermesProfile, hermesSessionKey } from './
 import { HermesExchanges } from './hermes-exchanges.mjs';
 import { createHermesWakeups } from './hermes-wakeups.mjs';
 import { parseTeamTask, parseTeamReply } from './hermes-team-protocol.mjs';
+import { hobTeamRoute } from './hob-team-routes.mjs';
 import { containsTeamCredentials } from './hermes-team.mjs';
 
 const BASE = '/api/hermes/bot-relay';
@@ -69,7 +70,7 @@ const nativeTerminalPatch = (run, status) => {
 };
 
 /** Each handoff has its own native session and durable correlation record. */
-export function createHermesBotRelay({ client, bots, exchanges = new HermesExchanges(), journal, bridge, onWake, team, teamArtifacts }) {
+export function createHermesBotRelay({ client, bots, exchanges = new HermesExchanges(), journal, bridge, onWake, team, teamArtifacts, memory }) {
   const observers = new Map(), admissions = new Map(), controllers = new Set();
   const retryAt = new Map(), retryAttempts = new Map(), failureChecks = new Map();
   let closed = false, timer, sweep;
@@ -245,7 +246,7 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
     if (typeof input.message !== 'string' || !input.message.trim() || input.message.length > 64000) throw invalid('Enter a message under 64,000 characters.');
     if (team?.policy().coordinatorOnly && containsTeamCredentials(input.message)) throw invalid('Potential credentials cannot be sent through employee-team messages.');
     const teamTask = team?.policy().coordinatorOnly && sender.name === 'default' ? parseTeamTask(input.message) : null;
-    const waitMs = input.waitMs === undefined ? 120000 : input.waitMs;
+    const waitMs = memory?.enabled() && sender.name === 'default' ? 0 : input.waitMs === undefined ? 120000 : input.waitMs;
     if (typeof waitMs !== 'number' || !Number.isFinite(waitMs) || waitMs < 0 || waitMs > 600000) throw invalid('Choose a relay wait between zero and ten minutes.');
     const requestKey = input.requestId ?? randomUUID();
     if (typeof requestKey !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(requestKey)) throw invalid('Use a valid relay request identifier.');
@@ -265,8 +266,10 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
       // Unknown is a parked outcome, not active work. Counting it here would
       // permanently consume a receiver's capacity after a restart.
       if (exchanges.pending().filter(record => record.to === receiver.name && record.status !== 'unknown').length >= 8) throw new HermesError(429, 'This bot already has eight active handoffs. Wait for a result before sending more work.', 'RELAY_BUSY');
+      if (memory?.enabled() && teamTask) memory.checkDelegation(teamTask, receiver.name);
       const record = exchanges.create({ requestKey, from: sender.name, fromName: label(sender), to: receiver.name, toName: label(receiver), message: input.message, sourceSession, ancestry, parentExchangeId: parent?.id || null,
-        ...(team?.policy().coordinatorOnly ? { teamControlled: true } : {}), ...(teamTask ? { teamTask, teamVerification: 'unproven' } : {}), wakeOnComplete: Boolean(bridge), relayHelpers: Object.fromEntries([sender.name, 'default'].map(name => [name, bots.relayHelper?.(name) || '.hob/talk.mjs'])) });
+        ...(team?.policy().coordinatorOnly ? { teamControlled: true } : {}), ...(teamTask ? { teamTask, teamVerification: 'unproven' } : {}), hobArchitecture: memory?.enabled() === true, wakeOnComplete: Boolean(bridge), relayHelpers: Object.fromEntries([sender.name, 'default'].map(name => [name, bots.relayHelper?.(name) || '.hob/talk.mjs'])) });
+      memory?.delegated(record);
       notify(record);
       admission = (async () => {
         try {
@@ -320,6 +323,8 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
     const sender = await bots.authenticate(/^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization || '')?.[1]);
     if (!sender) throw new HermesError(401, 'A bot relay credential is required.', 'RELAY_UNAUTHORIZED');
     if (closed) throw new HermesError(503, 'The relay is shutting down. No new handoff was started.', 'RELAY_CLOSED');
+    const workPath = url.pathname.slice(BASE.length);
+    if (workPath === '/work' || workPath.startsWith('/work/')) return hobTeamRoute(memory, sender.name, req, res, workPath.slice(5), url, { body, json });
     const tail = url.pathname.slice(BASE.length);
     const artifact = /^\/team\/artifacts\/([a-f0-9-]{36})(?:\/(reviews))?$/.exec(tail);
     if (artifact && teamArtifacts) {
@@ -345,6 +350,7 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
       throw new HermesError(405, 'Inspect, receive or review this assigned output.', 'INVALID_REQUEST');
     }
     if (team && tail === '/team/core' && req.method === 'POST') {
+      if (sender.name !== 'default') throw new HermesError(403, 'Workers submit fact candidates through HOB or their structured reply.', 'TEAM_COORDINATOR_REQUIRED');
       const value = await body(req);
       if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['content', 'base', 'evidence'].includes(key))) throw invalid('Unsupported core proposal fields.');
       return json(res, 201, team.propose({ ...value, author: sender.name }));
@@ -413,6 +419,7 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
         await Promise.allSettled(pending.slice(i, i + 4).map(record => reconcile(exchanges.get(record.id))));
       }
       if (!closed) await wakeups();
+      if (!closed) await memory?.sweep();
     })().catch(error => console.warn(`Bot coordination sweep failed: ${error.message}`)).finally(() => { sweep = null; });
     return sweep;
   };
@@ -426,6 +433,7 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
     for (const controller of controllers) controller.abort();
     await Promise.allSettled([...observers.values(), ...admissions.values(), ...(sweep ? [sweep] : [])]);
     retryAt.clear(); retryAttempts.clear(); failureChecks.clear();
+    await memory?.close();
     exchanges.close();
   };
   return route;

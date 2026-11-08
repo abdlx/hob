@@ -56,7 +56,7 @@ const browser = await BrowserManager.open({
   stateDir: process.env.HOB_STATE_DIR,
   options: { telemetry, ...(Number.isFinite(idleMs) && idleMs >= 0 ? { idleMs } : {}), ...(isolation ? { spawnBrowser: isolation.spawnBrowser.bind(isolation) } : {}) },
 });
-const team = new HermesTeam({ stateDir: process.env.HOB_STATE_DIR, workspaceRoot: process.env.HOB_WORKSPACE_ROOT || path.join(process.env.HERMES_HOME, 'workspaces'), roster: () => registry.list() });
+const team = new HermesTeam({ stateDir: process.env.HOB_STATE_DIR, workspaceRoot: process.env.HOB_WORKSPACE_ROOT || path.join(process.env.HERMES_HOME, 'workspaces'), roster: () => registry.list(), architectureDefault: true });
 const teamArtifacts = createTeamArtifactHandoffs({ team, workspaceRoot: process.env.HOB_WORKSPACE_ROOT || path.join(process.env.HERMES_HOME, 'workspaces'), roster: () => registry.list() });
 const bots = new HermesBots({
   team,

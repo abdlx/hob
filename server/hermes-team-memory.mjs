@@ -710,7 +710,7 @@ export async function applyPromotion(team, { fact, evidence = '', tier, userAppr
   const cleanEvidence = sanitizeBlockText(evidence).slice(0, 4000);
   if (!clean) throw new Error('Promotion fact must not be empty.');
   if (containsTeamCredentials(clean) || containsTeamCredentials(cleanEvidence)) throw new Error('Promotions must not contain credentials or secrets.');
-  const decided = tier || classifyPromotion(clean);
+  const decided = classifyPromotion(clean) === 'tier2' || tier === 'tier2' ? 'tier2' : 'tier1';
   if (decided === 'tier2' && userApproved !== true) {
     return { applied: false, tier: decided, reason: 'tier2-needs-user-approval' };
   }

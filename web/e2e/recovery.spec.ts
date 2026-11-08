@@ -16,6 +16,7 @@ async function recoveryFixture(page: Page) {
     const profile = request.headers()['x-hob-profile'] || 'default';
     const json = (value: unknown) => route.fulfill({ json: value });
     if (request.method() !== 'GET') state.posts.push(path);
+    if (path === '/api/hermes/team/work/inbox') return json({ items: [] });
     if (path === '/api/auth/status') return state.authUnavailable ? route.fulfill({ status: 502, body: 'Bad Gateway' }) : json({ authenticated: true, configured: true });
     if (path === '/api/runtime') return state.runtimeUnavailable ? route.fulfill({ status: 502, contentType: 'text/html', body: '<h1>Bad Gateway</h1>' }) : json({ runtime: 'hermes' });
     if (state.unavailable && ['/api/sessions', '/api/readiness'].includes(path)) return route.fulfill({ status: 502, contentType: 'text/html', body: '<h1>Bad Gateway</h1>' });

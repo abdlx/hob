@@ -155,6 +155,28 @@ test('generated helper authenticates without listener secrets in its terminal en
   } finally { await new Promise(resolve => server.close(resolve)); }
 }));
 
+test('generated HOB work helper uses scoped credentials, preserves request identity and never retries a rejected mutation', async () => fixture(async root => {
+  const seen = [];
+  const server = createServer(async (req, res) => {
+    const chunks = []; for await (const chunk of req) chunks.push(chunk);
+    seen.push({ path: req.url, authorization: req.headers.authorization, body: chunks.length ? JSON.parse(Buffer.concat(chunks)) : null });
+    res.writeHead(503, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Check current state before retrying.' }));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const network = new HermesBotNetwork({ roster: async () => ({ profiles: [{ name: 'writer', state: 'active' }] }), workspaceRoot: root, credential,
+      relayUrl: `http://127.0.0.1:${server.address().port}/api/hermes/bot-relay` });
+    await network.sync();
+    const helper = path.join(root, 'bots', 'writer', '.hob', 'work.mjs'), input = { requestId: 'stable-proposal', fact: 'Observed project fact', evidence: 'Own task at noon' };
+    await assert.rejects(promisify(execFile)(process.execPath, [helper, 'propose', JSON.stringify(input)]), error => {
+      assert.match(error.stderr, /stable-proposal/); assert.match(error.stderr, /No automatic mutation retry/);
+      assert.doesNotMatch(error.stdout + error.stderr, new RegExp(credential('writer'))); return error.code === 1;
+    });
+    assert.deepEqual(seen, [{ path: '/api/hermes/bot-relay/work/candidates', authorization: `Bearer ${credential('writer')}`, body: input }]);
+    await assert.rejects(promisify(execFile)(process.execPath, [helper, 'approve', '{}'])); assert.equal(seen.length, 1);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+}));
+
 test('generated helper reports a failed recipient run instead of treating partial output as success', async () => fixture(async root => {
   const server = createServer(async (req, res) => {
     const chunks = []; for await (const chunk of req) chunks.push(chunk);
@@ -319,15 +341,14 @@ test('managed blocks teach the team how to run work', async () => teamFixture(as
   const main = await readFile(path.join(workspaceRoot, 'main', 'AGENTS.md'), 'utf8');
   assert.match(main, /TASK <id> — <short title>/);
   assert.match(main, /OUTCOME: <what done looks like, verifiable>/);
-  assert.match(main, /waiting on <bot>/);
+  assert.match(main, /inspect its native exchange state rather than guessing done or failed/);
   assert.match(main, /How to run work/);
   assert.match(main, /Plan first/);
   assert.match(main, /Work in segments/);
   assert.match(main, /Interruptions/);
-  assert.match(main, /Main never blocks on a long job/);
-  assert.match(main, /Tier 1 \(project status, contact details, tool notes\)/);
-  assert.match(main, /Tier 2 \(standing rules, preferences, money, outsiders, credentials policy\)/);
-  assert.match(main, /follow-up sweep/);
+  assert.match(main, /Native scheduling, FIFO and approvals still apply/);
+  assert.match(main, /Every shared core change requires user approval/);
+  assert.match(main, /Check current state before offering a reminder/);
 
   const writer = await readFile(path.join(workspaceRoot, 'bots', 'writer', 'AGENTS.md'), 'utf8');
   assert.match(writer, /TASK <id> — <DONE \| BLOCKED \| PARTIAL>/);
@@ -336,6 +357,20 @@ test('managed blocks teach the team how to run work', async () => teamFixture(as
   assert.match(writer, /Interruptions/);
   assert.doesNotMatch(writer, /Main never blocks on a long job/);
   assert.doesNotMatch(writer, /follow-up sweep/);
+}));
+
+test('HOB architecture installs role-scoped work helpers without touching native memory', async () => teamFixture(async ({ workspaceRoot, team, network }) => {
+  teamSettings(team, { architectureEnabled: true }); teamPublish(team);
+  await writeFile(path.join(workspaceRoot, 'main', 'MEMORY.md'), 'NATIVE_MEMORY_CANARY');
+  const result = await network.sync(); assert.deepEqual(result.failed, []);
+  const main = await readFile(path.join(workspaceRoot, 'main', 'AGENTS.md'), 'utf8');
+  const writer = await readFile(path.join(workspaceRoot, 'bots', 'writer', 'AGENTS.md'), 'utf8');
+  assert.match(main, /plan-before-dispatch/); assert.match(main, /private coordinator|private review/);
+  assert.match(writer, /work\.mjs progress/); assert.match(writer, /Only your credential can read your private episodes/);
+  const helper = await readFile(path.join(workspaceRoot, 'main', '.hob', 'work.mjs'), 'utf8');
+  assert.match(helper, /\/work/); assert.doesNotMatch(helper, /userApproved|DatabaseSync|\/v1\/runs/);
+  assert.match(await readFile(path.join(workspaceRoot, 'main', '.hob', 'talk.mjs'), 'utf8'), /HOB_TALK_WAIT_MS === undefined \? 0/);
+  assert.equal(await readFile(path.join(workspaceRoot, 'main', 'MEMORY.md'), 'utf8'), 'NATIVE_MEMORY_CANARY');
 }));
 
 test('a session fact that was never promoted never reaches another bot', async () => teamFixture(async ({ workspaceRoot, team, network }) => {

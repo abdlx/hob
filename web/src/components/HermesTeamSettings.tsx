@@ -4,7 +4,7 @@ import { buttonClass, cardClass, Field, inputClass, Notice } from './WorkspaceUI
 import { errorText } from './workspaceUtils';
 import { HermesTeamExecutionSettings } from './HermesTeamExecutionSettings';
 
-interface Policy { revision: number; coordinatorOnly: boolean; shareDocuments: boolean; coreBudget: number; sessionWindow: number; ordinaryPromotions: 'user' }
+interface Policy { revision: number; architectureEnabled?: boolean; coordinatorOnly: boolean; shareDocuments: boolean; coreBudget: number; sessionWindow: number; ordinaryPromotions: 'user' }
 interface Proposal { id: string; base: number; content: string; digest: string; author: string; evidence: string }
 interface TeamState {
   draftError?: string;
@@ -46,11 +46,12 @@ export function HermesTeamSettings() {
       <button className={buttonClass} disabled={busy} onClick={() => void run(read)}>Refresh team status</button>
       {state && policy && <>
         <fieldset disabled={busy} className="space-y-3">
-          <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={policy.coordinatorOnly} onChange={event => setPolicy({ ...policy, coordinatorOnly: event.target.checked })} /><span>Route worker requests through the coordinator</span></label>
+          <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={Boolean(policy.architectureEnabled)} onChange={event => setPolicy({ ...policy, architectureEnabled: event.target.checked, coordinatorOnly: event.target.checked || policy.coordinatorOnly })} /><span>Enable HOB team architecture: durable plans, private work logs, reviewed delivery, and follow-ups</span></label>
+          <label className="flex items-start gap-2 text-xs"><input type="checkbox" disabled={policy.architectureEnabled} checked={policy.coordinatorOnly} onChange={event => setPolicy({ ...policy, coordinatorOnly: event.target.checked })} /><span>Route worker requests through the coordinator</span></label>
           <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={policy.shareDocuments} onChange={event => setPolicy({ ...policy, shareDocuments: event.target.checked })} /><span>Synchronize eligible documents from the coordinator’s shared/ folder</span></label>
           <Field label="Injected team core budget" hint="Unicode characters, including the managed block. Oversized core is rejected, never silently truncated."><input className={inputClass} type="number" min={500} max={16000} value={policy.coreBudget} onChange={event => setPolicy({ ...policy, coreBudget: Number(event.target.value) })} /></Field>
           <p className="text-xs text-muted">Every core promotion requires your approval. The requested {policy.sessionWindow}-turn session window is not active until native context support is verified.</p>
-          <button className={buttonClass} onClick={() => void run(() => mutate('settings', { revision: policy.revision, coordinatorOnly: policy.coordinatorOnly, shareDocuments: policy.shareDocuments, coreBudget: policy.coreBudget, sessionWindow: policy.sessionWindow, confirm: true }, 'PUT'))}>Save team distribution settings</button>
+          <button className={buttonClass} onClick={() => void run(() => mutate('settings', { revision: policy.revision, architectureEnabled: Boolean(policy.architectureEnabled), coordinatorOnly: policy.coordinatorOnly, shareDocuments: policy.shareDocuments, coreBudget: policy.coreBudget, sessionWindow: policy.sessionWindow, confirm: true }, 'PUT'))}>Save team distribution settings</button>
         </fieldset>
         <HermesTeamExecutionSettings bots={state.bots} />
         <div className="space-y-3">

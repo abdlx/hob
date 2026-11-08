@@ -11,6 +11,7 @@ import { HermesAccountsSettings, HermesChannelsSettings, HermesToolsSettings } f
 import { HermesMcpSettings } from '../components/HermesMcpSettings';
 import { HermesMemorySettings } from '../components/HermesMemorySettings';
 import { HermesTeamSettings } from '../components/HermesTeamSettings';
+import { HobTeamWorkspace } from '../components/HobTeamWorkspace';
 import { HermesLearningSettings } from '../components/HermesLearningSettings';
 import { HermesConfigEditor } from '../components/HermesConfigEditor';
 import type { HermesConfigSchema } from '../components/HermesConfigEditor';
@@ -192,7 +193,7 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
     </div>}
     {visited.has('tools') && <div hidden={section !== 'tools'}><HermesToolsSettings profile={profile} /></div>}
     {visited.has('integrations') && <div hidden={section !== 'integrations'} className="space-y-5"><HermesPluginsSettings profile={profile} /><HermesMcpSettings profile={profile} /></div>}
-    {visited.has('memory') && <div hidden={section !== 'memory'} className="space-y-5">{profile === 'default' && <HermesTeamSettings />}<HermesMemorySettings profile={profile} /></div>}
+    {visited.has('memory') && <div hidden={section !== 'memory'} className="space-y-5">{profile === 'default' && <HermesTeamSettings />}<HobTeamWorkspace key={profile} profile={profile} /><HermesMemorySettings profile={profile} /></div>}
     {visited.has('learning') && <div hidden={section !== 'learning'}><HermesLearningSettings profile={profile} /></div>}
     {visited.has('channels') && <div hidden={section !== 'channels'}><HermesChannelsSettings profile={profile} /></div>}
     {visited.has('skills') && <div hidden={section !== 'skills'}><HermesWorkshop profile={profile} includeMemory={false} /></div>}

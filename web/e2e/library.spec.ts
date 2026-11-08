@@ -10,6 +10,7 @@ async function fixture(page: Page) {
     const request = route.request(), url = new URL(request.url()), path = url.pathname;
     const profile = request.headers()['x-hob-profile'] || 'default';
     const json = (value: unknown) => route.fulfill({ json: value });
+    if (path === '/api/hermes/team/work/inbox') return json({ items: [] });
     if (path === '/api/auth/status') return json({ authenticated: true, configured: true });
     if (path === '/api/runtime') return json({ runtime: 'hermes' });
     if (path === '/api/readiness') return json({ ready: true, status: 'ready' });

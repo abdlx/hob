@@ -19,7 +19,7 @@ const secretContent = /-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:sk-(?:proj-)?[A-Z
 export const containsTeamCredentials = value => secretContent.test(String(value || ''));
 const hash = value => createHash('sha256').update(value).digest('hex');
 const fail = (message, status = 400, code = 'INVALID_TEAM_REQUEST') => new HermesError(status, message, code);
-const defaults = { revision: 0, coordinatorOnly: false, shareDocuments: false, coreBudget: 4000, sessionWindow: 20, ordinaryPromotions: 'user', nativeContext: false, paidExecution: false, allowSubscriptions: true };
+const defaults = { revision: 0, architectureEnabled: false, coordinatorOnly: false, shareDocuments: false, coreBudget: 4000, sessionWindow: 20, ordinaryPromotions: 'user', nativeContext: false, paidExecution: false, allowSubscriptions: true };
 
 // Native privacy/context qualification is deliberately separate from these controls.
 // An operator enabling document distribution is not an attestation that the team is live.
@@ -89,7 +89,7 @@ function validateCore(content, budget, revision) {
 /** Approved revisions are immutable. Raw workspace edits can only become proposals. */
 export class HermesTeam {
   #db; #root; #home; #roster; #now; #draftError = ''; execution;
-  constructor({ stateDir, workspaceRoot, roster, nativeHome = process.env.HERMES_HOME, now = Date.now }) {
+  constructor({ stateDir, workspaceRoot, roster, nativeHome = process.env.HERMES_HOME, now = Date.now, architectureDefault = false }) {
     if (!workspaceRoot || typeof roster !== 'function') throw new Error('Team workspaces and enrolled roster are required.');
     let filename = ':memory:';
     if (stateDir) {
@@ -115,7 +115,9 @@ export class HermesTeam {
       CREATE TABLE IF NOT EXISTS execution_policy (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
       INSERT OR IGNORE INTO execution_policy VALUES(1,0);
       CREATE TABLE IF NOT EXISTS execution_routes (id TEXT PRIMARY KEY, profile TEXT NOT NULL, value TEXT NOT NULL, created INTEGER NOT NULL, revoked INTEGER);`);
-      this.#db.prepare('INSERT OR IGNORE INTO settings VALUES (1,?)').run(JSON.stringify(defaults));
+      this.#db.prepare('INSERT OR IGNORE INTO settings VALUES (1,?)').run(JSON.stringify({ ...defaults, architectureEnabled: architectureDefault, coordinatorOnly: architectureDefault, revision: architectureDefault ? 1 : 0 }));
+      const stored = JSON.parse(this.#db.prepare('SELECT value FROM settings WHERE id=1').get().value);
+      if (architectureDefault && stored.architectureEnabled === undefined) this.#db.prepare('UPDATE settings SET value=? WHERE id=1').run(JSON.stringify({ ...stored, architectureEnabled: true, coordinatorOnly: true, revision: stored.revision + 1 }));
       // Materialize newly confirmed defaults for the native read-only adapter.
       this.#db.prepare('UPDATE settings SET value=? WHERE id=1').run(JSON.stringify(this.policy()));
       this.execution = createTeamExecutionRoutes({ db: this.#db, active: profile => this.#active(profile), sensitive: containsTeamCredentials, now });
@@ -184,11 +186,13 @@ export class HermesTeam {
   configure(value) {
     const previous = this.policy();
     if (value.confirm !== true || value.revision !== previous.revision) throw fail('Review current team settings and confirm the exact revision.', 409);
-    const keys = ['revision', 'confirm', 'coordinatorOnly', 'shareDocuments', 'coreBudget', 'sessionWindow'];
+    const keys = ['revision', 'confirm', 'architectureEnabled', 'coordinatorOnly', 'shareDocuments', 'coreBudget', 'sessionWindow'];
     if (Object.keys(value).some(key => !keys.includes(key)) || typeof value.coordinatorOnly !== 'boolean' || typeof value.shareDocuments !== 'boolean'
+      || value.architectureEnabled !== undefined && typeof value.architectureEnabled !== 'boolean'
       || !Number.isInteger(value.coreBudget) || value.coreBudget < 500 || value.coreBudget > 16000 || !Number.isInteger(value.sessionWindow) || value.sessionWindow < 1 || value.sessionWindow > 100) throw fail('Use explicit team settings within their limits.');
     const core = this.core(); if (core.revision) validateCore(core.content, value.coreBudget, core.revision);
     const next = { ...previous, ...value, revision: previous.revision + 1 }; delete next.confirm;
+    if (next.architectureEnabled) next.coordinatorOnly = true;
     this.#db.prepare('UPDATE settings SET value=? WHERE id=1').run(JSON.stringify(next)); return next;
   }
   propose({ author, content, base, evidence = '' }) {
