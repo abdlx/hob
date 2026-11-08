@@ -160,7 +160,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
       return canonicalChat.submitDirective(key, content);
     },
     workspaceRoot: process.env.HOB_WORKSPACE_ROOT || (process.env.HERMES_HOME ? path.join(process.env.HERMES_HOME, 'workspaces') : undefined), artifacts }) : null;
-  const hermesChat = gateway?.kind === 'hermes' ? createHermesChatRoutes(gateway, bots, runJournal, { home: process.env.HERMES_HOME }) : null;
+  const hermesChat = gateway?.kind === 'hermes' ? createHermesChatRoutes(gateway, bots, runJournal, { home: process.env.HERMES_HOME, exchanges }) : null;
   const cronDelivery = hermes && bots ? createHermesCronDelivery({
     client: gateway,
     bots,
@@ -169,7 +169,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
     onDelivered: notifyCompleted,
     autoStart: false,
   }) : null;
-  const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat, attachmentSecret: secret, onCompleted: notifyCompleted, recoverCompleted: Boolean(artifacts), telemetry, team, cronDelivery }) : null;
+  const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat, attachmentSecret: secret, onCompleted: notifyCompleted, recoverCompleted: Boolean(artifacts), telemetry, team, cronDelivery, exchanges }) : null;
   // The relay authenticates each bot with its own relay-scoped credential, not the
   // dashboard session, so it is mounted before the `/api/*` login gate.
   const botRelay = hermes && bots ? createHermesBotRelay({ client: hermes, bots, exchanges, journal: runJournal, bridge: nativeSessions, team, teamArtifacts, onWake: key => canonicalChat?.watch(key) }) : null;

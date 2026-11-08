@@ -19,6 +19,8 @@ export class HermesExchanges {
         UNIQUE(sender, request_key));
       CREATE INDEX IF NOT EXISTS exchange_receiver ON exchanges(receiver, created_at);
       CREATE INDEX IF NOT EXISTS exchange_sender ON exchanges(sender, created_at);
+      CREATE INDEX IF NOT EXISTS exchange_pair ON exchanges(sender, receiver, created_at);
+      CREATE INDEX IF NOT EXISTS exchange_native_session ON exchanges(receiver, json_extract(payload, '$.sessionId'));
       CREATE INDEX IF NOT EXISTS exchange_created ON exchanges(created_at);
       CREATE INDEX IF NOT EXISTS exchange_status ON exchanges(json_extract(payload, '$.status'));
       CREATE TABLE IF NOT EXISTS deliveries (
@@ -51,6 +53,29 @@ export class HermesExchanges {
     return this.#db.prepare("SELECT json_remove(payload, '$.message', '$.reply') AS payload FROM exchanges WHERE (sender=? OR receiver=?) AND created_at<? ORDER BY created_at DESC, id DESC LIMIT ?")
       .all(profile, profile, before, limit).map(row => JSON.parse(row.payload));
   }
+  /** One archive entry per pair; direction never splits a conversation. */
+  threads(profile, before = Number.MAX_SAFE_INTEGER, limit = 50) {
+    return this.#db.prepare(`SELECT json_remove(payload, '$.message', '$.reply') AS payload FROM exchanges
+      WHERE created_at IN (SELECT MAX(created_at) FROM exchanges WHERE sender=? OR receiver=?
+        GROUP BY CASE WHEN sender=? THEN receiver ELSE sender END)
+      AND (sender=? OR receiver=?) AND created_at<? ORDER BY created_at DESC LIMIT ?`)
+      .all(profile, profile, profile, profile, profile, before, limit).map(row => JSON.parse(row.payload));
+  }
+  thread(profile, peer, before = Number.MAX_SAFE_INTEGER, limit = 30) {
+    return this.#db.prepare(`SELECT payload FROM exchanges
+      WHERE ((sender=? AND receiver=?) OR (sender=? AND receiver=?)) AND created_at<?
+      ORDER BY created_at DESC LIMIT ?`).all(profile, peer, peer, profile, before, limit).map(row => JSON.parse(row.payload));
+  }
+  isRelaySession(profile, sessionId) {
+    if (typeof sessionId !== 'string' || !sessionId) return false;
+    return Boolean(this.#db.prepare("SELECT 1 FROM exchanges WHERE receiver=? AND json_extract(payload, '$.sessionId')=? LIMIT 1").get(profile, sessionId));
+  }
+  isRelayNotification(profile, content) {
+    // Exact persisted notification text, not a heuristic that hides user quotes.
+    const match = /^\[HOB background result; exchange ([a-f0-9-]{36})\]/.exec(content);
+    if (!match) return false;
+    return Boolean(this.#db.prepare("SELECT 1 FROM wakeups WHERE exchange_id=? AND profile=? AND json_extract(payload, '$.message')=? LIMIT 1").get(match[1], profile, content));
+  }
   parent(profile, sessionId) {
     const row = this.#db.prepare("SELECT payload FROM exchanges WHERE receiver=? AND json_extract(payload, '$.sessionId')=? ORDER BY created_at DESC LIMIT 1").get(profile, sessionId);
     return row ? JSON.parse(row.payload) : null;
@@ -64,7 +89,9 @@ export class HermesExchanges {
   update(id, patch) {
     const record = this.get(id);
     if (!record) throw new HermesError(404, 'Exchange not found.', 'NOT_FOUND');
-    const next = { ...record, ...patch, updatedAt: Date.now() };
+    const now = Math.max(Date.now(), record.createdAt, record.updatedAt || 0);
+    const next = { ...record, ...patch, updatedAt: now,
+      ...(typeof patch.reply === 'string' && patch.reply !== record.reply ? { replyAt: now } : {}) };
     this.#db.exec('BEGIN IMMEDIATE');
     try {
       this.#db.prepare('UPDATE exchanges SET payload=? WHERE id=?').run(JSON.stringify(next), id);

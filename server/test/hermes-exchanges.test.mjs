@@ -9,6 +9,49 @@ import { HermesRunJournal } from '../hermes-run-journal.mjs';
 import { hermesSessionKey, hermesNativeSessionKey } from '../hermes-client.mjs';
 
 const request = (to = 'writer', requestId = 'request-1') => ({ to, message: 'Review this document.', requestId, waitMs: 100 });
+test('pair threads combine both directions, paginate every exchange and keep other pairs separate', () => {
+  const store = new HermesExchanges();
+  try {
+    const records = [];
+    for (let i = 0; i < 65; i++) records.push(store.create({ requestKey: `pair-${i}`, from: i % 2 ? 'writer' : 'default',
+      to: i % 2 ? 'default' : 'writer', message: `Task ${i}` }));
+    const other = store.create({ requestKey: 'other', from: 'writer', to: 'editor', message: 'Private other pair' });
+    const latest = store.create({ requestKey: 'main-editor', from: 'default', to: 'editor', message: 'Another conversation' });
+    assert.deepEqual(store.threads('default').map(row => row.id), [latest.id, records.at(-1).id]);
+    assert.equal(store.threads('default').some(row => row.message), false);
+    let before, history = [];
+    do {
+      const page = store.thread('default', 'writer', before);
+      history.push(...page);
+      before = page.length === 30 ? page.at(-1).createdAt : null;
+    } while (before !== null);
+    assert.deepEqual(history.map(row => row.id), records.toReversed().map(row => row.id));
+    assert.equal(new Set(history.map(row => row.id)).size, 65);
+    assert.deepEqual(store.thread('editor', 'writer').map(row => row.id), [other.id]);
+    assert.deepEqual(store.thread('default', 'retired'), []);
+    store.update(records[0].id, { sessionId: 'worker-execution' });
+    assert.equal(store.isRelaySession('writer', 'worker-execution'), true);
+    assert.equal(store.isRelaySession('default', 'worker-execution'), false);
+    const replied = store.update(records[0].id, { reply: 'The answer' });
+    assert.ok(replied.replyAt >= replied.createdAt);
+    assert.equal(store.update(records[0].id, { teamVerification: 'coordinator-reviewed' }).replyAt, replied.replyAt,
+      'Later review metadata must not move a reply through the chat timeline');
+  } finally { store.close(); }
+});
+
+test('normal chats hide only exact persisted relay result notifications', () => {
+  const store = new HermesExchanges();
+  try {
+    const record = store.create({ requestKey: 'wake', from: 'default', fromName: 'Main', to: 'writer', toName: 'Writer', message: 'Do work', wakeOnComplete: true });
+    store.update(record.id, { status: 'completed', reply: 'Done' });
+    const [notification] = store.dueWakeups();
+    assert.equal(store.isRelayNotification('default', notification.message), true);
+    assert.equal(store.isRelayNotification('writer', notification.message), false);
+    assert.equal(store.isRelayNotification('default', notification.message + '\nUser quote'), false);
+    assert.equal(store.isRelayNotification('default', '[HOB background result; exchange unknown]\nHuman typed this'), false);
+  } finally { store.close(); }
+});
+
 function fixture(exchanges = new HermesExchanges(), options = {}) {
   const calls = [], journal = new HermesRunJournal();
   const roster = ['default', 'writer', 'editor'].map(name => ({ name, displayName: name, state: 'active' }));

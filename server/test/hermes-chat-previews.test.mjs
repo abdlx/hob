@@ -39,3 +39,15 @@ test('empty chats have no preview and a failed read can be retried', async () =>
   failing = false;
   assert.equal(await preview('writer'), '');
 });
+
+test('relay sessions and internal notification envelopes never become normal chat previews', async () => {
+  const preview = createHermesChatPreviews({ async runtime(route) {
+    if (route === '/api/sessions') return { data: [
+      { id: 'relay', source: 'api', last_active: 99, message_count: 2 },
+      { id: 'human', source: 'gui', last_active: 10, message_count: 2 },
+    ] };
+    assert.equal(route, '/api/sessions/human/messages');
+    return { data: [{ role: 'assistant', content: 'A summary for you' }, { role: 'user', content: 'Known internal envelope' }] };
+  } }, { exchanges: { isRelaySession: (_profile, id) => id === 'relay', isRelayNotification: (_profile, content) => content === 'Known internal envelope' } });
+  assert.equal(await preview('default'), 'A summary for you');
+});

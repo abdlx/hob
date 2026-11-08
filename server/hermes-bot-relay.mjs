@@ -367,6 +367,16 @@ export function createHermesBotRelay({ client, bots, exchanges = new HermesExcha
     if (req.method !== 'GET') throw new HermesError(405, 'Read exchange history with GET.', 'INVALID_REQUEST');
     const profile = hermesProfile(url.searchParams.get('profile') || 'default');
     if (!bots.roster().some(bot => bot.name === profile && bot.state === 'active')) throw new HermesError(404, 'Bot not found.', 'BOT_NOT_FOUND');
+    const threadMatch = /^\/api\/hermes\/exchanges\/threads(?:\/([^/]+))?$/.exec(url.pathname);
+    if (threadMatch) {
+      const before = url.searchParams.has('before') ? Number(url.searchParams.get('before')) : Number.MAX_SAFE_INTEGER;
+      if (!Number.isSafeInteger(before) || before < 0) throw invalid('Invalid history cursor.');
+      const peer = threadMatch[1] ? hermesProfile(decodeURIComponent(threadMatch[1])) : null;
+      if (peer === profile) throw invalid('Choose another bot for this conversation.');
+      const records = peer ? exchanges.thread(profile, peer, before) : exchanges.threads(profile, before);
+      return json(res, 200, { exchanges: records.map(record => summary(record)),
+        nextBefore: records.length === (peer ? 30 : 50) ? records.at(-1).createdAt : null });
+    }
     const match = /^\/api\/hermes\/exchanges\/([a-f0-9-]{36})(?:\/(transcript))?$/.exec(url.pathname);
     if (match) {
       let record = exchanges.get(match[1]);

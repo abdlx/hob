@@ -83,7 +83,7 @@ function describeActivity(event) {
 }
 
 /** Translate custom chat UX into the one native session/FIFO owner, without exposing raw RPC. */
-export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpChat, attachmentSecret = randomUUID(), onCompleted, recoverCompleted = false, telemetry, team, cronDelivery }) {
+export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpChat, attachmentSecret = randomUUID(), onCompleted, recoverCompleted = false, telemetry, team, cronDelivery, exchanges }) {
   const attachments = createHermesAttachments({ bridge, client, secret: attachmentSecret });
   const observed = new Set();
   const prompts = new Map();
@@ -217,7 +217,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     const rows = new Map();
     for (const row of [...stored.sessions, ...live.sessions]) {
       const sid = String(row.session_id || row.resolved_id || row.id || '');
-      if (!sid || sid.startsWith('cron_') || row.source === 'cron') continue;
+      if (!sid || sid.startsWith('cron_') || row.source === 'cron' || exchanges?.isRelaySession(profile, sid)) continue;
       const id = hermesNativeSessionKey(profile, sid);
       rows.set(id, { id, agentId: profile, title: row.title || 'New conversation', createdAt: iso(row.started_at), lastMessageSnippet: '', transport: 'canonical' });
     }
@@ -225,7 +225,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     // HTTP owner. Never reinterpret their IDs as canonical local sessions.
     for (const row of old.data.filter(row => !row.source || row.source === 'api')) {
       const sid = String(row.id || '');
-      if (!sid || sid.startsWith('cron_') || row.source === 'cron') continue;
+      if (!sid || sid.startsWith('cron_') || row.source === 'cron' || exchanges?.isRelaySession(profile, sid)) continue;
       const id = hermesSessionKey(profile, row.id);
       rows.set(id, { id, agentId: profile, title: row.title || 'API conversation', createdAt: iso(row.started_at), lastMessageSnippet: row.preview || '', transport: 'api', readOnly: true });
     }
@@ -338,7 +338,8 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     }
     if (match[2] === 'messages' && method === 'GET') {
       const { snapshot } = await refresh(key);
-      json(res, 200, snapshot.messages.filter(message => ['user', 'assistant', 'system'].includes(message.role))
+      json(res, 200, snapshot.messages.filter(message => ['user', 'assistant', 'system'].includes(message.role)
+        && !exchanges?.isRelayNotification(owner.profile, messageContentText(message.content)))
         .map((message, index) => ({ id: String(message.row_id ?? message.id ?? `${owner.sessionId}-${index}`), role: message.role,
           content: messageContentText(message.content), timestamp: iso(message.timestamp), status: 'complete',
           profile: owner.profile }))); return true;

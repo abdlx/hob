@@ -77,6 +77,26 @@ const refuses = (promise, status, code) => assert.rejects(promise,
 
 const teamAssignment = 'TASK plan-1 — Prepare a plan\nOUTCOME: A checked plan file\nCONSTRAINTS: No external messages\nOUTPUT: artifacts/plan.md\nDEADLINE: none\nCORE REFS: none';
 
+test('dashboard pair history is read only, profile scoped and includes reverse-direction history', async () => {
+  const { dashboard, relay, exchanges, runtime } = fixture();
+  try {
+    const first = exchanges.create({ requestKey: 'forward', from: 'default', fromName: 'Main', to: 'writer', toName: 'Scribe', message: 'Forward' });
+    const second = exchanges.create({ requestKey: 'reverse', from: 'writer', fromName: 'Scribe', to: 'default', toName: 'Main', message: 'Reverse' });
+    exchanges.create({ requestKey: 'private', from: 'writer', to: 'editor', message: 'Other conversation' });
+    const archive = await dashboard('/threads?profile=default');
+    assert.deepEqual(archive.body.exchanges.map(row => row.id), [second.id]);
+    const history = await dashboard('/threads/writer?profile=default');
+    assert.deepEqual(history.body.exchanges.map(row => row.message), ['Reverse', 'Forward']);
+    assert.deepEqual((await dashboard('/threads/writer?profile=default&before=' + second.createdAt)).body.exchanges.map(row => row.id), [first.id]);
+    assert.deepEqual((await dashboard('/threads/retired?profile=default')).body.exchanges, []);
+    await refuses(dashboard('/threads/default?profile=default'), 400);
+    await refuses(dashboard('/threads/writer?profile=retired'), 404);
+    await refuses(dashboard('/threads/writer?profile=default&before=NaN'), 400);
+    await refuses(relay.dashboard({ method: 'POST' }, {}, new URL('http://hob.test/api/hermes/exchanges/threads/writer?profile=default'), {}), 405);
+    assert.equal(runtime.length, 0, 'History must not create or dispatch native work');
+  } finally { await relay.close(); }
+});
+
 test('only the authenticated coordinator can receive and review the original assigned output', async () => {
   const calls = [], digest = 'f'.repeat(64);
   const reply = 'TASK plan-1 — DONE\nRESULT: Saved the plan\nFILES: artifacts/plan.md\nVERIFICATION: Read the file\nBLOCKERS: none\nPROMOTE: none';

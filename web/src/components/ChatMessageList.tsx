@@ -5,6 +5,7 @@ import { ChatMessageItem } from './ChatMessageItem';
 import { HermesRunPanel } from './HermesRunPanel';
 import { useBotExchanges } from '../hooks/useBotExchanges';
 import { BotExchangeHistory, BotExchangeNotice } from './BotExchanges';
+import { exchangePeer, exchangeThreads } from '../services/bot-exchanges';
 import { useRuntime } from '../context/RuntimeContext';
 import { errorText } from './workspaceUtils';
 import type { SecurityApproval } from '../types/chat';
@@ -115,7 +116,7 @@ export function ChatMessageList() {
   const visibleMessages = messages.filter((message) => message.content.trim());
   const timeline = [
     ...visibleMessages.map(message => ({ id: message.id, at: Date.parse(message.timestamp) || 0, node: <ChatMessageItem message={message} /> })),
-    ...exchanges.rows.map(exchange => ({ id: exchange.id, at: exchange.createdAt, node: <BotExchangeNotice exchange={exchange} profile={agent!.id} /> })),
+    ...exchangeThreads(exchanges.rows, agent?.id || '').map(exchange => ({ id: `relay-thread:${agent?.id}:${exchangePeer(exchange, agent?.id || '')}`, at: exchange.createdAt, node: <BotExchangeNotice exchange={exchange} profile={agent!.id} /> })),
   ].sort((left, right) => left.at - right.at);
   const day = (at: number) => at ? new Date(at).toLocaleDateString() : '';
   const submission = messages.findLast(message => message.role === 'user' && message.status === 'sending')?.id;
@@ -181,8 +182,8 @@ export function ChatMessageList() {
           </section>
         )}
 
-        {runtime === 'hermes' && agent && <div className={exchanges.rows.length ? '' : 'hob-exchange-history-empty'}><BotExchangeHistory key={agent.id} profile={agent.id} /></div>}
-        {exchanges.earlier && <p className="mb-2 text-center text-xs text-muted">Showing the latest 100 exchanges. Earlier exchanges are in Bot exchange history.</p>}
+        {runtime === 'hermes' && agent && <BotExchangeHistory key={agent.id} profile={agent.id} />}
+        {exchanges.earlier && <p className="mb-2 text-center text-xs text-muted">Earlier bot conversations are available in Bot conversations.</p>}
         {exchanges.error && <p className="my-2 text-xs text-red-600" role="alert">Bot exchanges: {exchanges.error}</p>}
         {timeline.map((item, index) => <Fragment key={item.id}>
           {day(item.at) && (index === 0 || day(timeline[index - 1].at) !== day(item.at)) && <div className="my-4 text-center text-xs text-muted">{new Date(item.at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</div>}

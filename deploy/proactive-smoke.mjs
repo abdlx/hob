@@ -32,8 +32,12 @@ export async function proactiveFirstBoot({ api, request, workspace, retry, check
   });
   const wake = exchange.wakeups[0];
   const history = await api(`/api/sessions/${wake.sessionKey}/messages`);
-  check('Main actually executes the native Bot Chat follow-up', history.some(row => row.role === 'assistant' && row.content.includes(SMOKE_WAKE_REPLY)));
-  check('the exchange produces one coordinator notification', history.filter(row => row.role === 'user' && row.content.includes(`[HOB background result; exchange ${exchange.id}]`)).length === 1);
+  check('Main executes the native Bot Chat follow-up once', history.filter(row => row.role === 'assistant' && row.content.includes(SMOKE_WAKE_REPLY)).length === 1);
+  check('internal coordinator notifications stay out of normal chat', history.every(row => !row.content.includes(`[HOB background result; exchange ${exchange.id}]`)));
+  const thread = await api(`/api/hermes/exchanges/threads/${SMOKE_WORKER_ID}?profile=default`);
+  check('the pair history retains one relay request and reply', thread.exchanges.filter(row => row.id === exchange.id && row.message && row.reply.includes(SMOKE_WORKER_REPLY)).length === 1);
+  const workerChats = await api('/api/sessions', 'GET', undefined, SMOKE_WORKER_ID);
+  check('relay execution sessions stay out of the worker chat picker', !workerChats.some(row => row.id === exchange.sessionKey));
 
   await workspace('autonomy', 'POST', { sessionKey: conversation.id, kind: 'heartbeat', action: 'set', prompt: SMOKE_HEARTBEAT_PROMPT, intervalSeconds: 60 });
   await retry('a real native heartbeat turn', async () => {
@@ -64,7 +68,10 @@ export async function proactiveAfterRestart({ saved, api, workspace, check, retr
   const exchange = await api(`/api/hermes/exchanges/${saved.exchangeId}?profile=default`);
   check('the completed follow-up remains settled after recreation', exchange.status === 'completed' && exchange.wakeups.length === 1 && exchange.wakeups[0].id === saved.wakeId && exchange.wakeups[0].status === 'completed');
   const history = await retry('the retained coordinator conversation', () => api(`/api/sessions/${saved.wakeSession}/messages`));
-  check('recreation does not duplicate coordinator notifications', history.filter(row => row.role === 'user' && row.content.includes(`[HOB background result; exchange ${saved.exchangeId}]`)).length === 1);
+  check('recreation keeps internal notifications out of normal chat', history.every(row => !row.content.includes(`[HOB background result; exchange ${saved.exchangeId}]`)));
+  check('recreation does not duplicate the native follow-up reply', history.filter(row => row.role === 'assistant' && row.content.includes(SMOKE_WAKE_REPLY)).length === 1);
+  const thread = await api(`/api/hermes/exchanges/threads/${SMOKE_WORKER_ID}?profile=default`);
+  check('the pair history survives recreation without duplicate exchanges', thread.exchanges.filter(row => row.id === saved.exchangeId).length === 1);
   const scheduled = await workspace('jobs/' + saved.scheduledId);
   check('the completed clock-triggered task remains settled after recreation', scheduled.state === 'completed' && scheduled.last_status === 'ok');
   const runs = await workspace('jobs/' + saved.scheduledId + '/runs');

@@ -21,8 +21,8 @@ function rows(value) {
   return value.data;
 }
 
-export function createHermesChatRoutes(client, bots, journal = new HermesRunJournal(), { home } = {}) {
-  const chatPreview = createHermesChatPreviews(client);
+export function createHermesChatRoutes(client, bots, journal = new HermesRunJournal(), { home, exchanges } = {}) {
+  const chatPreview = createHermesChatPreviews(client, { exchanges });
   // These are presentation caches, not approval authority. Hermes validates the
   // exact prompt ID/generation when a human responds. Run references survive
   // restart in the journal; prompt authority always comes from native status.
@@ -92,7 +92,8 @@ export function createHermesChatRoutes(client, bots, journal = new HermesRunJour
     canResolveUnknown: run.status === 'unknown' && typeof run.admissionId === 'string' && Number.isSafeInteger(run.generation),
     questions: [...questions.values()].filter(item => item.profile === run.profile && item.runId === run.runId)
       .map(({ profile: _profile, runId: _runId, requestId: _requestId, ...view }) => view) } : null;
-  const sessionRows = profile => client.runtime('/api/sessions', { profile }).then(rows);
+  const sessionRows = profile => client.runtime('/api/sessions', { profile }).then(rows)
+    .then(items => items.filter(item => !exchanges?.isRelaySession(profile, item.id)));
   const listBots = () => bots ? bots.list() : client.dashboard('/api/profiles');
   const agentView = async profile => {
     const roster = await listBots();
@@ -240,7 +241,8 @@ export function createHermesChatRoutes(client, bots, journal = new HermesRunJour
     }
     if (match[2] === 'messages' && method === 'GET') {
       const messages = rows(await client.runtime(`${sessionPath}/messages`, { profile: owner.profile }));
-      json(res, 200, messages.filter(message => ['user', 'assistant', 'system'].includes(message.role)).map((message, index) => ({
+      json(res, 200, messages.filter(message => ['user', 'assistant', 'system'].includes(message.role)
+        && !exchanges?.isRelayNotification(owner.profile, messageContentText(message.content))).map((message, index) => ({
         id: String(message.id ?? `${owner.sessionId}-${index}`), role: message.role,
         content: messageContentText(message.content), timestamp: iso(message.timestamp), status: 'complete',
         profile: owner.profile,

@@ -11,8 +11,9 @@ import { HermesRunJournal } from '../hermes-run-journal.mjs';
 import { createHermesCanonicalChatRoutes } from '../hermes-canonical-chat.mjs';
 import { createHobTelemetry } from '../hob-telemetry.mjs';
 import { createHermesCronDelivery } from '../hermes-cron-delivery.mjs';
+import { HermesExchanges } from '../hermes-exchanges.mjs';
 
-async function fixture(t, { telemetry, team } = {}) {
+async function fixture(t, { telemetry, team, exchanges } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'hob-native-chat-'));
   const shared = { sessions: new Map(), admissions: new Map(), calls: [], mode: 'complete', sequence: 0, generation: 5, activity: { items: [], nextOffset: null } };
   const legacyCalls = [];
@@ -109,7 +110,7 @@ async function fixture(t, { telemetry, team } = {}) {
     const url = `http://127.0.0.1:${legacy.address().port}`;
     f.client = new HermesClient({ runtimeUrl: url, dashboardUrl: url, apiKey: 'synthetic-runtime', dashboardToken: 'synthetic-settings' });
     f.bridge = new Bridge(); f.journal = await HermesRunJournal.open(root);
-    f.app = createApp({ gateway: f.client, nativeSessions: f.bridge, runJournal: f.journal, password: 'synthetic-login', telemetry, team });
+    f.app = createApp({ gateway: f.client, nativeSessions: f.bridge, runJournal: f.journal, password: 'synthetic-login', telemetry, team, exchanges });
     await new Promise(resolve => f.app.listen(0, '127.0.0.1', resolve));
     f.origin = `http://127.0.0.1:${f.app.address().port}`;
     const login = await fetch(f.origin + '/api/auth/login', { method: 'POST', headers: { Origin: f.origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'synthetic-login' }) });
@@ -134,6 +135,33 @@ async function fixture(t, { telemetry, team } = {}) {
   });
   return f;
 }
+
+test('normal chat history excludes relay execution sessions and exact result notifications while preserving human messages', async t => {
+  const exchanges = new HermesExchanges();
+  const f = await fixture(t, { exchanges });
+  t.after(() => exchanges.close());
+  const conversation = await f.create('coder');
+  const sid = parseHermesSessionKey(conversation.id).sessionId;
+  const record = exchanges.create({ requestKey: 'relay-list', from: 'default', fromName: 'Main', to: 'coder', toName: 'Coder', message: 'Private bot request', wakeOnComplete: true });
+  exchanges.update(record.id, { sessionId: 'older-api', status: 'completed', reply: 'Private bot reply' });
+  const nativeRecord = exchanges.create({ requestKey: 'relay-native', from: 'default', to: 'coder', message: 'Native bot request' });
+  exchanges.update(nativeRecord.id, { sessionId: 'relay-native-session' });
+  f.shared.sessions.set('coder:relay-native-session', { session_id: 'relay-native-session', title: 'Internal relay', messages: [], prompts: [], pending: [], revision: 1 });
+  const notification = exchanges.dueWakeups().find(row => row.profile === 'default').message;
+  // This notification belongs to Main, so a same-text user message in Coder stays visible.
+  const native = f.shared.sessions.get('coder:' + sid);
+  native.messages.push({ id: 'user', role: 'user', content: notification });
+  const coderMessages = await (await f.call(`/api/sessions/${conversation.id}/messages`)).json();
+  assert.equal(coderMessages[0].content, notification);
+  const main = await f.create();
+  f.shared.sessions.get('default:' + parseHermesSessionKey(main.id).sessionId).messages.push(
+    { id: 'visible', role: 'user', content: 'Please tell me the result.' },
+    { id: 'relay', role: 'user', content: notification },
+    { id: 'answer', role: 'assistant', content: 'Here is your summary.' });
+  assert.deepEqual((await (await f.call(`/api/sessions/${main.id}/messages`)).json()).map(row => row.content), ['Please tell me the result.', 'Here is your summary.']);
+  const sessions = await (await f.call('/api/sessions', 'GET', undefined, 'coder')).json();
+  assert.deepEqual(sessions.map(row => row.id), [conversation.id]);
+});
 
 test('cron-enabled history, approvals and background events tolerate synchronous scans and scan failures', async t => {
   const f = await fixture(t);

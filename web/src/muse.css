@@ -249,7 +249,6 @@ button { font-family: inherit; }
   :is(.hob-incoming-bubble, .hob-outgoing-bubble) .hob-markdown-view { font-size: inherit; line-height: inherit; }
   :is(.hob-incoming-bubble, .hob-outgoing-bubble) .hob-markdown-view p { margin: 0 0 16px; }
   :is(.hob-incoming-bubble, .hob-outgoing-bubble) .hob-markdown-view p:last-child { margin-bottom: 0; }
-  .hob-exchange-history-empty { display: none; }
   .hob-chat-prompt { background: var(--color-panel); border: 0; border-radius: 22px; max-width: 92%; font-size: 16px; }
   .hob-chat-prompt button { background: var(--color-canvas); border: 1px dashed var(--color-edge); border-radius: 10px; padding: 10px; }
   .hob-welcome { padding: 24px 4px; }
