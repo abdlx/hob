@@ -166,8 +166,14 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     work.finally(() => { if (refreshes.get(key) === work) refreshes.delete(key); }).catch(() => undefined);
     return work;
   };
+  // scanProfile currently returns an array synchronously. Catch both thrown
+  // errors and rejected promises without letting optional delivery break chat.
+  const scanCron = async profile => {
+    try { await cronDelivery?.scanProfile(profile); }
+    catch { console.warn('[cron-delivery] Chat delivery scan failed; background polling will retry.'); }
+  };
   const reconcile = async profile => {
-    if (cronDelivery && profile) void cronDelivery.scanProfile(profile).catch(() => undefined);
+    if (profile) await scanCron(profile);
     const keys = new Set([...observed].filter(key => !profile || parseHermesSessionKey(key).profile === profile));
     for (const record of canonicalRuns(profile)) if (!TERMINAL_RUNS.has(record.status)) keys.add(record.key);
     const recovery = [...deliveryRecovery].filter(key => !profile || parseHermesSessionKey(key).profile === profile).slice(0, 10);
@@ -233,7 +239,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
       if (event?.type === 'message.complete' || event?.type === 'session.info') {
         const sid = String(event.session_id || '');
         if (sid.startsWith('cron_') || event.payload?.source === 'cron') {
-          void cronDelivery?.scanProfile(profile).catch(() => undefined);
+          void scanCron(profile);
         }
       }
       client.emit('event', { event: 'sessions.changed', payload: { profile } });
@@ -245,7 +251,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     const method = req.method;
     const profile = hermesProfile(req.headers['x-hob-profile'] ?? 'default');
     if (url.pathname === '/api/sessions' && method === 'GET') {
-      if (cronDelivery) await cronDelivery.scanProfile(profile).catch(() => undefined);
+      await scanCron(profile);
       json(res, 200, await sessions(profile));
       return true;
     }

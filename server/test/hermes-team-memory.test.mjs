@@ -28,22 +28,24 @@ const PREFS = { quietHours: { start: '22:00', end: '08:00', timezone: 'Asia/Kara
 
 async function fixture(runFn) {
   const root = await mkdtemp(path.join(tmpdir(), 'hob-team-memory-'));
-  try { await runFn(root); }
+  const resources = [];
+  try { await runFn(root, resource => resources.push(resource)); }
   finally {
+    for (const resource of resources) resource.close();
     assert.equal(path.dirname(root), tmpdir());
     assert.ok(path.basename(root).startsWith('hob-team-memory-'));
     await rm(root, { recursive: true, force: true });
   }
 }
 
-function teamIn(t, root) {
+function teamIn(register, root) {
   const team = new HermesTeam({
     stateDir: path.join(root, 'team-state'),
     workspaceRoot: root,
     roster: () => [{ name: 'default', state: 'active' }, { name: 'writer', state: 'active' }],
     nativeHome: path.join(root, 'native'),
   });
-  t.after(() => team.close());
+  register(team);
   return team;
 }
 
@@ -255,8 +257,8 @@ test('sweep defers in quiet hours, at the cap, and on delivery failure', async (
 // Promotion flow — staged through the team database, never written direct
 // ---------------------------------------------------------------------------
 
-test('promotion parsing, tiering, and gating', async t => fixture(async root => {
-  const team = teamIn(t, root);
+test('promotion parsing, tiering, and gating', async () => fixture(async (root, register) => {
+  const team = teamIn(register, root);
   const reply = [
     'TASK T-001 — DONE',
     'RESULT: did the work',
@@ -314,8 +316,8 @@ test('promotion parsing, tiering, and gating', async t => fixture(async root => 
   assert.equal(conflicted.reason, 'possible-conflict');
 }));
 
-test('promoted facts land in Essential, never in Reference', async t => fixture(async root => {
-  const team = teamIn(t, root);
+test('promoted facts land in Essential, never in Reference', async () => fixture(async (root, register) => {
+  const team = teamIn(register, root);
   const seed = team.propose({ author: 'user', content: '# Essential\n\n- Seed fact.\n\n# Reference\n\n- Retrieval-only detail.\n', base: 0, evidence: 'seed' });
   team.decide({ id: seed.id, base: seed.base, digest: seed.digest, decision: 'approve', confirm: true });
   const applied = await applyPromotion(team, { fact: 'Clipfac runs on Coolify.', userApproved: true });
@@ -328,8 +330,8 @@ test('promoted facts land in Essential, never in Reference', async t => fixture(
   assert.equal(team.history().length, 2, 'every approved revision persists');
 }));
 
-test('tier 1 applies alone only when the team policy allows it', async t => fixture(async root => {
-  const team = teamIn(t, root);
+test('tier 1 applies alone only when the team policy allows it', async () => fixture(async (root, register) => {
+  const team = teamIn(register, root);
   // The policy value is not user-configurable yet (open decision 6); flip
   // it directly in the database to exercise the coordinator branch.
   const db = new DatabaseSync(path.join(root, 'team-state', 'employee-team.sqlite'));
@@ -343,8 +345,8 @@ test('tier 1 applies alone only when the team policy allows it', async t => fixt
   assert.equal(team.core().revision, 1);
 }));
 
-test('rejected promotions are recorded and stay out of the core', async t => fixture(async root => {
-  const team = teamIn(t, root);
+test('rejected promotions are recorded and stay out of the core', async () => fixture(async (root, register) => {
+  const team = teamIn(register, root);
   const workspace = path.join(root, 'bots', 'writer');
   await mkdir(workspace, { recursive: true });
   await recordRejectedPromotion(workspace, { fact: 'The user loves pineapple pizza.', reason: 'not durable' }, { now: NOW });
@@ -509,7 +511,7 @@ test('CLI init, tasks, followups, sweep, detect, and promote work end to end', a
     'main/TEAM_CORE.md',
     'main/shared/FOLLOWUPS.md',
     'main/shared/TASKS.md',
-  ]);
+  ].map(filename => filename.split('/').join(path.sep)).sort());
 
   await cli(root, ['tasks', root, 'add', '--id', 'T-001', '--owner', 'writer', '--outcome', 'Write the long report']);
   const plan = await cli(root, ['tasks', root, 'plan', 'T-001', '--steps', 'Outline;Draft;Deliver']);

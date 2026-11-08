@@ -10,6 +10,7 @@ import { HermesClient, HermesError, hermesSessionKey, hermesNativeSessionKey, pa
 import { HermesRunJournal } from '../hermes-run-journal.mjs';
 import { createHermesCanonicalChatRoutes } from '../hermes-canonical-chat.mjs';
 import { createHobTelemetry } from '../hob-telemetry.mjs';
+import { createHermesCronDelivery } from '../hermes-cron-delivery.mjs';
 
 async function fixture(t, { telemetry, team } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'hob-native-chat-'));
@@ -104,7 +105,7 @@ async function fixture(t, { telemetry, team } = {}) {
     }
     close() { this.emit('event', { profile: 'default', event: { type: 'gateway.disconnected' } }); }
   }
-  const f = { shared, legacyCalls, async start() {
+  const f = { root, shared, legacyCalls, async start() {
     const url = `http://127.0.0.1:${legacy.address().port}`;
     f.client = new HermesClient({ runtimeUrl: url, dashboardUrl: url, apiKey: 'synthetic-runtime', dashboardToken: 'synthetic-settings' });
     f.bridge = new Bridge(); f.journal = await HermesRunJournal.open(root);
@@ -133,6 +134,39 @@ async function fixture(t, { telemetry, team } = {}) {
   });
   return f;
 }
+
+test('cron-enabled history, approvals and background events tolerate synchronous scans and scan failures', async t => {
+  const f = await fixture(t);
+  const delivery = createHermesCronDelivery({ stateDir: null, hermesHome: f.root, autoStart: false });
+  t.after(() => delivery.close());
+  const scans = [];
+  const scan = delivery.scanProfile.bind(delivery);
+  let mode = 'sync';
+  delivery.scanProfile = profile => {
+    scans.push(profile);
+    if (mode === 'throw') throw new Error('Synthetic scan failure');
+    if (mode === 'reject') return Promise.reject(new Error('Synthetic async scan failure'));
+    return scan(profile);
+  };
+  const route = createHermesCanonicalChatRoutes({ bridge: f.bridge, client: f.client, journal: f.journal,
+    httpChat: { pendingApprovals: async () => [] }, cronDelivery: delivery });
+  t.after(() => route.close());
+  for (mode of ['sync', 'throw', 'reject']) {
+    for (const pathname of ['/api/sessions', '/api/security/approvals', '/api/tasks']) {
+      let result;
+      assert.equal(await route({ method: 'GET', headers: { 'x-hob-profile': 'default' } }, {},
+        new URL(pathname, f.origin), { json: (_res, status, value) => { result = { status, value }; } }), true);
+      assert.equal(result.status, 200, `${mode}: ${pathname}`);
+      assert.ok(Array.isArray(result.value));
+      if (pathname === '/api/sessions') assert.ok(result.value.some(row => row.title === 'Existing API conversation'));
+    }
+    assert.doesNotThrow(() => f.bridge.emit('event', { profile: 'default',
+      event: { type: 'message.complete', session_id: 'cron_regression' } }));
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  assert.equal(scans.length, 12);
+  assert.ok(scans.every(profile => profile === 'default'));
+});
 
 test('authenticated Activity timeline reads same-bot scheduler history and refuses another bot provenance', async t => {
   const f = await fixture(t);

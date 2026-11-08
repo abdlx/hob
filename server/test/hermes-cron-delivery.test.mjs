@@ -81,14 +81,17 @@ function createMockStateDb(dbPath, { withCronRun = true, withOrigin = true, jobI
 
 test('HermesCronDelivery records and checks delivered executions', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'cron-delivery-test-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const delivery = createHermesCronDelivery({
     stateDir: root,
     hermesHome: root,
     autoStart: false,
   });
-  t.after(() => delivery.close());
+  t.after(async () => {
+    delivery.close();
+    assert.equal(path.dirname(path.resolve(root)), path.resolve(tmpdir()));
+    await rm(root, { recursive: true, force: true });
+  });
 
   assert.equal(delivery.isDelivered('exec-1'), false);
   delivery.markDelivered('exec-1', 'job-1', 'theo', 'local-chat');
@@ -98,7 +101,6 @@ test('HermesCronDelivery records and checks delivered executions', async t => {
 
 test('scanProfile bridges completed cron deliverable into active user conversation', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'cron-delivery-scan-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const profileDir = path.join(root, 'profiles', 'theo');
   fs.mkdirSync(path.join(profileDir, 'cron'), { recursive: true });
@@ -127,7 +129,11 @@ test('scanProfile bridges completed cron deliverable into active user conversati
     autoStart: false,
     onDelivered(payload) { completedCalls.push(payload); },
   });
-  t.after(() => delivery.close());
+  t.after(async () => {
+    delivery.close();
+    assert.equal(path.dirname(path.resolve(root)), path.resolve(tmpdir()));
+    await rm(root, { recursive: true, force: true });
+  });
 
   const delivered = delivery.scanProfile('theo');
   assert.equal(delivered.length, 1);
@@ -161,7 +167,6 @@ test('scanProfile bridges completed cron deliverable into active user conversati
 
 test('scanProfile creates a fallback conversation if none exists', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'cron-delivery-fallback-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const profileDir = path.join(root, 'profiles', 'theo');
   fs.mkdirSync(path.join(profileDir, 'cron'), { recursive: true });
@@ -185,7 +190,11 @@ test('scanProfile creates a fallback conversation if none exists', async t => {
     hermesHome: root,
     autoStart: false,
   });
-  t.after(() => delivery.close());
+  t.after(async () => {
+    delivery.close();
+    assert.equal(path.dirname(path.resolve(root)), path.resolve(tmpdir()));
+    await rm(root, { recursive: true, force: true });
+  });
 
   const delivered = delivery.scanProfile('theo');
   assert.equal(delivered.length, 1);
@@ -203,7 +212,6 @@ test('scanProfile creates a fallback conversation if none exists', async t => {
 
 test('scanProfile recovers output from cron/output directory when not in messages table', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'cron-delivery-output-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const profileDir = path.join(root, 'profiles', 'theo');
   fs.mkdirSync(path.join(profileDir, 'cron', 'output', 'job-file'), { recursive: true });
@@ -224,7 +232,11 @@ test('scanProfile recovers output from cron/output directory when not in message
     hermesHome: root,
     autoStart: false,
   });
-  t.after(() => delivery.close());
+  t.after(async () => {
+    delivery.close();
+    assert.equal(path.dirname(path.resolve(root)), path.resolve(tmpdir()));
+    await rm(root, { recursive: true, force: true });
+  });
 
   const delivered = delivery.scanProfile('theo');
   assert.equal(delivered.length, 1);
@@ -238,7 +250,6 @@ test('scanProfile recovers output from cron/output directory when not in message
 
 test('scanAll iterates roster and delivers across multiple profiles', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'cron-delivery-all-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   for (const botName of ['theo', 'leo']) {
     const profileDir = path.join(root, 'profiles', botName);
@@ -262,7 +273,11 @@ test('scanAll iterates roster and delivers across multiple profiles', async t =>
     hermesHome: root,
     autoStart: false,
   });
-  t.after(() => delivery.close());
+  t.after(async () => {
+    delivery.close();
+    assert.equal(path.dirname(path.resolve(root)), path.resolve(tmpdir()));
+    await rm(root, { recursive: true, force: true });
+  });
 
   const allDelivered = await delivery.scanAll();
   assert.equal(allDelivered.length, 2);
@@ -271,7 +286,6 @@ test('scanAll iterates roster and delivers across multiple profiles', async t =>
 
 test('scanProfile suppresses delivery when report is [SILENT]', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'cron-delivery-silent-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const profileDir = path.join(root, 'profiles', 'theo');
   fs.mkdirSync(path.join(profileDir, 'cron'), { recursive: true });
@@ -291,7 +305,11 @@ test('scanProfile suppresses delivery when report is [SILENT]', async t => {
     hermesHome: root,
     autoStart: false,
   });
-  t.after(() => delivery.close());
+  t.after(async () => {
+    delivery.close();
+    assert.equal(path.dirname(path.resolve(root)), path.resolve(tmpdir()));
+    await rm(root, { recursive: true, force: true });
+  });
 
   const delivered = delivery.scanProfile('theo');
   assert.equal(delivered.length, 0);
@@ -302,5 +320,4 @@ test('scanProfile suppresses delivery when report is [SILENT]', async t => {
   verifyDb.close();
   assert.equal(messages.length, 1);
 });
-
 
