@@ -14,6 +14,7 @@ import { createHermesSetupRoutes } from './hermes-setup.mjs';
 import { createHermesGroups } from './hermes-groups.mjs';
 import { createHermesMcpOAuth } from './hermes-mcp-oauth.mjs';
 import { createHermesBotRelay } from './hermes-bot-relay.mjs';
+import { createHermesCronDelivery } from './hermes-cron-delivery.mjs';
 import { createHermesTeamRoutes } from './hermes-team-routes.mjs';
 import { createBrowserRoutes } from './browser-routes.mjs';
 import { createAgentComputerRoutes } from './agent-computer-routes.mjs';
@@ -160,7 +161,15 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
     },
     workspaceRoot: process.env.HOB_WORKSPACE_ROOT || (process.env.HERMES_HOME ? path.join(process.env.HERMES_HOME, 'workspaces') : undefined), artifacts }) : null;
   const hermesChat = gateway?.kind === 'hermes' ? createHermesChatRoutes(gateway, bots, runJournal, { home: process.env.HERMES_HOME }) : null;
-  const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat, attachmentSecret: secret, onCompleted: notifyCompleted, recoverCompleted: Boolean(artifacts), telemetry, team }) : null;
+  const cronDelivery = hermes && bots ? createHermesCronDelivery({
+    client: gateway,
+    bots,
+    stateDir: process.env.HOB_STATE_DIR || stateDir,
+    hermesHome: process.env.HERMES_HOME,
+    onDelivered: notifyCompleted,
+    autoStart: false,
+  }) : null;
+  const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat, attachmentSecret: secret, onCompleted: notifyCompleted, recoverCompleted: Boolean(artifacts), telemetry, team, cronDelivery }) : null;
   // The relay authenticates each bot with its own relay-scoped credential, not the
   // dashboard session, so it is mounted before the `/api/*` login gate.
   const botRelay = hermes && bots ? createHermesBotRelay({ client: hermes, bots, exchanges, journal: runJournal, bridge: nativeSessions, team, teamArtifacts, onWake: key => canonicalChat?.watch(key) }) : null;
@@ -626,16 +635,20 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   server.once('close', () => clearInterval(runPoll));
   const pushTimer = setInterval(() => { void mobile.flush().catch(() => console.warn('Mobile notification delivery could not be checked.')); }, 10000); pushTimer.unref();
   server.once('close', () => { clearInterval(pushTimer); nativeSessions?.off('event', mobileEvent); mobile.close(); });
-  server.once('listening', () => botRelay?.start());
+  server.once('listening', () => {
+    botRelay?.start();
+    cronDelivery?.start();
+  });
   let backgroundClose;
   const stopBackground = () => {
     if (backgroundClose) return backgroundClose;
     clearInterval(runPoll);
-    backgroundClose = Promise.allSettled([() => botRelay?.close(), () => canonicalChat?.close(), () => nativeSessions?.close(), () => browserRoutes?.close(), () => agentComputerRoutes?.close()]
+    backgroundClose = Promise.allSettled([() => botRelay?.close(), () => cronDelivery?.close(), () => canonicalChat?.close(), () => nativeSessions?.close(), () => browserRoutes?.close(), () => agentComputerRoutes?.close()]
       .map(close => Promise.resolve().then(close)));
     return backgroundClose;
   };
   server.once('close', () => { void stopBackground(); });
+  server.cronDelivery = cronDelivery;
   const closed = new Promise(resolve => server.once('close', resolve));
   // HTTP close does not join its async handlers or observer writes. A restart
   // must finish these before opening the same independent journal again.

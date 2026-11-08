@@ -83,7 +83,7 @@ function describeActivity(event) {
 }
 
 /** Translate custom chat UX into the one native session/FIFO owner, without exposing raw RPC. */
-export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpChat, attachmentSecret = randomUUID(), onCompleted, recoverCompleted = false, telemetry, team }) {
+export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpChat, attachmentSecret = randomUUID(), onCompleted, recoverCompleted = false, telemetry, team, cronDelivery }) {
   const attachments = createHermesAttachments({ bridge, client, secret: attachmentSecret });
   const observed = new Set();
   const prompts = new Map();
@@ -167,6 +167,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     return work;
   };
   const reconcile = async profile => {
+    if (cronDelivery && profile) void cronDelivery.scanProfile(profile).catch(() => undefined);
     const keys = new Set([...observed].filter(key => !profile || parseHermesSessionKey(key).profile === profile));
     for (const record of canonicalRuns(profile)) if (!TERMINAL_RUNS.has(record.status)) keys.add(record.key);
     const recovery = [...deliveryRecovery].filter(key => !profile || parseHermesSessionKey(key).profile === profile).slice(0, 10);
@@ -229,6 +230,12 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
       if (event.session_id && ['approval.request', 'clarify.request'].includes(event.type)) {
         try { observed.add(hermesNativeSessionKey(profile, event.session_id)); } catch { /* Ignore an invalid upstream scope. */ }
       }
+      if (event?.type === 'message.complete' || event?.type === 'session.info') {
+        const sid = String(event.session_id || '');
+        if (sid.startsWith('cron_') || event.payload?.source === 'cron') {
+          void cronDelivery?.scanProfile(profile).catch(() => undefined);
+        }
+      }
       client.emit('event', { event: 'sessions.changed', payload: { profile } });
     }
   };
@@ -237,7 +244,11 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
   const route = async (req, res, url, { json, body, startEvents, sendEvent, required }) => {
     const method = req.method;
     const profile = hermesProfile(req.headers['x-hob-profile'] ?? 'default');
-    if (url.pathname === '/api/sessions' && method === 'GET') { json(res, 200, await sessions(profile)); return true; }
+    if (url.pathname === '/api/sessions' && method === 'GET') {
+      if (cronDelivery) await cronDelivery.scanProfile(profile).catch(() => undefined);
+      json(res, 200, await sessions(profile));
+      return true;
+    }
     if (url.pathname === '/api/sessions' && method === 'POST') {
       const input = await body(req);
       if (input.agentId && input.agentId !== profile) throw new HermesError(400, 'The selected bot does not match this conversation.', 'INVALID_PROFILE');
