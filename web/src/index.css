@@ -314,6 +314,24 @@ textarea:focus-visible {
   animation: hob-agent-click 480ms ease-out forwards;
 }
 
+/* One motion language; mounting a message animates once, never per token. */
+:root { --hob-motion-fast: 140ms; --hob-motion-panel: 220ms; --hob-ease: cubic-bezier(.2,.8,.2,1); }
+@keyframes hob-view-in { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+@keyframes hob-panel-in { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: none; } }
+@keyframes hob-dialog-in { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes hob-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.hob-view-enter, .hob-notice, .hob-empty-state, .hob-connection-status { animation: hob-view-in var(--hob-motion-panel) var(--hob-ease); }
+.hob-message-enter { animation: hob-view-in 180ms var(--hob-ease); }
+.hob-panel-right, .hob-panel-left { animation: hob-panel-in var(--hob-motion-panel) var(--hob-ease); }
+.hob-panel-left { transition: width var(--hob-motion-panel) var(--hob-ease), min-width var(--hob-motion-panel) var(--hob-ease), max-width var(--hob-motion-panel) var(--hob-ease); }
+[role='dialog'] { animation: hob-dialog-in var(--hob-motion-panel) var(--hob-ease); }
+[role='menu'] { animation: hob-view-in var(--hob-motion-fast) var(--hob-ease); transform-origin: top; }
+.hob-card { animation: hob-view-in 180ms var(--hob-ease); transition: border-color var(--hob-motion-fast), box-shadow var(--hob-motion-fast); }
+.hob-skeleton { background-image: linear-gradient(100deg, transparent 20%, var(--color-surface) 50%, transparent 80%); background-size: 200% 100%; animation: hob-shimmer 1.8s linear infinite; }
+/* Focus/scrollIntoView must scroll the content viewport, never the app frame. */
+.hob-app, .hob-panel-left, .hob-panel-center, .hob-page-content, .hob-panel-right { overflow: clip; }
+:where(button, a[role='button']) { transition: background-color var(--hob-motion-fast), color var(--hob-motion-fast), border-color var(--hob-motion-fast), box-shadow var(--hob-motion-fast), opacity var(--hob-motion-fast), transform var(--hob-motion-fast), scale var(--hob-motion-fast); }
+:where(button:active:not(:disabled)) { scale: .98; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

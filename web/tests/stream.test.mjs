@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readTurnStream } from '../src/services/stream.ts';
+import { isConnectionError } from '../src/services/errors.ts';
 
 const finalMessage = { id: 'answer', role: 'assistant', content: 'Hello 🌍', timestamp: '', status: 'complete' };
 function stream(bytes, step = bytes.length) {
@@ -20,4 +21,11 @@ test('an upstream error fails the turn and releases the stream reader', async ()
 });
 test('a dropped connection cannot report a partial answer as completed', async () => {
   await assert.rejects(readTurnStream(stream(new TextEncoder().encode('event: delta\ndata: {"text":"partial"}\n\n'))), /before the agent finished/);
+});
+
+test('lost observation is distinct from a confirmed native task failure', async () => {
+  const observation = stream(new TextEncoder().encode('event: error\ndata: {"code":"STREAM_DISCONNECTED","message":"Work may still be running"}\n\n'));
+  await assert.rejects(readTurnStream(observation), isConnectionError);
+  const failure = stream(new TextEncoder().encode('event: error\ndata: {"message":"Hermes did not complete this turn (failed)"}\n\n'));
+  await assert.rejects(readTurnStream(failure), error => !isConnectionError(error) && /failed/.test(error.message));
 });

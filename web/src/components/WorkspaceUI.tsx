@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 
 export const inputClass = 'w-full min-w-0 max-w-full rounded-xl border border-edge bg-surface px-3.5 py-2.5 text-base md:text-sm text-ink placeholder-faint outline-none transition-colors focus:border-accent focus:ring-0 disabled:opacity-50';
 export const buttonClass = 'inline-flex items-center justify-center gap-1.5 rounded-xl border border-edge bg-surface px-3.5 py-2 text-xs md:text-sm font-medium text-ink hover:bg-sunken hover:border-edge-strong transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer active:scale-[0.98] shadow-xs';
-export const cardClass = 'rounded-2xl border border-hair bg-surface p-4 md:p-5 shadow-xs';
+export const cardClass = 'hob-card rounded-2xl border border-hair bg-surface p-4 md:p-5 shadow-xs';
 export const dangerButtonClass = 'inline-flex items-center justify-center gap-1.5 rounded-xl border border-red-200 bg-bad px-3.5 py-2 text-xs md:text-sm font-medium text-white hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer active:scale-[0.98] shadow-xs';
 export const sectionLabelClass = 'text-[12px] font-medium text-muted px-1';
 
@@ -11,7 +11,7 @@ export function Notice({ children, error = false }: { children: ReactNode; error
   return (
     <div
       role={error ? 'alert' : 'status'}
-      className={`min-w-0 [overflow-wrap:anywhere] rounded-xl border p-3.5 text-xs md:text-sm leading-relaxed ${
+      className={`hob-notice min-w-0 [overflow-wrap:anywhere] rounded-xl border p-3.5 text-xs md:text-sm leading-relaxed ${
         error
           ? 'border-edge text-bad bg-bad-soft'
           : 'border-hair text-muted bg-panel'
@@ -87,7 +87,7 @@ export function CardRow({ children, className = '', onClick }: { children: React
 
 export function EmptyState({ icon, title, description, action }: { icon?: ReactNode; title: string; description?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="rounded-2xl border border-hair bg-surface py-12 px-6 text-center shadow-xs">
+    <div className="hob-empty-state rounded-2xl border border-hair bg-surface py-12 px-6 text-center shadow-xs">
       {icon && <div className="mb-4 flex justify-center text-accent">{icon}</div>}
       <h2 className="text-lg font-semibold text-ink">{title}</h2>
       {description && <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted">{description}</p>}
@@ -97,7 +97,7 @@ export function EmptyState({ icon, title, description, action }: { icon?: ReactN
 }
 
 export function Skeleton({ className = '' }: { className?: string }) {
-  return <div aria-hidden className={`animate-pulse rounded-lg bg-line ${className}`} />;
+  return <div aria-hidden className={`hob-skeleton rounded-lg bg-line ${className}`} />;
 }
 
 /**

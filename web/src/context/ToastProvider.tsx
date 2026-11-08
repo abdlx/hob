@@ -33,7 +33,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               key={item.id}
               role="status"
               aria-live="polite"
-              className={`pointer-events-auto flex w-full max-w-sm items-start gap-2.5 rounded-xl border px-3.5 py-3 text-xs md:text-sm shadow-lg ${style.className}`}
+              className={`hob-view-enter pointer-events-auto flex w-full max-w-sm items-start gap-2.5 rounded-xl border px-3.5 py-3 text-xs md:text-sm shadow-lg ${style.className}`}
             >
               <span className="mt-0.5 shrink-0">{style.icon}</span>
               <span className="flex-1 leading-relaxed">{item.message}</span>

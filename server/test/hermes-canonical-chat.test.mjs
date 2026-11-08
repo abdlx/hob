@@ -434,6 +434,18 @@ test('unknown native outcomes remain fenced and explicit resolution binds curren
   assert.equal(resolved.status, 200); assert.equal(f.shared.calls.find(call => call.method === 'prompt.resolve_unknown').params.execution_generation, 5);
 });
 
+test('lost native observation has a reconnect code and preserves the admitted task and question', async t => {
+  const f = await fixture(t); f.shared.mode = 'question';
+  const session = await f.create();
+  const response = await f.turn(session.id), stream = response.text();
+  f.bridge.close();
+  assert.match(await stream, /"code":"STREAM_DISCONNECTED"/);
+  const state = await (await f.call(`/api/sessions/${session.id}/run`)).json();
+  assert.equal(state.run.questions[0].question, 'Which result?');
+  assert.equal(f.shared.calls.filter(call => call.method === 'prompt.submit').length, 1);
+  assert.equal(f.shared.calls.some(call => ['session.interrupt', 'prompt.cancel'].includes(call.method)), false);
+});
+
 test('browser disconnect preserves admitted work and a restarted adapter cannot submit a duplicate', async t => {
   const f = await fixture(t); f.shared.mode = 'question'; const session = await f.create();
   const response = await f.turn(session.id); const stream = response.text().catch(() => 'closed');

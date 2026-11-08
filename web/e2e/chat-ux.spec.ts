@@ -395,6 +395,7 @@ test('long URLs, code, tables and attachments wrap inside mobile chat', async ({
     await expectNoHorizontalScroll(page);
     await expect(page.getByRole('button', { name: 'Remove attachment first-long-reference-document.txt', exact: true })).toBeInViewport();
     await expect(page.getByRole('button', { name: 'Remove attachment second-long-reference-document.txt', exact: true })).toBeInViewport();
+    expect(await page.locator('.hob-panel-center').evaluate(node => node.scrollTop)).toBe(0);
     await page.screenshot({ path: `test-results/mobile-wrapped-chat-${width}.png` });
   }
   expect(state.errors).toEqual([]);

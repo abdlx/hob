@@ -10,6 +10,7 @@ import { useRuntime } from '../context/RuntimeContext';
 import { errorText } from './workspaceUtils';
 import type { SecurityApproval } from '../types/chat';
 import { useConversationScroll } from '../hooks/useConversationScroll';
+import { Skeleton } from './WorkspaceUI';
 
 function InlineApprovalPrompt() {
   const { approvals, resolveApproval } = useChat();
@@ -152,7 +153,8 @@ export function ChatMessageList() {
           visibleMessages.length || exchanges.rows.length ? 'justify-start pt-[88px] md:pt-[94px]' : 'justify-center pt-[88px] md:pt-[94px]'
         }`}
       >
-        {visibleMessages.length === 0 && exchanges.rows.length === 0 && (
+        {isPreparing && visibleMessages.length === 0 && <div role="status" aria-label="Loading conversation" className="w-full space-y-6 py-8"><span className="sr-only">Loading your saved conversation…</span><Skeleton className="ml-auto h-16 w-2/3" /><Skeleton className="h-24 w-4/5" /><Skeleton className="h-12 w-1/2" /></div>}
+        {!isPreparing && visibleMessages.length === 0 && exchanges.rows.length === 0 && (
           <section className="hob-welcome py-8 px-4 text-center max-w-xl mx-auto" aria-label="Welcome to hob">
             <h1 className="text-3xl md:text-4xl font-semibold text-ink tracking-tight leading-tight">What can I help you with?</h1>
             <p className="hob-welcome-copy text-muted text-base leading-relaxed my-4">Message {agent?.name || 'your bot'}, or choose a place to start.</p>

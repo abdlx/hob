@@ -13,6 +13,7 @@ export { HermesLibrary };
 import { clearBotAvatar, readAvatarFile, setBotAvatar } from '../services/avatars';
 import { scheduleProblem } from '../../../server/schedule-input.mjs';
 import { HermesReviewQueue } from '../components/HermesReviewQueue';
+import { isConnectionError } from '../services/errors';
 import { schedulePreviewTime } from '../services/schedule-time';
 
 function useWorkspaceResource<T>(profile: string, operation: string, query: Record<string, string> = {}) {
@@ -20,25 +21,37 @@ function useWorkspaceResource<T>(profile: string, operation: string, query: Reco
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const sequence = useRef(0);
+  const reading = useRef(new Set<string>()), retryRead = useRef(false);
   const invalidate = useCallback(() => { sequence.current++; }, []);
   const queryKey = JSON.stringify(query);
   const load = useCallback(async () => {
+    const scope = `${profile}:${operation}:${queryKey}`;
+    if (reading.current.has(scope)) return;
+    reading.current.add(scope);
     const current = ++sequence.current;
     try {
       const result = await api<T>(operation, {}, JSON.parse(queryKey));
-      if (sequence.current === current) { setData(result); setError(''); }
-    } catch (error) { if (sequence.current === current) setError(errorText(error)); }
-  }, [api, operation, queryKey]);
-  useEffect(() => { const timer = window.setTimeout(load, 0); return () => { invalidate(); window.clearTimeout(timer); }; }, [load, invalidate]);
+      if (sequence.current === current) { setData(result); setError(''); setReconnecting(false); retryRead.current = false; }
+    } catch (error) { if (sequence.current === current) { retryRead.current = isConnectionError(error); setReconnecting(isConnectionError(error)); setError(errorText(error)); } }
+    finally { reading.current.delete(scope); }
+  }, [api, operation, queryKey, profile]);
+  useEffect(() => {
+    const timer = window.setTimeout(load, 0);
+    const retry = () => { if (retryRead.current && !document.hidden) void load(); };
+    const polling = window.setInterval(retry, 10000);
+    window.addEventListener('online', retry); document.addEventListener('visibilitychange', retry);
+    return () => { invalidate(); window.clearTimeout(timer); window.clearInterval(polling); window.removeEventListener('online', retry); document.removeEventListener('visibilitychange', retry); };
+  }, [load, invalidate]);
   const action = async (work: () => Promise<unknown>) => {
     if (busy) return;
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setReconnecting(false);
     try { await work(); await load(); }
-    catch (error) { setError(errorText(error)); }
+    catch (error) { setError(errorText(error)); setReconnecting(isConnectionError(error)); }
     finally { setBusy(false); }
   };
-  return { api, data, error, busy, load, action };
+  return { api, data, error, busy, load, action, reconnecting };
 }
 
 function focusComposerTextarea() {
@@ -70,7 +83,7 @@ function focusComposerTextarea() {
 interface Job { id: string; name: string; prompt?: string; schedule: string | Record<string, unknown>; enabled?: boolean; state?: string; next_run_at?: string; last_run_at?: string; last_status?: string; last_error?: string }
 
 export function HermesGoals({ profile, compact = false }: { profile: string; compact?: boolean }) {
-  const { api, data, error, busy, load, action } = useWorkspaceResource<Job[]>(profile, 'jobs');
+  const { api, data, error, busy, load, action, reconnecting } = useWorkspaceResource<Job[]>(profile, 'jobs');
   const { agents, selectAgent, setActiveNav } = useChat();
   const { toast } = useToast();
   const [botSelectorOpen, setBotSelectorOpen] = useState(false);
@@ -114,7 +127,7 @@ export function HermesGoals({ profile, compact = false }: { profile: string; com
   return <div className={`hob-goals ${compact ? 'hob-goals-compact' : ''}`}>
     <div className="hob-goals-heading"><h2>{compact ? 'Daily' : 'Goals'}</h2><button className="hob-refresh-goals" title="Refresh goals" onClick={load} disabled={busy}>Refresh</button></div>
     {!compact && <div className="hob-goal-group-heading"><span><i />Tracking</span><button aria-label="New goal" title="New goal" onClick={() => setBotSelectorOpen(true)}><Plus size={22} /></button></div>}
-    {error && <Notice error>{error}</Notice>}
+    {error && <Notice error={!reconnecting}>{error}</Notice>}
     {editing && <div ref={editor} className={`${cardClass} space-y-3`}><Field label="Goal name"><input className={inputClass} value={name} onChange={event => setName(event.target.value)} /></Field><Field label="Instructions"><textarea className={`${inputClass} min-h-24`} value={prompt} onChange={event => setPrompt(event.target.value)} /></Field><Field label="Schedule type"><select className={inputClass} value={scheduleType} onChange={event => { const kind = event.target.value; setScheduleType(kind); setSchedule(kind === 'daily' ? '0 9 * * *' : kind === 'interval' ? 'every 2h' : kind === 'once' ? new Date(Date.now() + 3600000).toISOString() : schedule); }}><option value="daily">Daily at 9 AM (bot timezone)</option><option value="interval">Recurring interval</option><option value="once">One-time date</option><option value="advanced">Advanced schedule</option></select></Field><Field label="Schedule" hint="Cron expression (0 9 * * *), an interval (every 2h), or a one-time date supported by Hermes."><input className={inputClass} value={schedule} onChange={event => setSchedule(event.target.value)} /></Field>{problem && <p role="alert" className="text-xs text-bad">{problem}</p>}<p className="text-xs text-muted">Cron uses this bot's configured timezone. Include an explicit UTC offset for one-time dates. Preview uses Hermes's own parser and timezone.</p><button className={buttonClass} disabled={busy || Boolean(problem)} onClick={() => action(async () => { const value = schedule; const result = await api<{ nextRun: string; timezone: string }>('schedule-preview', jsonWrite('POST', { schedule: value })); setPreview({ schedule: value, nextRun: result.nextRun, timezone: result.timezone }); })}>Preview next run</button>{preview?.schedule === schedule && <Notice>Next run: {schedulePreviewTime(preview.nextRun, preview.timezone)} | Bot timezone: {preview.timezone}</Notice>}<button className={buttonClass} disabled={busy || !name.trim() || !prompt.trim() || Boolean(problem) || preview?.schedule !== schedule} onClick={submit}>Save goal</button> <button className={buttonClass} disabled={busy} onClick={() => setEditing(null)}>Cancel</button></div>}
     {!data && !error && <div className="space-y-3">{[0, 1].map((index) => <div key={index} className={`${cardClass} space-y-2`}><Skeleton className="h-4 w-1/3" /><Skeleton className="h-3 w-1/2" /><Skeleton className="h-3 w-2/3" /></div>)}</div>}{data?.length === 0 && <EmptyState title="No scheduled goals for this bot" description="Create a goal to have Hermes run instructions on your schedule." />}
     <div className="hob-goal-list">{data?.map(job => <article key={job.id} className="hob-goal-item">
@@ -199,7 +212,7 @@ interface Skill { name: string; description?: string; enabled: boolean; provenan
 interface LearningNode { id: string; label: string; kind: string; memorySource?: string }
 
 export function HermesMemories({ profile }: { profile: string }) {
-  const { api, data, error, busy, action, load } = useWorkspaceResource<{ nodes: LearningNode[] }>(profile, 'learning');
+  const { api, data, error, busy, action, load, reconnecting } = useWorkspaceResource<{ nodes: LearningNode[] }>(profile, 'learning');
   const { toast } = useToast();
   const [entry, setEntry] = useState<{ id: string; content: string; label: string } | null>(null);
   const [draft, setDraft] = useState('');
@@ -208,7 +221,7 @@ export function HermesMemories({ profile }: { profile: string }) {
       <h3 className="text-sm md:text-base font-semibold text-ink">Memories</h3>
       <button className={buttonClass} disabled={busy} onClick={load}>Refresh memories</button>
     </div>
-    {error && <Notice error>{error}</Notice>}
+    {error && <Notice error={!reconnecting}>{error}</Notice>}
     {data?.nodes.filter(node => node.kind === 'memory').map(node => (
       <button key={node.id} className={`${cardClass} w-full text-left cursor-pointer hover:border-accent/45 transition-colors`} disabled={busy} onClick={() => action(async () => { const result = await api<{ id: string; content: string; label: string }>('learning/node', {}, { id: node.id }); setEntry(result); setDraft(result.content); })}>
         <span className="text-xs md:text-sm font-medium text-ink">{node.label}</span>
@@ -221,12 +234,12 @@ export function HermesMemories({ profile }: { profile: string }) {
 }
 
 export function HermesWorkshop({ profile, includeMemory = true }: { profile: string; includeMemory?: boolean }) {
-  const { api, data, error, busy, action, load } = useWorkspaceResource<Skill[]>(profile, 'skills');
+  const { api, data, error, busy, action, load, reconnecting } = useWorkspaceResource<Skill[]>(profile, 'skills');
   const [selected, setSelected] = useState<string | null>(null);
   const [skillSearch, setSkillSearch] = useState('');
   const [name, setName] = useState('');
   const [content, setContent] = useState('');
-  return <div className="space-y-5"><div className="flex justify-between items-center"><h2 className="text-base md:text-lg font-semibold text-ink">Skills & learning</h2><button className={buttonClass} disabled={busy} onClick={load}>Refresh</button></div>{error && <Notice error>{error}</Notice>}
+  return <div className="space-y-5"><div className="flex justify-between items-center"><h2 className="text-base md:text-lg font-semibold text-ink">Skills & learning</h2><button className={buttonClass} disabled={busy} onClick={load}>Refresh</button></div>{error && <Notice error={!reconnecting}>{error}</Notice>}
     <HermesReviewQueue key={profile} profile={profile} subsystem="skills" />
     <section className="space-y-3.5"><div className="flex justify-between items-center"><h3 className="text-sm md:text-base font-semibold text-ink">Installed skills</h3><button className={buttonClass} disabled={busy} onClick={() => { setSelected('new'); setName(''); setContent(''); }}>Create skill</button></div>{!data && !error && <div className="space-y-3">{[0, 1].map((index) => <div key={index} className={`${cardClass} space-y-2`}><Skeleton className="h-4 w-1/3" /><Skeleton className="h-3 w-2/3" /></div>)}</div>}{data?.length === 0 && <EmptyState title="No skills installed for this bot" description="Skills appear here once installed or proposed." />}<input aria-label="Search installed skills" className={inputClass} placeholder="Find a skill" value={skillSearch} onChange={event => setSkillSearch(event.target.value)} />{data && skillSearch && !data.some(skill => `${skill.name} ${skill.description || ''}`.toLowerCase().includes(skillSearch.trim().toLowerCase())) && <Notice>No matching skills. Try another name.</Notice>}{data?.filter(skill => `${skill.name} ${skill.description || ''}`.toLowerCase().includes(skillSearch.trim().toLowerCase())).map(skill => <div key={skill.name} className={`${cardClass} space-y-2`}><div className="flex items-center gap-2 flex-wrap"><h4 className="text-xs md:text-sm font-semibold text-ink">{skill.name} · {skill.provenance || 'skill'}</h4><StatusPill status={skill.enabled ? 'enabled' : 'disabled'} /></div><p className="text-xs md:text-sm text-muted">{skill.description}</p><div className="flex gap-2"><button className={buttonClass} disabled={busy} onClick={() => action(async () => { const value = await api<{ content: string }>('skill', {}, { name: skill.name }); setSelected(skill.name); setName(skill.name); setContent(value.content); })}>View / edit</button><button className={buttonClass} disabled={busy} onClick={() => action(() => api('skill/toggle', jsonWrite('PUT', { name: skill.name, enabled: !skill.enabled })))}>{skill.enabled ? 'Disable' : 'Enable'}</button></div></div>)}
     {selected && <div className={`${cardClass} space-y-3.5`}><Field label="Skill name"><input className={inputClass} disabled={selected !== 'new'} value={name} onChange={event => setName(event.target.value)} /></Field><Field label="SKILL.md content"><textarea className={`${inputClass} min-h-64 font-mono text-xs md:text-sm leading-relaxed`} value={content} onChange={event => setContent(event.target.value)} /></Field><Notice>Saving is an explicit operator write to this bot’s skills. Refresh before editing if another person or agent may have changed this skill; the native editor has no revision precondition.</Notice><div className="flex gap-2"><button className={buttonClass} disabled={busy || !name.trim() || !content.trim()} onClick={() => action(async () => { await api('skill', jsonWrite(selected === 'new' ? 'POST' : 'PUT', { name: name.trim(), content })); setSelected(null); })}>Save skill</button> <button className={buttonClass} disabled={busy} onClick={() => setSelected(null)}>Cancel</button></div></div>}</section>
@@ -296,12 +309,12 @@ export function HermesIdentity({ profile }: { profile: string }) {
 }
 
 function IdentityEditor({ profile }: { profile: string }) {
-  const { data, api, error, busy, action } = useWorkspaceResource<{ content: string }>(profile, 'soul');
+  const { data, api, error, busy, action, reconnecting } = useWorkspaceResource<{ content: string }>(profile, 'soul');
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   return (
     <div className="space-y-4 pt-1">
-      {error && <Notice error>{error}</Notice>}
+      {error && <Notice error={!reconnecting}>{error}</Notice>}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm md:text-base font-semibold text-ink">Personality & instructions</h3>

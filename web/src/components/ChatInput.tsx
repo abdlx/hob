@@ -15,6 +15,7 @@ export const ChatInput: React.FC = () => {
     sendMessage,
     isLoading,
     isPreparing,
+    connectionIssue,
     isCreatingConversation,
     sessions,
     activeSessionId,
@@ -57,7 +58,7 @@ export const ChatInput: React.FC = () => {
 
   const submit = () => {
     const current = text.trim() || (files.length ? 'Please review the attached files.' : '');
-    if (!current || disabled || uploading) return;
+    if (!current || disabled || uploading || !navigator.onLine) return;
     setComposerDraft(activeSessionId, '');
     setAttachmentDraft(activeSessionId, []);
     void sendMessage(current, files);
@@ -72,9 +73,9 @@ export const ChatInput: React.FC = () => {
       onSubmit={submit}
       onStop={stopActiveRun}
       disabled={disabled}
-      voiceInput={runtime === 'hermes' && agent && activeSessionId ? <VoiceInput key={`${agent.id}:${activeSessionId}`} profile={agent.id} disabled={Boolean(disabled)} onTranscript={value => setComposerDraft(activeSessionId, [getComposerDraft(activeSessionId), value].filter(Boolean).join('\n'))} /> : undefined}
-      canSend={!uploading}
-      onAttach={!disabled && activeSessionId ? attach : undefined}
+      voiceInput={runtime === 'hermes' && agent && activeSessionId ? <VoiceInput key={`${agent.id}:${activeSessionId}`} profile={agent.id} disabled={Boolean(disabled || connectionIssue === 'offline')} onTranscript={value => setComposerDraft(activeSessionId, [getComposerDraft(activeSessionId), value].filter(Boolean).join('\n'))} /> : undefined}
+      canSend={!uploading && connectionIssue !== 'offline'}
+      onAttach={!disabled && connectionIssue !== 'offline' && activeSessionId ? attach : undefined}
       hasAttachments={files.length > 0}
       attachments={files.length > 0 ? <ComposerAttachments files={files} disabled={uploading} remove={id => setAttachmentDraft(activeSessionId, files.filter(file => file.id !== id))} /> : undefined}
       queuedBanner={

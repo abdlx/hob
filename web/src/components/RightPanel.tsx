@@ -503,7 +503,7 @@ function BrowserPanel() {
 }
 
 export function RightPanel() {
-  const { agent, connected, tasks, activityWarnings, approvals, activeTab, setActiveTab, isRightPanelOpen, toggleRightPanel, resolveApproval } = useChat();
+  const { agent, connected, connectionIssue, tasks, activityWarnings, approvals, activeTab, setActiveTab, isRightPanelOpen, toggleRightPanel, resolveApproval } = useChat();
   const [error, setError] = useState('');
   const [approvalBusy, setApprovalBusy] = useState<string | null>(null);
   const { toast } = useToast();
@@ -530,12 +530,12 @@ export function RightPanel() {
         <AgentAvatar size={72} showEditBadge avatarUrl={agent?.avatarUrl} onEditClick={() => setActiveTab('identity')} hideBorder hideStatusDot />
         <button className="hob-round-button hob-agent-config" aria-label="Share app" onClick={() => void share()}><Share size={23} strokeWidth={1.6} /></button>
         <h2>{agent?.name || 'Main'}</h2>
-        <p>{connected ? 'online' : 'offline'}</p>
+        <p>{connectionIssue === 'offline' ? 'connection offline' : connectionIssue ? 'reconnecting' : connected ? 'online' : 'unavailable'}</p>
       </header>
       <div className="hob-segments hob-agent-tabs" role="tablist" aria-label="Agent panel">
         {RIGHT_PANEL_TABS.map(({ id, label, icon: Icon }) => <button key={id} role="tab" id={`agent-tab-${id}`} aria-selected={activeTab === id} aria-controls="agent-tab-content" aria-label={label} title={label} onClick={() => setActiveTab(id as RightPanelTab)}><Icon size={22} strokeWidth={1.65} /></button>)}
       </div>
-      <div className="hob-agent-content" id="agent-tab-content" role="tabpanel" aria-labelledby={`agent-tab-${activeTab}`}>
+      <div key={activeTab} className="hob-agent-content hob-view-enter" id="agent-tab-content" role="tabpanel" aria-labelledby={`agent-tab-${activeTab}`}>
         {activeTab === 'tasks' && <div className="hob-activity-list">
           {activityWarnings.length > 0 && <Notice>{activityWarnings.join(' ')}</Notice>}
           {!tasks.length && <><h3>Today</h3><p className="hob-empty-copy">{activityWarnings.length ? 'Activity is incomplete. Try refreshing when task history is available.' : connected ? 'No activity yet. Tasks will appear here as your bot works.' : 'Activity is unavailable while your bot is offline.'}</p></>}

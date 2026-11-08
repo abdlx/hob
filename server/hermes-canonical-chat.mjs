@@ -438,7 +438,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
           }
         }
         if (disconnected) {
-          sendEvent(res, 'error', { message: 'Connection interrupted. Hermes may still be working; refresh conversation status before resending.' }); break;
+          sendEvent(res, 'error', { code: 'STREAM_DISCONNECTED', message: 'Connection interrupted. Hermes may still be working; refresh conversation status before resending.' }); break;
         }
         if (Date.now() - lastCheck >= 1000) {
           const state = await refresh(key); lastCheck = Date.now();
@@ -467,7 +467,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
       }
     } catch (error) {
       if (!res.headersSent) throw error;
-      sendEvent(res, 'error', { message: 'Turn observation failed. Work may still be running; refresh its status.' });
+      sendEvent(res, 'error', { code: 'STREAM_DISCONNECTED', message: 'Turn observation failed. Work may still be running; refresh its status.' });
     } finally {
       clearInterval(heartbeat);
       bridge.off('event', observer); res.off('close', closed);

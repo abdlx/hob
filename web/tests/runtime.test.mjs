@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readRuntime } from '../src/services/runtime.ts';
+import { isConnectionError } from '../src/services/errors.ts';
 
 test('dashboard selects the installed runtime from the server, independent of bot metadata', async t => {
   const original = globalThis.fetch;
@@ -25,5 +26,5 @@ test('missing or unsupported runtime never silently selects OpenClaw', async t =
     await assert.rejects(readRuntime(), /unsupported runtime/);
   }
   globalThis.fetch = async () => { throw new Error('offline'); };
-  await assert.rejects(readRuntime(), /offline/);
+  await assert.rejects(readRuntime(), error => isConnectionError(error) && /temporarily unavailable/.test(error.message));
 });

@@ -3,19 +3,23 @@ import type { FormEvent, ReactNode } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { Brand } from './Brand';
 import { apiFetch } from '../services/api';
+import { isConnectionError } from '../services/errors';
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<{ authenticated: boolean; configured: boolean } | null>(null);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
 
   const check = useCallback(async () => {
     try {
       setState(await apiFetch('/api/auth/status'));
       setError('');
+      setReconnecting(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not connect to hob.');
+      if (isConnectionError(err)) { setReconnecting(true); setError(''); }
+      else setError(err instanceof Error ? err.message : 'Could not connect to hob.');
     }
   }, []);
 
@@ -28,6 +32,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
     window.addEventListener('hob:unauthorized', expired);
     return () => window.removeEventListener('hob:unauthorized', expired);
   }, [check]);
+
+  useEffect(() => {
+    if (!reconnecting) return;
+    let active = true, timer: ReturnType<typeof setTimeout>;
+    const retry = async () => { await check(); if (active) timer = setTimeout(retry, 3000); };
+    timer = setTimeout(retry, 3000);
+    window.addEventListener('online', check);
+    return () => { active = false; clearTimeout(timer); window.removeEventListener('online', check); };
+  }, [reconnecting, check]);
 
   const login = async (event: FormEvent) => {
     event.preventDefault();
@@ -61,7 +74,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
             Your helpful household spirit. Powered by Hermes, on your server.
           </p>
         </div>
-        {!state && !error && <p className="text-xs text-faint" role="status">Connecting…</p>}
+        {!state && !error && <p className="text-xs text-faint" role="status">{reconnecting ? 'Reconnecting to HOB… Your saved work stays on the server.' : 'Connecting…'}</p>}
         {state?.configured && (
           <form onSubmit={login} className="space-y-3.5">
             <label className="block text-xs font-medium text-ink" htmlFor="password">

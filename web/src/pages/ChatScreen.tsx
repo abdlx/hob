@@ -11,9 +11,10 @@ import { WorkspaceViews } from './WorkspaceViews';
 import { Notice } from '../components/WorkspaceUI';
 import { MobileDock } from '../components/MobileDock';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { ConnectionStatus } from '../components/ConnectionStatus';
 
 export function ChatScreen() {
-  const { agent, activeNav, error, clearError, refresh, isPreparing, isCreatingConversation,
+  const { agent, activeNav, error, clearError, refresh,
     activeSessionId, sessions, createNewSession, isRightPanelOpen, isBotsSidebarOpen } = useChat();
   const mobile = useMediaQuery('(max-width: 767px)');
   const [mobileView, setMobileView] = useState<'bots' | 'chat'>('chat');
@@ -36,9 +37,8 @@ export function ChatScreen() {
     <main id="main-content" className="hob-panel-center flex-1 flex flex-col h-full min-w-0 min-h-0 md:rounded-[34px] bg-canvas md:border md:border-hair overflow-hidden relative"
       onFocusCapture={event => { if (event.target instanceof HTMLTextAreaElement && event.target.closest('.hob-composer')) setDrafting(true); }}
       onBlurCapture={event => { if (event.target instanceof HTMLTextAreaElement && event.target.closest('.hob-composer')) setDrafting(false); }}>
-      {isPreparing && <div className="px-6 pt-3"><Notice>Your agent runtime is starting. Settings remain available.</Notice></div>}
-      {isCreatingConversation && <div className="px-6 pt-3"><Notice>Creating your conversation...</Notice></div>}
-      {error && <div className="px-6 pt-3"><Notice error>{error}<div className="flex gap-2.5 mt-2.5"><button onClick={refresh} className="px-3 py-1 rounded-xl bg-bad text-white text-xs">Retry</button><button onClick={clearError} className="px-3 py-1 rounded-xl bg-surface text-ink text-xs">Dismiss</button></div></Notice></div>}
+      <ConnectionStatus />
+      {error && <div className="px-6 pt-3"><Notice error>{error}<div className="flex gap-2.5 mt-2.5"><button onClick={() => { window.dispatchEvent(new Event('hob:reconnect')); void refresh(); }} className="px-3 py-1 rounded-xl bg-bad text-white text-xs">Refresh status</button><button onClick={clearError} className="px-3 py-1 rounded-xl bg-surface text-ink text-xs">Dismiss</button></div></Notice></div>}
       <div className="hob-page-content flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col relative">
         {chatPage ? mobile && mobileView === 'bots' ? <BotsSidebar onSelectBot={() => setMobileView('chat')} /> : <>
           <ChatHeader />

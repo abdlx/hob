@@ -36,6 +36,7 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
     agent,
     selectAgent,
     connected,
+    connectionIssue,
     isPreparing,
     setActiveNav,
     refresh,
@@ -443,6 +444,8 @@ export const BotsSidebar: React.FC<BotsSidebarProps> = ({ onSelectBot, collapsed
               const subtitle = isCurrent
                 ? bot.identitySync === 'pending' ? 'Identity sync pending' : isPreparing
                   ? 'Preparing bot...'
+                  : connectionIssue
+                  ? connectionIssue === 'offline' ? 'Connection offline' : 'Reconnecting…'
                   : connected
                   ? 'Active now'
                   : 'Offline'

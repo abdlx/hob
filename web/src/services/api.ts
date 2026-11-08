@@ -1,13 +1,15 @@
 import type { ActivityFeed, AgentProfile, AgentListItem, ChatMessage, ChatSession, SecurityApproval, SystemStats, TaskItem, TurnActivity } from '../types/chat';
 import { activityFeed } from './activity.ts';
 import { readTurnStream } from './stream.ts';
+import { isConnectionError, requestErrorMessage } from './errors.ts';
 
 const baseUrl = (import.meta.env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
 let activeProfile = 'default';
 
 export class ApiError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) { super(message); this.status = status; }
+  readonly code?: string;
+  constructor(message: string, status: number, code?: string) { super(message); this.status = status; this.code = code; }
 }
 
 // Provider/MCP authentication failures do not imply the Hob login expired.
@@ -15,7 +17,7 @@ let sessionCheck: Promise<void> | null = null;
 async function checkSession() {
   if (!sessionCheck) sessionCheck = (async () => {
     try {
-      const response = await fetch(`${baseUrl}/api/auth/status`, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } });
+      const response = await fetch(`${baseUrl}/api/auth/status`, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(5000) });
       if (response.ok && (await response.json()).authenticated === false) window.dispatchEvent(new Event('hob:unauthorized'));
     } catch { /* A failed connectivity check is not proof of an expired login. */ }
   })().finally(() => { sessionCheck = null; });
@@ -26,15 +28,42 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   const headers = new Headers(init.headers);
   if (!headers.has('X-Hob-Profile')) headers.set('X-Hob-Profile', activeProfile);
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-  const response = await fetch(`${baseUrl}${path}`, { ...init, headers, credentials: 'same-origin' });
+  const mutation = !['GET', 'HEAD'].includes((init.method || 'GET').toUpperCase());
+  let response: Response | undefined;
+  // Reads can recover through a short proxy/runtime restart. A mutation is
+  // attempted exactly once: losing its acknowledgement never authorizes replay.
+  for (let attempt = 0; attempt < (mutation ? 1 : 3); attempt++) {
+    try {
+      response = await fetch(`${baseUrl}${path}`, { ...init, headers, credentials: 'same-origin',
+        signal: mutation ? init.signal : init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000) });
+      if (mutation || ![502, 503, 504].includes(response.status) || attempt === 2) break;
+      await response.body?.cancel();
+    } catch (cause) {
+      if (init.signal?.aborted) throw cause;
+      if (mutation || attempt === 2) throw new ApiError(requestErrorMessage(0, mutation), 0);
+    }
+    await new Promise<void>((resolve, reject) => {
+      const finish = () => { init.signal?.removeEventListener('abort', abort); resolve(); };
+      const timer = setTimeout(finish, 350 * 2 ** attempt);
+      const abort = () => { clearTimeout(timer); init.signal?.removeEventListener('abort', abort); reject(init.signal?.reason); };
+      if (init.signal?.aborted) abort(); else init.signal?.addEventListener('abort', abort, { once: true });
+    });
+  }
+  if (!response) throw new ApiError(requestErrorMessage(0, mutation), 0);
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    const error = new ApiError(body?.error?.message || body?.error || body?.message || `Request failed (${response.status})`, response.status);
+    const detail = body?.error?.message || body?.error || body?.message;
+    const error = new ApiError(body?.code === 'HERMES_PROTOCOL_ERROR' && typeof detail === 'string' ? detail : requestErrorMessage(response.status, mutation, detail), response.status, body?.code);
     if (response.status === 401 && !/^\/api\/auth\/(?:login|status)(?:[?]|$)/.test(path)) await checkSession();
     throw error;
   }
   if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
+  try { return await response.json() as T; }
+  catch (cause) {
+    if (init.signal?.aborted) throw cause;
+    if (cause instanceof SyntaxError) throw new ApiError('HOB returned an unexpected response. Refresh the page; your action was not retried.', 502, 'HERMES_PROTOCOL_ERROR');
+    throw new ApiError(requestErrorMessage(0, mutation), 0);
+  }
 }
 
 class ChatApiClient {
@@ -68,18 +97,23 @@ class ChatApiClient {
   resolveSecurityApproval = (id: string, decision: 'approved' | 'rejected') => this.request<void>(`/api/security/approvals/${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify({ decision }) });
   abortSession = (id: string, expectedRunId: string) => this.request<{ accepted: boolean }>(`/api/sessions/${encodeURIComponent(id)}/abort`, { method: 'POST', body: JSON.stringify({ expectedRunId }) });
   async sendMessage(id: string, content: string, onChunk?: (text: string, replace?: boolean) => void, requestKey?: string, attachments?: string[], onActivity?: (activity: TurnActivity) => void, onAccepted?: (runId: string) => void): Promise<ChatMessage> {
-    const response = await fetch(`${baseUrl}/api/sessions/${encodeURIComponent(id)}/turns`, {
+    let response: Response;
+    try { response = await fetch(`${baseUrl}/api/sessions/${encodeURIComponent(id)}/turns`, {
       method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', 'X-Hob-Profile': this.getProfile() },
       body: JSON.stringify({ content, ...(requestKey ? { idempotencyKey: requestKey } : {}), ...(attachments?.length ? { attachments } : {}) }),
-    });
+    }); } catch { throw new ApiError(requestErrorMessage(0, true), 0); }
     if (!response.ok) {
       const body = await response.json().catch(() => null);
       if (response.status === 401) await checkSession();
-      throw new ApiError(body?.error?.message || body?.error || body?.message || `Agent request failed (${response.status})`, response.status);
+      throw new ApiError(requestErrorMessage(response.status, true, body?.error?.message || body?.error || body?.message), response.status, body?.code);
     }
     if (!response.body) throw new Error('The server did not return an agent response.');
     if (!response.headers.get('Content-Type')?.includes('text/event-stream')) return response.json();
-    return readTurnStream(response.body, onChunk, onActivity, onAccepted);
+    try { return await readTurnStream(response.body, onChunk, onActivity, onAccepted); }
+    catch (cause) {
+      if (isConnectionError(cause) || cause instanceof TypeError) throw new ApiError('The live connection was interrupted. Your task may still be running; checking its saved status.', 0);
+      throw cause;
+    }
   }
   subscribe(onEvent: (event: { event: string; payload: unknown }) => void, onConnection: (connected: boolean) => void) {
     const source = new EventSource(`${baseUrl}/api/events`);

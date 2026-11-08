@@ -5,7 +5,7 @@ import { chatApi, apiFetch } from '../services/api';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { ChatAttachment } from '../services/attachments';
 import { requestId } from '../services/id';
-import { displayGatewayNotice } from '../services/errors';
+import { displayGatewayNotice, isConnectionError } from '../services/errors';
 import { ConversationWork, type QueuedPrompt } from '../services/conversation-work';
 import { preference, savePreference } from '../services/settings-navigation';
 
@@ -16,6 +16,7 @@ interface ChatContextValue {
   activeTab: RightPanelTab; isRightPanelOpen: boolean; isLeftDrawerOpen: boolean; isLoading: boolean;
   isBotsSidebarOpen: boolean; toggleBotsSidebar: () => void; setBotsSidebarOpen: (open: boolean) => void;
   activeNav: string; error: string | null; connected: boolean; isPreparing: boolean; isCreatingConversation: boolean;
+  connectionIssue: 'offline' | 'reconnecting' | null;
   activityFilter: string | null; setActivityFilter: (id: string | null) => void;
   groups: GroupSummary[]; loadGroups: () => Promise<void>;
   selectedGroupId: string; setSelectedGroupId: (id: string) => void;
@@ -45,12 +46,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const sessionRef = useRef('');
   const workRef = useRef(new ConversationWork());
   const creatingRef = useRef(new Set<string>());
+  const unconfirmedCreationRef = useRef(new Set<string>());
   const profileLoadingRef = useRef(false);
   const viewEpochRef = useRef(0);
   const refreshSequenceRef = useRef(0);
   const rosterSequenceRef = useRef(0);
   const lastSessionsRef = useRef(new Map<string, string>());
   const operationErrorRef = useRef(false);
+  const refreshingRef = useRef(new Set<string>());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [agent, setAgent] = useState<AgentProfile | null>(null);
   const [agents, setAgents] = useState<AgentListItem[]>([]);
@@ -90,6 +93,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  const [connectionIssue, setConnectionIssue] = useState<'offline' | 'reconnecting' | null>(navigator.onLine ? null : 'offline');
+  const readFailure = useCallback((cause: unknown) => {
+    if (isConnectionError(cause)) { setConnectionIssue(navigator.onLine ? 'reconnecting' : 'offline'); }
+    else setError(errorText(cause));
+  }, []);
+  const rememberSession = useCallback((profile: string, id: string) => {
+    lastSessionsRef.current.set(profile, id);
+    savePreference(`hob-last-session:${profile}`, id);
+    savePreference('hob-active-profile', profile);
+  }, []);
   const [isPreparing, setIsPreparing] = useState(true);
   const [isCreatingConversation, setIsCreatingConversation] = useState(false);
   const getComposerDraft = useCallback((id: string) => workRef.current.draft(id), []);
@@ -129,9 +142,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       if (sessionRef.current === id && chatApi.getProfile() === profile && viewEpochRef.current === epoch
         && workRef.current.version(id) === version && !workRef.current.busy(id)) setMessages(workRef.current.project(id, history));
     } catch (err) {
-      if (sessionRef.current === id && chatApi.getProfile() === profile && viewEpochRef.current === epoch && !operationErrorRef.current) setError(errorText(err));
+      if (sessionRef.current === id && chatApi.getProfile() === profile && viewEpochRef.current === epoch && !operationErrorRef.current) readFailure(err);
     }
-  }, []);
+  }, [readFailure]);
 
   const stopActiveRun = useCallback(async () => {
     const id = sessionRef.current, profile = chatApi.getProfile(), api = chatApi.forProfile(profile);
@@ -168,7 +181,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1';
     if (isPreview) return;
     const selectedProfile = chatApi.getProfile();
-    const api = chatApi.forProfile(selectedProfile), epoch = viewEpochRef.current, sequence = ++refreshSequenceRef.current;
+    const api = chatApi.forProfile(selectedProfile), epoch = viewEpochRef.current;
+    const scope = `${selectedProfile}:${epoch}`;
+    if (refreshingRef.current.has(scope)) return;
+    refreshingRef.current.add(scope);
+    const sequence = ++refreshSequenceRef.current;
+    try {
     const results = await Promise.allSettled([api.getSessions(), api.getAgentProfile(), api.getTaskFeed(), api.getSecurityApprovals(), api.getSystemStats(), loadAgents()]);
     if (selectedProfile !== chatApi.getProfile() || viewEpochRef.current !== epoch || refreshSequenceRef.current !== sequence) return;
     const [sess, profile, activity, pending, system] = results;
@@ -177,16 +195,27 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     if (activity.status === 'fulfilled') { setTasks(activity.value.items); setActivityWarnings(activity.value.warnings); }
     if (pending.status === 'fulfilled') setApprovals(pending.value);
     if (system.status === 'fulfilled') setStats(system.value);
-    const failed = results.find(result => result.status === 'rejected');
-    if (failed?.status === 'rejected') { if (!operationErrorRef.current) setError(errorText(failed.reason)); }
-    else if (!operationErrorRef.current) setError(null);
+    const failed = results.find(result => result.status === 'rejected' && !isConnectionError(result.reason))
+      || results.find(result => result.status === 'rejected');
+    if (failed?.status === 'rejected') { if (!operationErrorRef.current) readFailure(failed.reason); }
+    else { setConnectionIssue(navigator.onLine ? null : 'offline'); if (!operationErrorRef.current) setError(null); }
     await reconcileMessages();
-  }, [reconcileMessages, loadAgents]);
+    } finally { refreshingRef.current.delete(scope); }
+  }, [reconcileMessages, loadAgents, readFailure]);
 
   useEffect(() => {
     let alive = true;
+    const preview = new URLSearchParams(window.location.search).get('preview') === '1';
+    let initialized = false, booting = false, restoredProfile = false;
+    let bootstrapRetry: ReturnType<typeof setTimeout> | undefined;
     const rosterRequests = rosterSequenceRef;
     async function initialize() {
+      if (booting || initialized || !alive || profileLoadingRef.current || creatingRef.current.has(chatApi.getProfile())) return;
+      if (sessionRef.current && workRef.current.busy(sessionRef.current)) { initialized = true; setIsPreparing(false); return; }
+      booting = true;
+      if (!sessionRef.current) setIsPreparing(true);
+      let bootstrapProfile = chatApi.getProfile();
+      const bootstrapEpoch = viewEpochRef.current;
       const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1';
       if (isPreview) {
         setIsPreparing(false);
@@ -223,31 +252,66 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             timestamp: '11:22 AM',
           },
         ]);
-        return;
+        initialized = true; booting = false; return;
       }
-      const selectedProfile = chatApi.getProfile();
-      const api = chatApi.forProfile(selectedProfile), epoch = viewEpochRef.current;
       try {
-        while (alive) {
+        if (!restoredProfile) {
+          const saved = preference('hob-active-profile', 'default');
+          if (/^[a-z][a-z0-9_-]{0,63}$/.test(saved) && saved !== chatApi.getProfile()) {
+            const roster = await chatApi.getAgents();
+            if (alive && viewEpochRef.current === bootstrapEpoch && roster.agents.some(bot => bot.id === saved)) chatApi.setProfile(saved);
+          }
+          restoredProfile = true;
+        }
+        if (viewEpochRef.current !== bootstrapEpoch) return;
+        const selectedProfile = bootstrapProfile = chatApi.getProfile();
+        const api = chatApi.forProfile(selectedProfile), epoch = bootstrapEpoch;
+        while (alive && selectedProfile === chatApi.getProfile() && viewEpochRef.current === epoch) {
           if ((await api.getReadiness()).ready) break;
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
-        if (!alive) return;
+        if (!alive || selectedProfile !== chatApi.getProfile() || viewEpochRef.current !== epoch) return;
         await refresh();
         const available = await api.getSessions();
-        if (!alive) return;
-        const initial = available.find(session => !session.readOnly) || await api.createSession();
-        if (!alive || sessionRef.current || selectedProfile !== chatApi.getProfile() || viewEpochRef.current !== epoch) return;
+        if (!alive || selectedProfile !== chatApi.getProfile() || viewEpochRef.current !== epoch) return;
+        const remembered = sessionRef.current || lastSessionsRef.current.get(selectedProfile) || preference(`hob-last-session:${selectedProfile}`, '');
+        let initial = available.find(session => session.id === remembered) || available.find(session => !session.readOnly);
+        if (!initial) {
+          if (unconfirmedCreationRef.current.has(selectedProfile)) throw new Error('A new conversation could not be confirmed. Refresh the conversation list before creating another.');
+          try { initial = await api.createSession(); }
+          catch (cause) { unconfirmedCreationRef.current.add(selectedProfile); throw cause; }
+        }
+        unconfirmedCreationRef.current.delete(selectedProfile);
+        if (!alive || selectedProfile !== chatApi.getProfile() || viewEpochRef.current !== epoch) return;
         sessionRef.current = initial.id;
-        lastSessionsRef.current.set(selectedProfile, initial.id);
+        rememberSession(selectedProfile, initial.id);
         setActiveSessionId(initial.id);
         setQueuedPrompts(workRef.current.getQueue(initial.id));
         setSessions(available.some(session => session.id === initial.id) ? available : [initial, ...available]);
         const history = await api.getMessages(initial.id);
-        if (alive && sessionRef.current === initial.id && viewEpochRef.current === epoch) { setMessages(history); setIsPreparing(false); }
-      } catch (err) { if (alive) { setIsPreparing(false); setError(errorText(err)); } }
+        if (alive && sessionRef.current === initial.id && viewEpochRef.current === epoch) { initialized = true; setMessages(workRef.current.project(initial.id, history)); setIsPreparing(false); setConnectionIssue(null); }
+      } catch (err) { if (alive && bootstrapProfile === chatApi.getProfile() && viewEpochRef.current === bootstrapEpoch) {
+        readFailure(err);
+        if (isConnectionError(err)) bootstrapRetry = setTimeout(() => { void initialize(); }, 3000);
+        else setIsPreparing(false);
+      } } finally { booting = false; }
     }
     void initialize();
+    if (!preview) void loadAgents().catch(() => {});
+    const reconnect = () => {
+      if (preview) return;
+      if (!navigator.onLine) { setConnectionIssue('offline'); return; }
+      if (document.hidden) return;
+      if (!initialized || !sessionRef.current) { initialized = false; clearTimeout(bootstrapRetry); void initialize(); }
+      else void refresh();
+    };
+    const offline = () => { setConnected(false); setConnectionIssue('offline'); };
+    const recoveryTimer = window.setInterval(reconnect, 10000);
+    window.addEventListener('online', reconnect);
+    window.addEventListener('offline', offline);
+    window.addEventListener('pageshow', reconnect);
+    window.addEventListener('hob:reconnect', reconnect);
+    document.addEventListener('visibilitychange', reconnect);
     // Unopened bots can finish unattended work without an attached chat stream.
     const rosterTimer = window.setInterval(() => {
       if (document.visibilityState === 'visible' && new URLSearchParams(window.location.search).get('preview') !== '1') {
@@ -255,7 +319,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }
     }, 15000);
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-    const unsubscribe = chatApi.subscribe(frame => {
+    const unsubscribe = preview ? () => {} : chatApi.subscribe(frame => {
       if (frame.event === 'bot.exchange') {
         window.dispatchEvent(new CustomEvent('hob:bot-exchange', { detail: frame.payload }));
         return;
@@ -276,23 +340,24 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         if (!alive) return;
         void refresh();
       }, 300);
-    }, value => { if (alive) { setConnected(value); if (value) void refresh(); } });
-    return () => { alive = false; unsubscribe(); clearTimeout(refreshTimer); window.clearInterval(rosterTimer); rosterRequests.current++; };
-  }, [refresh, loadAgents]);
+    }, value => { if (alive) { setConnected(value); if (value) reconnect(); else setConnectionIssue(navigator.onLine ? 'reconnecting' : 'offline'); } });
+    return () => { alive = false; unsubscribe(); clearTimeout(bootstrapRetry); clearTimeout(refreshTimer); window.clearInterval(rosterTimer); window.clearInterval(recoveryTimer); rosterRequests.current++;
+      window.removeEventListener('online', reconnect); window.removeEventListener('offline', offline); window.removeEventListener('pageshow', reconnect); window.removeEventListener('hob:reconnect', reconnect); document.removeEventListener('visibilitychange', reconnect); };
+  }, [refresh, loadAgents, readFailure, rememberSession]);
 
   const selectSession = useCallback(async (id: string) => {
     if (profileLoadingRef.current || isPreparing) return;
     const profile = chatApi.getProfile(), epoch = ++viewEpochRef.current, version = workRef.current.version(id);
     sessionRef.current = id;
-    lastSessionsRef.current.set(profile, id);
+    rememberSession(profile, id);
     operationErrorRef.current = Boolean(workRef.current.error(id));
     setError(workRef.current.error(id)); setIsLoading(workRef.current.busy(id));
     setActiveSessionId(id); setQueuedPrompts(workRef.current.getQueue(id)); setMessages(workRef.current.project(id, [])); setActiveNav('chat'); setIsLeftDrawerOpen(false);
     try {
       const history = await chatApi.forProfile(profile).getMessages(id);
       if (sessionRef.current === id && viewEpochRef.current === epoch && workRef.current.version(id) === version) setMessages(workRef.current.project(id, history));
-    } catch (err) { if (sessionRef.current === id && viewEpochRef.current === epoch) setError(errorText(err)); }
-  }, [setActiveNav, isPreparing]);
+    } catch (err) { if (sessionRef.current === id && viewEpochRef.current === epoch) readFailure(err); }
+  }, [setActiveNav, isPreparing, rememberSession, readFailure]);
 
   const createNewSession = useCallback(async () => {
     if (isPreparing) return;
@@ -306,11 +371,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       if (chatApi.getProfile() !== profile || viewEpochRef.current !== epoch) return;
       setSessions(previous => [session, ...previous]);
       sessionRef.current = session.id; setActiveSessionId(session.id); setQueuedPrompts([]); setMessages([]);
-      lastSessionsRef.current.set(profile, session.id); setIsLoading(false); operationErrorRef.current = false;
+      rememberSession(profile, session.id); setIsLoading(false); operationErrorRef.current = false;
       setActiveNav('chat'); setIsLeftDrawerOpen(false); setError(null);
     } catch (err) { if (chatApi.getProfile() === profile && viewEpochRef.current === epoch) setError(errorText(err)); }
     finally { creatingRef.current.delete(profile); if (chatApi.getProfile() === profile) setIsCreatingConversation(false); }
-  }, [setActiveNav, isPreparing]);
+  }, [setActiveNav, isPreparing, rememberSession]);
 
   const selectAgent = useCallback(async (id: string, options: { stayOnPage?: boolean; draft?: string } = {}) => {
     const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1';
@@ -333,14 +398,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       if (!options.stayOnPage) setActiveNav('chat');
       return;
     }
-    if (id === chatApi.getProfile()) {
+    if (id === chatApi.getProfile() && !isPreparing) {
       if (options.draft !== undefined && sessionRef.current) {
         workRef.current.setDraft(sessionRef.current, options.draft);
       }
       if (!options.stayOnPage) setActiveNav('chat');
       return;
     }
-    if (profileLoadingRef.current || isPreparing) return;
+    if (profileLoadingRef.current) return;
     profileLoadingRef.current = true;
     const epoch = ++viewEpochRef.current, api = chatApi.forProfile(id);
     setIsCreatingConversation(false);
@@ -352,11 +417,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       chatApi.setProfile(id);
       await refresh();
       const available = await api.getSessions();
-      const remembered = lastSessionsRef.current.get(id);
-      const initial = available.find(session => session.id === remembered) || available.find(session => !session.readOnly) || await api.createSession();
+      const remembered = lastSessionsRef.current.get(id) || preference(`hob-last-session:${id}`, '');
+      let initial = available.find(session => session.id === remembered) || available.find(session => !session.readOnly);
+      if (!initial) {
+        if (unconfirmedCreationRef.current.has(id)) throw new Error('A new conversation could not be confirmed. Refresh the conversation list before creating another.');
+        try { initial = await api.createSession(); }
+        catch (cause) { unconfirmedCreationRef.current.add(id); throw cause; }
+      }
+      unconfirmedCreationRef.current.delete(id);
       if (viewEpochRef.current !== epoch || chatApi.getProfile() !== id) return;
       sessionRef.current = initial.id;
-      lastSessionsRef.current.set(id, initial.id);
+      rememberSession(id, initial.id);
       setIsLoading(workRef.current.busy(initial.id));
       operationErrorRef.current = Boolean(workRef.current.error(initial.id)); setError(workRef.current.error(initial.id));
       setActiveSessionId(initial.id);
@@ -370,12 +441,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const history = await api.getMessages(initial.id);
       if (viewEpochRef.current === epoch && sessionRef.current === initial.id && workRef.current.version(initial.id) === version) setMessages(workRef.current.project(initial.id, history));
       if (!options.stayOnPage) setActiveNav('chat');
-    } catch (error) { if (viewEpochRef.current === epoch && chatApi.getProfile() === id) setError(errorText(error)); }
+    } catch (error) { if (viewEpochRef.current === epoch && chatApi.getProfile() === id) readFailure(error); }
     finally {
       profileLoadingRef.current = false;
       if (viewEpochRef.current === epoch) { setIsPreparing(false); setIsCreatingConversation(creatingRef.current.has(id)); }
     }
-  }, [isPreparing, refresh, setActiveNav, agents]);
+  }, [isPreparing, refresh, setActiveNav, agents, rememberSession, readFailure]);
 
   const sendMessage = useCallback(async (content: string, attachments: ChatAttachment[] = [], queued?: QueuedPrompt) => {
     const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1';
@@ -431,7 +502,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         creatingRef.current.delete(profile); creating = false;
         if (chatApi.getProfile() === profile) setIsCreatingConversation(false);
         if (chatApi.getProfile() === profile && viewEpochRef.current === epoch && !sessionRef.current) {
-          sessionRef.current = id; setActiveSessionId(id); lastSessionsRef.current.set(profile, id);
+          sessionRef.current = id; setActiveSessionId(id); rememberSession(profile, id);
           setSessions(previous => [session, ...previous]);
         }
       }
@@ -459,18 +530,22 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         void sendMessageRef.current?.(nextQueued.content, nextQueued.attachments, nextQueued);
       }
     } catch (err) {
-      if (work) workRef.current.finish(work, errorText(err));
+      const disconnected = isConnectionError(err);
+      if (disconnected && creating) unconfirmedCreationRef.current.add(profile);
+      if (work) workRef.current.finish(work, disconnected ? undefined : errorText(err));
       setActivities(prev => { const next = { ...prev }; delete next[id]; return next; });
       if (chatApi.getProfile() === profile && (sessionRef.current === id || (!id && viewEpochRef.current === epoch))) {
-        operationErrorRef.current = true; setError(errorText(err));
-        setMessages(previous => previous.map(item => item.status === 'streaming' || item.status === 'sending' ? { ...item, status: 'error' } : item));
+        operationErrorRef.current = !disconnected;
+        if (disconnected) { setError(null); setConnectionIssue(navigator.onLine ? 'reconnecting' : 'offline'); }
+        else setError(errorText(err));
+        setMessages(previous => previous.map(item => item.status === 'streaming' || item.status === 'sending' ? { ...item, status: disconnected ? 'unconfirmed' : 'error' } : item));
       }
     } finally {
       if (creating) { creatingRef.current.delete(profile); if (chatApi.getProfile() === profile) setIsCreatingConversation(false); }
       if (chatApi.getProfile() === profile && sessionRef.current === id) setIsLoading(workRef.current.busy(id));
       await reconcileMessages();
     }
-  }, [refresh, reconcileMessages, isPreparing, sessions, messages]);
+  }, [refresh, reconcileMessages, isPreparing, sessions, messages, rememberSession]);
   useEffect(() => {
     sendMessageRef.current = sendMessage;
   }, [sendMessage]);
@@ -513,7 +588,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return () => { clearTimeout(timer); window.removeEventListener('hob:open-conversation', receive); };
   }, [isPreparing, selectAgent, selectSession]);
 
-  return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, agents, selectAgent, tasks, activityWarnings, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isBotsSidebarOpen, toggleBotsSidebar, setBotsSidebarOpen, isLoading, activeNav, error, connected, isPreparing, isCreatingConversation, activityFilter, setActivityFilter, groups, loadGroups, selectedGroupId, setSelectedGroupId, setActiveNav, sendMessage, selectSession, createNewSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, getComposerDraft, setComposerDraft, subscribeComposerDraft, clearError: () => { operationErrorRef.current = false; workRef.current.clearError(sessionRef.current); setError(null); }, queuedPrompts, removeQueuedPrompt, clearQueue, activity, stopActiveRun, isStopping }}>{children}</ChatContext.Provider>;
+  return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, agents, selectAgent, tasks, activityWarnings, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isBotsSidebarOpen, toggleBotsSidebar, setBotsSidebarOpen, isLoading, activeNav, error, connected, connectionIssue, isPreparing, isCreatingConversation, activityFilter, setActivityFilter, groups, loadGroups, selectedGroupId, setSelectedGroupId, setActiveNav, sendMessage, selectSession, createNewSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, getComposerDraft, setComposerDraft, subscribeComposerDraft, clearError: () => { operationErrorRef.current = false; workRef.current.clearError(sessionRef.current); setError(null); }, queuedPrompts, removeQueuedPrompt, clearQueue, activity, stopActiveRun, isStopping }}>{children}</ChatContext.Provider>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

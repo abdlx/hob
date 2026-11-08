@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../services/api';
 import { buttonClass, inputClass, Notice, StatusPill } from './WorkspaceUI';
 import { errorText } from './workspaceUtils';
+import { isConnectionError } from '../services/errors';
 import { Check, MessageCircle, Square } from 'lucide-react';
 
 interface Question { id: string; generation: number; question: string; choices: string[]; multiSelect: boolean }
@@ -36,22 +37,30 @@ export function HermesRunPanel({ sessionId, profile, inline = false, composerHas
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmedRevision, setConfirmedRevision] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const reading = useRef(false);
   const alive = useRef(true);
   const pending = useRef(false), loadSequence = useRef(0);
   const root = `/api/sessions/${encodeURIComponent(sessionId)}`;
   const load = useCallback(async (signal?: AbortSignal) => {
+    if (reading.current) return;
+    reading.current = true;
     const sequence = ++loadSequence.current;
     try {
       const result = await apiFetch<{ run: Run | null }>(`${root}/run`, { signal, headers: { 'X-Hob-Profile': profile } });
-      if (alive.current && sequence === loadSequence.current) { setRun(result.run); setError(''); }
-    } catch (error) { if (alive.current && sequence === loadSequence.current && !signal?.aborted) setError(errorText(error)); }
+      if (alive.current && sequence === loadSequence.current) { setRun(result.run); setError(''); setSyncing(false); }
+    } catch (error) { if (alive.current && sequence === loadSequence.current && !signal?.aborted) {
+      if (isConnectionError(error)) { setSyncing(true); setError(''); } else setError(errorText(error));
+    } } finally { reading.current = false; }
   }, [root, profile]);
   useEffect(() => {
     alive.current = true;
     const controller = new AbortController();
     const initial = window.setTimeout(() => { void load(controller.signal); }, 0);
-    const timer = window.setInterval(() => { if (!pending.current) void load(controller.signal); }, 3000);
-    return () => { alive.current = false; controller.abort(); window.clearTimeout(initial); window.clearInterval(timer); };
+    const timer = window.setInterval(() => { if (!pending.current && !document.hidden) void load(controller.signal); }, 3000);
+    const resume = () => { if (!document.hidden && !pending.current) void load(controller.signal); };
+    window.addEventListener('online', resume); document.addEventListener('visibilitychange', resume);
+    return () => { alive.current = false; controller.abort(); window.clearTimeout(initial); window.clearInterval(timer); window.removeEventListener('online', resume); document.removeEventListener('visibilitychange', resume); };
   }, [load]);
   async function control(action: string, body: unknown) {
     if (pending.current) return;
@@ -64,12 +73,13 @@ export function HermesRunPanel({ sessionId, profile, inline = false, composerHas
     finally { pending.current = false; if (alive.current) setBusy(false); }
   }
   const hasInlinePrompt = Boolean(run?.questions?.length || run?.status === 'waiting_for_approval' || (run && ['unknown', 'admitting', 'unavailable'].includes(run.status)));
-  if (!run && !error) return null;
+  if (!run && !error && !syncing) return null;
   const active = run && ['queued', 'running', 'waiting_for_approval', 'stopping'].includes(run.status);
-  if (inline && !error && !hasInlinePrompt && !(active && !composerHasRun)) return null;
+  if (inline && !error && !syncing && !hasInlinePrompt && !(active && !composerHasRun)) return null;
   const unknown = run && ['unknown', 'admitting', 'unavailable'].includes(run.status);
   return <div className={inline ? 'hob-chat-prompt my-3 w-full max-w-full space-y-3 text-xs md:text-sm sm:max-w-[92%]' : 'px-5 py-2.5 space-y-2.5 text-xs md:text-sm'}>
     {error && <Notice error>{error}</Notice>}
+    {syncing && <Notice>Reconnecting to task status. Your task may still be running; this is not a confirmed failure.</Notice>}
     {run && !inline && <div className="flex items-center justify-between gap-3 text-muted">
       <span className="font-medium capitalize">Run: {run.status.replaceAll('_', ' ')}</span>
       <div className="flex gap-2"><button className={buttonClass} disabled={busy} onClick={() => load()}>Refresh status</button>

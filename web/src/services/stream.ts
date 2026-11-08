@@ -24,7 +24,8 @@ export async function readTurnStream(
     if (event === 'activity' && typeof payload.label === 'string') onActivity?.(payload);
     if (event === 'delta' && typeof payload.text === 'string') onChunk?.(payload.text, payload.replace === true);
     if (event === 'done') message = payload.message;
-    if (event === 'error') throw new Error(payload.message || 'The agent turn failed.');
+    if (event === 'error') throw Object.assign(new Error(payload.message || 'The agent turn failed.'),
+      payload.code === 'STREAM_DISCONNECTED' ? { code: 'STREAM_DISCONNECTED' } : {});
   };
   try {
     while (true) {
@@ -39,7 +40,7 @@ export async function readTurnStream(
       if (done) break;
     }
     if (buffer.trim()) consume(buffer);
-    if (!message || typeof message.content !== 'string') throw new Error('The connection ended before the agent finished. Check Activity before retrying.');
+    if (!message || typeof message.content !== 'string') throw Object.assign(new Error('The connection ended before the agent finished. Check Activity before retrying.'), { code: 'STREAM_DISCONNECTED' });
     return message;
   } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
 }

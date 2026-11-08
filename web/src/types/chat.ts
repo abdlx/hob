@@ -19,7 +19,7 @@ export interface ChatMessage {
   role: Role;
   content: string;
   timestamp: string; // e.g. "7:15 pm" or ISO string
-  status?: 'sending' | 'streaming' | 'complete' | 'error' | 'queued';
+  status?: 'sending' | 'streaming' | 'complete' | 'error' | 'queued' | 'unconfirmed';
   /** Who answered; shown above the bubble when several members share a conversation. */
   sender?: string;
   /** Hermes profile that owns local media referenced by this message. */

@@ -346,7 +346,7 @@ export function WorkspaceViews({ activeNav }: { activeNav: string }) {
       {activeNav === 'settings' && <header className="hob-settings-titlebar"><button className="hob-round-button" aria-label="Back" onClick={() => { if (window.dispatchEvent(new Event('hob:settings-back', { cancelable: true }))) setActiveNav('chat'); }}><ArrowLeft size={23} /></button><h1>Settings</h1></header>}
       {activeNav !== 'settings' && <WorkspaceHeader />}
       <div className={`hob-workspace-scroll hob-workspace-${activeNav} flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 md:p-8`}>
-        <div className={`mx-auto ${activeNav === 'library' ? 'max-w-[1280px]' : 'max-w-[960px]'}`}>
+        <div key={activeNav} className={`hob-view-enter mx-auto ${activeNav === 'library' ? 'max-w-[1280px]' : 'max-w-[960px]'}`}>
           {activeNav === 'groups' ? (
             <Notice>Groups require the Hermes runtime.</Notice>
           ) : activeNav === 'settings' ? (
