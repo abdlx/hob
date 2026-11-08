@@ -135,6 +135,48 @@ test('relay waits zero returns admission without claiming a reply', async () => 
   assert.equal(body.runId, 'run-1');
 });
 
+test('relay timeout returns admission and Main reports waiting, never done', async () => {
+  const roster = [
+    { name: 'default', displayName: 'Main', display_name: 'Main', state: 'active' },
+    { name: 'writer', displayName: 'Scribe', display_name: 'Scribe', state: 'active' },
+  ];
+  const bots = {
+    async authenticate(token) { return token === MAIN ? roster[0] : null; },
+    roster: () => roster,
+  };
+  const client = {
+    async runtime(route, options = {}) {
+      if (route === '/api/sessions' && options.method !== 'POST') return { data: [] };
+      if (route === '/api/sessions') return { session: { id: `relay-${options.profile}` } };
+      if (route === '/v1/runs') return { run_id: 'run-timeout' };
+      throw new Error(`unexpected runtime route ${route}`);
+    },
+    async *events(runId, { signal }) {
+      // The worker is still working: no events until Main's wait expires.
+      await new Promise((_, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      });
+    },
+  };
+  const relay = createHermesBotRelay({ client, bots });
+  let status, payload;
+  await relay(
+    { method: 'POST', headers: { authorization: `Bearer ${MAIN}` } },
+    { writeHead() {}, end() {} },
+    new URL(`http://hob.test${BASE}/send`),
+    {
+      json: (_res, code, value) => { status = code; payload = value; },
+      body: async () => ({ to: 'writer', message: 'Take your time.', waitMs: 50 }),
+    },
+  );
+  assert.equal(status, 200);
+  assert.equal(payload.completed, false);
+  assert.equal(payload.reply, undefined);
+  assert.equal(payload.runId, 'run-timeout');
+  const { relayStatusText } = await import('../hermes-team-memory.mjs');
+  assert.equal(relayStatusText(payload, 'writer'), 'waiting on writer');
+});
+
 test('relay authenticates with the bot credential and validates every request field', async () => {
   const { call } = fixture();
   await refuses(call('/roster'), 401, 'RELAY_UNAUTHORIZED');

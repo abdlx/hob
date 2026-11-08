@@ -2,12 +2,22 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { hermesProfile } from './hermes-client.mjs';
+import {
+  readTeamCore, syncSharedDocs as syncSharedDocsInto, teamCoreBlock,
+  TEAM_CORE_BUDGET, TEAM_CORE_END, TEAM_CORE_START,
+} from './hermes-team-memory.mjs';
 
 // HOB's bot-to-bot network is intentionally made of two ordinary files in each
 // bot's own workspace: a small relay client and a managed block in AGENTS.md.
 // Hermes already loads AGENTS.md from the working directory, so every bot gets
 // the whole roster without HOB patching the runtime or injecting a private MCP
 // server. The managed block is delimited so an operator's own notes survive.
+//
+// A second managed block carries the team core (workspaces/main/TEAM_CORE.md),
+// and a third sync copies the shared docs (workspaces/main/shared/) into each
+// worker's `shared/` directory. Both are owned by Main and overwritten on
+// sync, exactly like the roster block. See hermes-team-memory.mjs and
+// ~/workspace/hob-docs/team-memory-system.md.
 
 const START = '<!-- HOB:BOT-ROSTER:START -->';
 const END = '<!-- HOB:BOT-ROSTER:END -->';
@@ -86,8 +96,56 @@ const managedBlock = (self, roster) => {
       ? 'You may message any active bot. Delegate clear, self-contained work, include the outcome you need, and wait for the reply before reporting success. Treat a bot reply as that bot’s own work, not as your own.'
       : 'You are not Main. Route cross-bot work through Main by messaging `default`; do not contact another worker directly. Main decides which bot handles a request.',
     'The relay is a real message to another bot, which acts with its own tools, workspace, memory and approvals. Never claim another bot completed work without its reply. Do not send secrets, credentials, or tokens through bot messages.',
-    END,
+    '',
   ];
+  if (main) {
+    lines.push(
+      'Team rules — Main (you are the only coordinator):',
+      '- Delegate with the exact format:',
+      '  TASK <id> — <short title>',
+      '  OUTCOME: <what done looks like, verifiable>',
+      '  CONSTRAINTS: <must not do / must respect>',
+      '  OUTPUT: <path in shared docs, or per-bot path if scratch>',
+      '  DEADLINE: <date/time, or "none">',
+      '  CORE REFS: <relevant core lines or "none">',
+      '- A worker’s reply is its own work. Verify RESULT against FILES before reporting success; a reply without VERIFICATION is unproven, not done. Attribute every result by bot name ("Writer found X"), never "I" for a worker’s work and never "we" for one bot’s work.',
+      '- If no worker reply has arrived, the task is "waiting on <bot>", never "done" and never "failed".',
+      '- You own the follow-up list (shared/FOLLOWUPS.md). Run the follow-up sweep on schedule: check each open item’s current state first, deliver only what is still true and worth interrupting, respect quiet hours and the daily cap, and never re-offer something the user declined.',
+      '- Promotion: a worker’s PROMOTE lines are proposals, not facts. Tier 1 (project status, contact details, tool notes) you may promote alone after checking it is durable, verified, and not in conflict with the core. Tier 2 (standing rules, preferences, money, outsiders, credentials policy) needs the user’s explicit approval first. On conflict, report both versions to the user and wait — user-stated facts always win.',
+      '',
+    );
+  } else {
+    lines.push(
+      'Team rules — worker (you are not Main):',
+      '- Reply to Main’s tasks in the exact format:',
+      '  TASK <id> — <DONE | BLOCKED | PARTIAL>',
+      '  RESULT: <what was done, in plain words>',
+      '  FILES: <paths created or changed, or "none">',
+      '  VERIFICATION: <how you checked your own result>',
+      '  BLOCKERS: <what stopped it, or "none">',
+      '  PROMOTE: <facts proposed for the team core, one per line with evidence, or "none">',
+      '- A fact from this chat stays in this chat unless Main promotes it. Never claim Main’s knowledge or another bot’s results.',
+      '',
+    );
+  }
+  lines.push(
+    'How to run work:',
+    '- Plan first: on receiving a task, reply with a short plan — what you will do, in what segments, and what (if anything) you need from the user — before starting the work. No silent starts on multi-step work.',
+    '- Work in segments: break the work into a visible step list with exactly one step in progress at a time, and send a short progress update to Main at each segment boundary (what finished, what is next). A long task must never go quiet without a status; silence until done is a defect.',
+    '- Interruptions: if the user sends another message while a task is running, answer the new message from context AND keep the long task running in the background — never drop, restart, or cancel the running task because of the interruption. Status questions ("where is my thing?") are answered from the task registry, not by guessing. New work and running work are tracked separately and both stay visible.',
+    '',
+  );
+  if (main) {
+    lines.push(
+      '- Main never blocks on a long job: delegate the work to a worker, stay responsive in the user chat, answer new messages and status questions from the task registry while the work runs, and report the worker’s result when it arrives.',
+      '',
+    );
+  }
+  lines.push(
+    '- Never put credentials, tokens, keys, or passwords in memory, files, or messages.',
+    '- External facts carry source + time; label stale data stale.',
+    END,
+  );
   return lines.join('\n');
 };
 
@@ -105,17 +163,20 @@ export class HermesBotNetwork {
   #roster;
   #root;
   #relayUrl;
+  #coreBudget;
   #queue = Promise.resolve();
 
-  constructor({ roster, workspaceRoot, relayUrl }) {
+  constructor({ roster, workspaceRoot, relayUrl, teamCoreBudget = TEAM_CORE_BUDGET }) {
     if (typeof roster !== 'function') throw new Error('A bot roster reader is required.');
     if (typeof workspaceRoot !== 'string' || !workspaceRoot) throw new Error('A bot workspace root is required.');
     let endpoint;
     try { endpoint = new URL(relayUrl); } catch { throw new Error('A valid bot relay URL is required.'); }
     if (!['http:', 'https:'].includes(endpoint.protocol)) throw new Error('The bot relay URL must use HTTP or HTTPS.');
+    if (!Number.isSafeInteger(teamCoreBudget) || teamCoreBudget < 0) throw new Error('The team core budget must be a non-negative integer.');
     this.#roster = roster;
     this.#root = path.resolve(workspaceRoot);
     this.#relayUrl = endpoint.toString().replace(/\/$/, '');
+    this.#coreBudget = teamCoreBudget;
   }
 
   workspace(name) {
@@ -129,21 +190,102 @@ export class HermesBotNetwork {
     return work;
   }
 
-  async #run() {
+  /** Core-edit trigger: rewrite only the team-core block in every bot. */
+  syncTeamCore() {
+    const work = this.#queue.then(() => this.#runCore());
+    this.#queue = work.catch(() => undefined);
+    return work;
+  }
+
+  /** Shared-source trigger: re-copy the shared docs into every worker. */
+  syncSharedDocs() {
+    const work = this.#queue.then(() => this.#runShared());
+    this.#queue = work.catch(() => undefined);
+    return work;
+  }
+
+  static emptyShared() {
+    return { updated: {}, deleted: {}, skipped: [] };
+  }
+
+  async #activeRoster() {
     const result = await this.#roster();
     const profiles = Array.isArray(result?.profiles) ? result.profiles : [];
-    const roster = profiles.filter(bot => !bot.state || bot.state === 'active');
+    return profiles.filter(bot => !bot.state || bot.state === 'active');
+  }
+
+  async #run() {
+    const roster = await this.#activeRoster();
     const updated = [];
-    const failed = [];
+    const failed = new Map();
+    const shared = HermesBotNetwork.emptyShared();
+    const core = await readTeamCore(this.#root);
     for (const bot of roster) {
       try {
         await this.#write(bot, roster);
         updated.push(bot.name);
       } catch (error) {
+        failed.set(bot.name, error.message);
+        continue;
+      }
+      try {
+        await this.#writeCore(bot, core);
+      } catch (error) {
+        if (!failed.has(bot.name)) failed.set(bot.name, error.message);
+      }
+      if (bot.name === 'default') continue;
+      try {
+        const copied = await syncSharedDocsInto(
+          path.join(this.#root, 'main', 'shared'),
+          path.join(this.workspace(bot.name), 'shared'),
+        );
+        if (copied.updated.length) shared.updated[bot.name] = copied.updated;
+        if (copied.deleted.length) shared.deleted[bot.name] = copied.deleted;
+        for (const skip of copied.skipped) shared.skipped.push({ bot: bot.name, ...skip });
+      } catch (error) {
+        if (!failed.has(bot.name)) failed.set(bot.name, error.message);
+      }
+    }
+    return { updated, failed: [...failed].map(([name, error]) => ({ name, error })), shared };
+  }
+
+  async #runCore() {
+    const roster = await this.#activeRoster();
+    const core = await readTeamCore(this.#root);
+    const updated = [];
+    const failed = [];
+    for (const bot of roster) {
+      try {
+        await this.#writeCore(bot, core);
+        updated.push(bot.name);
+      } catch (error) {
         failed.push({ name: bot.name, error: error.message });
       }
     }
-    return { updated, failed };
+    return { updated, failed, shared: HermesBotNetwork.emptyShared() };
+  }
+
+  async #runShared() {
+    const roster = await this.#activeRoster();
+    const updated = [];
+    const failed = [];
+    const shared = HermesBotNetwork.emptyShared();
+    for (const bot of roster) {
+      if (bot.name === 'default') continue;
+      try {
+        const copied = await syncSharedDocsInto(
+          path.join(this.#root, 'main', 'shared'),
+          path.join(this.workspace(bot.name), 'shared'),
+        );
+        if (copied.updated.length || copied.deleted.length) updated.push(bot.name);
+        if (copied.updated.length) shared.updated[bot.name] = copied.updated;
+        if (copied.deleted.length) shared.deleted[bot.name] = copied.deleted;
+        for (const skip of copied.skipped) shared.skipped.push({ bot: bot.name, ...skip });
+      } catch (error) {
+        failed.push({ name: bot.name, error: error.message });
+      }
+    }
+    return { updated, failed, shared };
   }
 
   async #write(bot, roster) {
@@ -163,6 +305,25 @@ export class HermesBotNetwork {
       // Function replacement: a display name or description containing `$&`
       // must stay literal text instead of expanding as a replacement pattern.
       next = existing.replace(/<!-- HOB:BOT-ROSTER:START -->[\s\S]*?<!-- HOB:BOT-ROSTER:END -->/, () => block);
+    } else {
+      next = existing.trimEnd() ? `${existing.trimEnd()}\n\n${block}\n` : `${block}\n`;
+    }
+    await atomicWrite(filename, next, 0o600);
+  }
+
+  /** Rewrite the team-core managed block. A bot-local edit is overwritten. */
+  async #writeCore(bot, core) {
+    const workspace = this.workspace(bot.name);
+    await mkdir(workspace, { recursive: true });
+    const filename = path.join(workspace, 'AGENTS.md');
+    let existing = '';
+    try { existing = await readFile(filename, 'utf8'); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (existing.length > 512 * 1024) throw new Error('AGENTS.md is too large to add the team core block.');
+    const block = teamCoreBlock(core, this.#coreBudget);
+    let next;
+    if (existing.includes(TEAM_CORE_START) && existing.includes(TEAM_CORE_END)) {
+      next = existing.replace(/<!-- HOB:TEAM-CORE:START -->[\s\S]*?<!-- HOB:TEAM-CORE:END -->/, () => block);
     } else {
       next = existing.trimEnd() ? `${existing.trimEnd()}\n\n${block}\n` : `${block}\n`;
     }

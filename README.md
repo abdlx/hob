@@ -45,6 +45,41 @@ Only port 3000 serves the custom application. Hermes' runtime API on 8642 and
 settings API on 8080 bind to loopback. The supervisor provisions their credentials
 and keeps them server-side. Model and tool credentials are entered in Settings.
 
+## Team memory
+
+Hob runs a team of bots (Main as the only coordinator and front door, workers
+behind it) with a Muse-style memory and follow-up system layered on top of
+Hermes — without modifying Hermes itself.
+
+- **Three memory layers.** A shared team core (`workspaces/main/TEAM_CORE.md`,
+  durable facts only), private per-bot memory (native Hermes MEMORY.md /
+  USER.md), and transient session memory that is never auto-promoted.
+- **How it reaches the bots.** The existing sync machinery
+  (`server/hermes-bot-network.mjs`) writes the team core into every bot's
+  `AGENTS.md` as a managed block (max ~4,000 characters) and copies the
+  shared docs (`workspaces/main/shared/`, including the `TASKS.md` board
+  and the `FOLLOWUPS.md` tracked items) into each worker's `shared/`
+  directory. Hermes loads `AGENTS.md`, so every bot gets the team rules
+  with no runtime patch and no private MCP server.
+- **How work runs.** Plan first, segmented work with a visible step list
+  and a progress update at each segment boundary, and mid-task
+  interruptions answered while the long task keeps running. Main never
+  blocks on a long job: it delegates to a worker and stays responsive.
+- **Follow-ups.** Anything owed to the user becomes a tracked item; an
+  open-thread detector drafts items from session summaries and relay
+  replies; a sweep job checks each open item's current state before
+  delivering, deferring, or closing it — never messaging about a finished
+  item, never re-offering a declined one.
+- **Promotion.** A worker's `PROMOTE:` lines are proposals. Tier 1 facts
+  Main may promote alone; Tier 2 (standing rules, preferences, money,
+  outsiders, credentials policy) needs the user's explicit approval.
+  Conflicts surface to the user; user-stated facts always win.
+
+Operate it with `node server/team-memory-cli.mjs` (see `init`, `sweep`,
+`detect`, `promote`, `followup`, `tasks`, `core`). Full design and
+operator doc: `../hob-docs/team-memory-system.md` in the workspace docs
+(the `hob-docs` directory lives outside this repo).
+
 ## Deploy with Coolify
 
 Create a Docker Compose application for this repository using `compose.yaml`.
