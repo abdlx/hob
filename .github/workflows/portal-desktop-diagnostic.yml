@@ -1,0 +1,42 @@
+name: Portal desktop diagnostic
+on:
+  push:
+    branches: ['fix/portal-desktop-startup']
+    paths: ['.github/workflows/portal-desktop-diagnostic.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  desktop:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build production image
+        run: docker build --tag hob:portal-diag .
+      - name: Launch desktop as production runtime user
+        shell: bash
+        run: |
+          cat > /tmp/probe.mjs <<'JS'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs/promises';
+          import { Store } from '/app/portal/src/store.mjs';
+          import { BrowserManager } from '/app/portal/src/browser.mjs';
+          const root = await fs.mkdtemp('/tmp/hob-portal-desktop-');
+          const store = new Store(root, {workspaceRoot: root + '/workspace'});
+          const profile = store.data.profiles[0];
+          const browser = new BrowserManager(store);
+          try {
+            console.log('Launching fresh synthetic profile');
+            console.log(await browser.ensureHeaded(profile));
+            const state = await browser.status(profile);
+            assert.equal(state.started, true);
+            console.log('DESKTOP_LAUNCH_OK', JSON.stringify(state));
+          } finally {
+            browser.stopIdleCleanup();
+            await browser.close(profile);
+          }
+          JS
+          docker run --rm --user 10000:10000 --entrypoint /usr/local/bin/node -i hob:portal-diag --input-type=module - < /tmp/probe.mjs
