@@ -64,11 +64,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssh-server 
     libgtk-3-0t64 libx11-xcb1 libasound2t64 libdbus-glib-1-2 && rm -rf /var/lib/apt/lists/*
 # Fetch browser + fingerprint model at build time into a shared read-only cache,
 # so assigning a bot requires no package installation or browser download.
-ENV XDG_CACHE_HOME=/opt/hob-cache
+ENV XDG_CACHE_HOME=/opt/hob-cache \
+    PORTAL_XVNC_EXECUTABLE=/usr/bin/Xtigervnc
 RUN cd /app/portal && npx --no-install camoufox fetch && \
     node --input-type=module -e "import {ensureModel} from 'fpgen-js'; await ensureModel();" && \
     mkdir -p build && gcc -shared -fPIC -O2 src/netguard.c -o build/libportal_netguard.so -ldl && \
-    chmod -R a+rX /opt/hob-cache
+    chmod -R a+rX /opt/hob-cache && test -x "$PORTAL_XVNC_EXECUTABLE"
 COPY deploy/s6-rc.d/ /etc/s6-overlay/s6-rc.d/
 RUN chmod 755 /etc/s6-overlay/s6-rc.d/hob-isolation/run && mkdir -p /etc/hob-isolation && \
     /usr/local/bin/node --input-type=module -e "import {resolveChromiumExecutable} from './server/browser-executable.mjs'; import{writeFileSync}from'node:fs'; const exe=await resolveChromiumExecutable(); if(!exe)throw Error('Chromium missing'); writeFileSync('/etc/hob-isolation/chromium.path',exe+'\\n');"

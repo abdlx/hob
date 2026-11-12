@@ -31,7 +31,7 @@ export function PortalVaultSettings({ initialProfile }: { initialProfile: string
   return <div className="space-y-5">
     <section className={`${cardClass} space-y-3`}>
       <div className="flex items-center justify-between gap-3"><h3 className="flex items-center gap-2 text-sm font-semibold text-ink"><KeyRound size={16} />Computer vault</h3>
-        <button type="button" className={buttonClass} disabled={loading} onClick={() => void load()} aria-label="Refresh computer bots"><RefreshCw size={14} /></button></div>
+        <button type="button" className={buttonClass} disabled={loading} onClick={() => void load()} aria-label="Refresh" title="Refresh computer bots"><RefreshCw size={14} /></button></div>
       {error && <Notice error>{error}</Notice>}
       {loading ? <Skeleton className="h-10 w-full" /> : bots.length ? <Field label="Bot" hint="Each bot has its own saved logins.">
         <select className={inputClass} value={selected} onChange={event => setSelected(event.target.value)}>{bots.map(bot => <option key={bot.name} value={bot.name}>{bot.displayName}</option>)}</select>

@@ -54,11 +54,11 @@ interface AgentComputerStatus {
   error?: string;
 }
 
-export type ComputerSource = 'agent_computer' | 'portal';
+export type ComputerSource = 'hob_computer' | 'agent_computer' | 'portal';
 
 export function AgentComputerViewer({ profile, source = 'agent_computer' }: { profile: string; source?: ComputerSource }) {
-  const basePath = source === 'portal' ? '/api/hermes/portal' : '/api/hermes/agent-computer';
-  const sourceTitle = source === 'portal' ? 'Portal' : 'Agent Computer';
+  const basePath = source === 'hob_computer' ? '/api/hermes/hob-computer' : source === 'portal' ? '/api/hermes/portal' : '/api/hermes/agent-computer';
+  const sourceTitle = source === 'hob_computer' ? 'Assigned computer by HOB' : source === 'portal' ? 'Portal' : 'Agent Computer';
   const [status, setStatus] = useState<AgentComputerStatus | null>(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -149,12 +149,13 @@ export function AgentComputerViewer({ profile, source = 'agent_computer' }: { pr
   if (!status) return error ? <Notice error>{error}</Notice> : <Skeleton className="h-40 w-full" />;
   // Unconfigured sources hide so a bot with only one computer shows only
   // that one; a configured-but-unavailable source keeps its frame + error.
-  if (!status.connected && !status.configured) return status.assignable ? (
+  if (!status.connected && !status.configured) return source === 'hob_computer' ? (
     <div className="space-y-3 rounded-xl border border-line p-4">
-      <p className="text-sm font-medium text-ink">Give this bot a computer</p>
+      <p className="text-sm font-medium text-ink">HOB computer</p>
       <p className="text-xs text-muted">A persistent browser profile with files and downloads in this bot’s HOB working directory.</p>
       {error && <Notice error>{error}</Notice>}
-      <button type="button" disabled={busy !== ''} onClick={() => void manage('assign')}
+      {!status.assignable && <Notice>The bundled computer service is unavailable in this deployment.</Notice>}
+      <button type="button" disabled={busy !== '' || !status.assignable} onClick={() => void manage('assign')}
         className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
         {busy === 'assign' ? <Loader2 size={13} className="animate-spin" /> : <Monitor size={13} />}
         {busy === 'assign' ? 'Assigning…' : 'Assign computer'}

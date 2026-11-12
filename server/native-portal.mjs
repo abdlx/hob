@@ -42,6 +42,20 @@ export class NativePortal {
     return doc.toJS({ maxAliasCount: 50 }) || {};
   }
   managed(cfg) { return cfg?.mcpUrl === this.url + '/mcp'; }
+  binding(config) {
+    return config.mcp_servers?.hob_computer || (config.mcp_servers?.portal?.url === this.url + '/mcp' ? config.mcp_servers.portal : undefined);
+  }
+  migrate(profile) {
+    return this.#serialize(profile, async () => {
+      const config = await this.#config(profile);
+      const legacy = config.mcp_servers?.portal;
+      if (config.mcp_servers?.hob_computer || legacy?.url !== this.url + '/mcp') return false;
+      await this.client.dashboard('/api/config', { profile, method: 'PUT', body: { profile, config: {
+        mcp_servers: { hob_computer: { ...legacy }, portal: { enabled: false, bearer_token: '' } },
+      } } });
+      return true;
+    });
+  }
   #serialize(profile, action) {
     hermesProfile(profile);
     const work = (this.#queues.get(profile) || Promise.resolve()).then(action);
@@ -54,12 +68,13 @@ export class NativePortal {
     return this.#serialize(profile, async () => {
       const config = await this.#config(profile);
       if (config.terminal?.backend && config.terminal.backend !== 'local') throw new HermesError(409, 'The bundled computer requires this bot to execute locally in its HOB working directory.', 'PORTAL_WORKSPACE_MISMATCH');
-      const existing = config.mcp_servers?.portal;
-      if (existing?.enabled !== false && existing?.url && existing.url !== this.url + '/mcp') throw new HermesError(409, 'This bot already has an external Portal connection. Remove that connection before assigning the bundled computer.', 'PORTAL_ALREADY_CONFIGURED');
+      const existing = config.mcp_servers?.hob_computer;
+      if (existing?.url && existing.url !== this.url + '/mcp') throw new HermesError(409, 'The HOB computer slot contains an unexpected endpoint. Repair this bot configuration before assigning.', 'PORTAL_ALREADY_CONFIGURED');
       const result = await this.request('/api/ui/hob/bots/' + profile, 'PUT', { name: profile === 'default' ? 'Main' : profile });
       if (config.terminal?.cwd && path.resolve(config.terminal.cwd) !== path.resolve(result.workspace)) throw new HermesError(409, 'This bot has a custom execution directory. Align its HOB working directory before assigning the bundled computer.', 'PORTAL_WORKSPACE_MISMATCH');
       await this.client.dashboard('/api/config', { profile, method: 'PUT', body: { profile, config: {
-        mcp_servers: { portal: { url: this.url + '/mcp', bearer_token: result.plaintext, enabled: true } },
+        mcp_servers: { hob_computer: { url: this.url + '/mcp', bearer_token: result.plaintext, enabled: true },
+          ...(config.mcp_servers?.portal?.url === this.url + '/mcp' ? { portal: { enabled: false, bearer_token: '' } } : {}) },
       } } });
       return { ok: true, workspace: result.workspace };
     });
@@ -67,11 +82,12 @@ export class NativePortal {
   unassign(profile) {
     return this.#serialize(profile, async () => {
       const config = await this.#config(profile);
-      if (config.mcp_servers?.portal?.url !== this.url + '/mcp') throw new HermesError(409, 'This bot is not assigned to the bundled computer.', 'PORTAL_NOT_ASSIGNED');
+      if (this.binding(config)?.url !== this.url + '/mcp') throw new HermesError(409, 'This bot is not assigned to the bundled computer.', 'PORTAL_NOT_ASSIGNED');
       // Revoke first: a settings outage must not leave an agent with access.
       await this.revoke(profile);
       await this.client.dashboard('/api/config', { profile, method: 'PUT', body: { profile, config: {
-        mcp_servers: { portal: { url: this.url + '/mcp', enabled: false, bearer_token: '' } },
+        mcp_servers: { hob_computer: { url: this.url + '/mcp', enabled: false, bearer_token: '' },
+          ...(config.mcp_servers?.portal?.url === this.url + '/mcp' ? { portal: { enabled: false, bearer_token: '' } } : {}) },
       } } });
       return { ok: true };
     });
@@ -87,9 +103,9 @@ export class NativePortal {
   }
   async instructions(profile) {
     const config = await this.#config(profile);
-    const portal = config.mcp_servers?.portal;
+    const portal = this.binding(config);
     if (portal?.enabled === false || portal?.url !== this.url + '/mcp') return '';
-    return '## Assigned computer\n\nUse the portal MCP server for browser interaction on your assigned computer. Its persistent browser profile, cookies and tabs belong to this bot. Portal files, downloads and terminal tools operate on the same HOB working directory as your native terminal; its sandbox exposes that directory at /tmp/workspace. Use profile_current to inspect the binding. When human takeover is active, wait for control to return before browsing.\n';
+    return '## Assigned computer\n\nUse the hob_computer MCP server for browser interaction on your HOB-assigned computer. Its persistent browser profile, cookies and tabs belong to this bot. Its files, downloads and terminal tools operate on the same HOB working directory as your native terminal; its sandbox exposes that directory at /tmp/workspace. Use profile_current to inspect the binding. External portal and agent_computer connections are separate computers. When human takeover is active, wait for control to return before browsing.\n';
   }
   control(profile, mode) { return this.request('/api/ui/viewer-control/' + hermesProfile(profile), 'POST', { mode }); }
   async vault(profile, method = 'GET', input, id) {

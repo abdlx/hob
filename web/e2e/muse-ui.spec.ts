@@ -190,8 +190,8 @@ test('settings exposes every original category once using grouped rows', async (
   const state = await fixture(page);
   await page.goto('/settings');
   const categories = page.getByRole('navigation', { name: 'Settings categories' });
-  await expect(categories.getByRole('button')).toHaveCount(11);
-  for (const label of ['General', 'Models & providers', 'Agents & bots', 'Tools & computer', 'Plugins & integrations', 'Skills', 'Memory & history', 'Learning & approvals', 'Automation', 'Channels & messaging', 'Advanced configuration']) {
+  await expect(categories.getByRole('button')).toHaveCount(12);
+  for (const label of ['General', 'Models & providers', 'Agents & bots', 'Tools & computer', 'Vault', 'Plugins & integrations', 'Skills', 'Memory & history', 'Learning & approvals', 'Automation', 'Channels & messaging', 'Advanced configuration']) {
     await expect(categories.getByRole('button', { name: label, exact: true })).toHaveCount(1);
   }
   await expect(page.getByRole('button', { name: 'Connectors', exact: true })).toHaveCount(0);

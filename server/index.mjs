@@ -59,8 +59,9 @@ const browser = await BrowserManager.open({
 });
 const team = new HermesTeam({ stateDir: process.env.HOB_STATE_DIR, workspaceRoot: process.env.HOB_WORKSPACE_ROOT || path.join(process.env.HERMES_HOME, 'workspaces'), roster: () => registry.list(), architectureDefault: true });
 const teamArtifacts = createTeamArtifactHandoffs({ team, workspaceRoot: process.env.HOB_WORKSPACE_ROOT || path.join(process.env.HERMES_HOME, 'workspaces'), roster: () => registry.list() });
+const nativePortal = nativePortalFromEnv({ client: new HermesClient(clientOptions) });
 const bots = new HermesBots({
-  portal: nativePortalFromEnv({ client: new HermesClient(clientOptions) }),
+  portal: nativePortal,
   team,
   registry, isolation,
   client: new HermesClient(clientOptions),
@@ -89,6 +90,10 @@ const syncProfiles = async () => {
   let result;
   try { result = await bots.reconcileProfiles(); }
   catch (error) { console.warn(`Hermes profile reconciliation failed: ${error.message}`); return; }
+  if (nativePortal) for (const bot of bots.roster().filter(bot => bot.state === 'active')) {
+    try { await nativePortal.migrate(bot.name); }
+    catch { console.warn('[hob] A legacy computer binding could not be migrated; it will retry on the next profile sync.'); }
+  }
   if (result.adopted.length) console.log(`Adopted new Hermes profile${result.adopted.length === 1 ? '' : 's'}: ${result.adopted.join(', ')}.`);
   if (result.revoked.length) console.log(`Retired dashboard bot${result.revoked.length === 1 ? '' : 's'} whose Hermes profile is gone: ${result.revoked.join(', ')}.`);
   if (result.failed.length) {

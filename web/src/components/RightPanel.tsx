@@ -482,7 +482,7 @@ function LiveBrowserPanel() {
   }
   return runtime === 'hermes' ? <div className="space-y-4">
     <div className="hob-segments" role="tablist" aria-label="Computer views"><button role="tab" aria-selected={view === 'browser'} onClick={() => setView('browser')}>Browser session</button><button role="tab" aria-selected={view === 'computer'} onClick={() => setView('computer')}>Computer</button></div>
-    {view === 'browser' ? <HermesBrowser key={agent.id} profile={agent.id} /> : <div className="space-y-4"><Suspense fallback={<Skeleton className="h-64 w-full" />}><AgentComputerViewer key={agent.id} profile={agent.id} /></Suspense><Suspense fallback={<Skeleton className="h-64 w-full" />}><AgentComputerViewer key={`portal-${agent.id}`} profile={agent.id} source="portal" /></Suspense></div>}
+    {view === 'browser' ? <HermesBrowser key={agent.id} profile={agent.id} /> : <div className="space-y-4"><Suspense fallback={<Skeleton className="h-64 w-full" />}><AgentComputerViewer key={`hob-${agent.id}`} profile={agent.id} source="hob_computer" /></Suspense><Suspense fallback={<Skeleton className="h-64 w-full" />}><AgentComputerViewer key={`portal-${agent.id}`} profile={agent.id} source="portal" /></Suspense><Suspense fallback={<Skeleton className="h-64 w-full" />}><AgentComputerViewer key={agent.id} profile={agent.id} /></Suspense></div>}
   </div> : <OpenClawBrowserPanel />;
 }
 

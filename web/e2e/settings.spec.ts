@@ -59,6 +59,7 @@ async function fixture(page: Page, extraApps = false, savedProviderCards = false
     if (request.method() !== 'GET') writes.push({ path, body: request.postDataJSON(), profile: request.headers()['x-hob-profile'] || null });
     if (path === '/api/hermes/team/work/inbox') return json({ items: [] });
     if (path === '/api/hermes/portal/vault/bots') return json({ bots: [] });
+    if (path === '/api/hermes/hob-computer/status') return json({ configured: false, connected: false, assignable: true });
     if (path === '/api/auth/status') return json({ authenticated: true, configured: true });
     if (path === '/api/runtime') return json({ runtime: 'hermes' });
     if (path === '/api/readiness') return json({ ready: true, status: 'ready' });
@@ -598,6 +599,37 @@ test('catalog install uses reviewed SHA, reports missing credentials and refuses
   await page.getByRole('combobox', { name: 'Bot', exact: true }).selectOption('research');
   await expect(page.getByText('This Hermes version manages plugins for Main only.', { exact: false })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Enable', exact: true })).toHaveCount(0);
+  expect(state.errors).toEqual([]);
+});
+
+test('computer tab keeps HOB first and both external computers below its assignment', async ({ page }) => {
+  const state = await fixture(page);
+  let assigned = false;
+  await page.route('**/api/hermes/*/status?*', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/hermes/hob-computer/status') return route.fulfill({ json: assigned
+      ? { configured: true, connected: true, managed: true, controlMode: 'agent', serverName: 'hob_computer', computer: { id: 'portal', name: 'HOB desktop', state: 'sleeping' } }
+      : { configured: false, connected: false, assignable: true } });
+    if (path === '/api/hermes/portal/status') return route.fulfill({ json: { configured: true, connected: true, serverName: 'portal', computer: { id: 'external-portal', name: 'External Portal desktop', state: 'sleeping' } } });
+    if (path === '/api/hermes/agent-computer/status') return route.fulfill({ json: { configured: true, connected: true, serverName: 'agent_computer', computer: { id: 'external-agent', name: 'External Agent desktop', state: 'sleeping' } } });
+    return route.fallback();
+  });
+  await page.route('**/api/hermes/hob-computer/assign?*', route => {
+    assigned = true;
+    return route.fulfill({ json: { ok: true } });
+  });
+  await page.goto('/chat');
+  await page.getByRole('tab', { name: 'Browser', exact: true }).click();
+  await page.getByRole('button', { name: 'Open browser', exact: true }).click();
+  await page.getByRole('tab', { name: 'Computer', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Assign computer', exact: true })).toBeVisible();
+  await expect(page.getByText('External Portal desktop', { exact: true })).toBeVisible();
+  await expect(page.getByText('External Agent desktop', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Assign computer', exact: true }).click();
+  await expect(page.getByText('Assigned computer by HOB', { exact: true })).toBeVisible();
+  const content = await page.getByRole('complementary', { name: 'Agent details', exact: true }).innerText();
+  expect(content.indexOf('Assigned computer by HOB')).toBeLessThan(content.indexOf('External Portal desktop'));
+  expect(content.indexOf('External Portal desktop')).toBeLessThan(content.indexOf('External Agent desktop'));
   expect(state.errors).toEqual([]);
 });
 

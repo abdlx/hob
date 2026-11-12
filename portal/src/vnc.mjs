@@ -17,12 +17,23 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
+import path from 'node:path';
 
 export const VIEW_WIDTH = 1280;
 export const VIEW_HEIGHT = 800;
 
 export const XVNC_MISSING_MSG =
   "TigerVNC (Xvnc) is not installed on this machine, so no live view is available. Install it, then try again: sudo apt-get install -y tigervnc-standalone-server";
+
+export function resolveVncExecutable(env = process.env) {
+  const candidates = [env.PORTAL_XVNC_EXECUTABLE,
+    ...(env.PATH || '').split(path.delimiter).filter(Boolean).flatMap(dir => ['Xtigervnc', 'Xvnc'].map(name => path.join(dir, name)))].filter(Boolean);
+  for (const candidate of candidates) {
+    try { fs.accessSync(candidate, fs.constants.X_OK); if (fs.statSync(candidate).isFile()) return candidate; }
+    catch { /* Try the next installed TigerVNC executable. */ }
+  }
+  throw new Error(XVNC_MISSING_MSG);
+}
 
 const FIRST_DISPLAY = 91;
 const LAST_DISPLAY = 99;
@@ -115,6 +126,7 @@ async function waitForExit(proc, timeoutMs) {
 export async function startDisplay(slug) {
   const existing = displays.get(slug);
   if (existing) return { display: existing.display, port: existing.port };
+  const executable = resolveVncExecutable();
   let lastError = null;
   for (let n = FIRST_DISPLAY; n <= LAST_DISPLAY; n++) {
     if (usedDisplays.has(n)) continue;
@@ -141,7 +153,7 @@ export async function startDisplay(slug) {
       "96",
     ];
     let stderr = "";
-    const proc = spawn("Xvnc", args, { stdio: ["ignore", "ignore", "pipe"], detached: false });
+    const proc = spawn(executable, args, { stdio: ["ignore", "ignore", "pipe"], detached: false });
     proc.stderr.on("data", (d) => {
       stderr += d.toString();
       if (stderr.length > 2000) stderr = stderr.slice(-2000);

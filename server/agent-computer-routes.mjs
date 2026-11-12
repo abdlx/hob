@@ -10,11 +10,11 @@ import { normalizeOrigin } from '../portal/src/credential-vault.mjs';
 // connected:false and its viewer hides, so a bot with only one computer
 // shows only that one.
 const SOURCES = {
+  hob_computer: { base: '/api/hermes/hob-computer', configKeys: ['hob_computer'], serverName: 'hob_computer' },
   agent_computer: { base: '/api/hermes/agent-computer', configKeys: ['agent_computer', 'agent-computer'], envUrl: 'AGENT_COMPUTER_URL', envToken: 'AGENT_COMPUTER_TOKEN', serverName: 'agent_computer' },
   portal: { base: '/api/hermes/portal', configKeys: ['portal'], envUrl: 'PORTAL_URL', envToken: 'PORTAL_TOKEN', serverName: 'portal' },
 };
-const sourceFor = pathname => pathname.startsWith(SOURCES.portal.base + '/') ? 'portal'
-  : pathname.startsWith(SOURCES.agent_computer.base + '/') ? 'agent_computer' : null;
+const sourceFor = pathname => Object.entries(SOURCES).find(([, source]) => pathname.startsWith(source.base + '/'))?.[0] || null;
 const invalid = message => new HermesError(400, message, 'INVALID_REQUEST');
 const computerId = value => {
   if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(value)) throw invalid('Select a computer explicitly.');
@@ -71,6 +71,11 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
         const native = document.toJS({ maxAliasCount: 50 });
         const servers = native?.mcp_servers || {};
         config = desc.configKeys.map(key => servers[key]).find(Boolean);
+        // Older HOB releases used the external Portal slot for the bundled
+        // computer. Recognize it only as HOB until its settings are migrated.
+        const legacy = servers.portal;
+        if (source === 'hob_computer' && !config && nativePortal?.managed({ mcpUrl: legacy?.url })) config = legacy;
+        if (source === 'portal' && nativePortal?.managed({ mcpUrl: config?.url })) config = undefined;
       } catch (error) {
         if (error.code !== 'ENOENT') throw new HermesError(503, 'The selected bot’s computer configuration could not be read safely.', 'COMPUTER_CONFIG_INVALID');
       }
@@ -91,7 +96,7 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
     // A timeout can happen after a wake/sleep completed. Never replay it at a
     // fallback URL or through another protocol after an ambiguous result.
     try {
-      const response = await fetchImpl(cfg.mcpUrl, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15000),
+      const response = await fetchImpl(cfg.mcpUrl, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(name === 'computer_wake' ? 90000 : 15000),
         headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(cfg.token ? { Authorization: `Bearer ${cfg.token}` } : {}) },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
       });
@@ -105,10 +110,20 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
         }
       } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
       const data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (data.result?.isError && nativePortal?.managed(cfg)) {
+        const detail = data.result.content?.find(item => item.type === 'text')?.text || '';
+        if (/Xvnc|Xtigervnc|TigerVNC|display.*(?:missing|not installed)/i.test(detail)) throw new HermesError(502, 'The desktop display could not start. Check that TigerVNC is installed in the HOB image.', 'COMPUTER_DISPLAY_UNAVAILABLE');
+        if (/memory headroom|reserving.*MB|out of memory/i.test(detail)) throw new HermesError(503, 'The host has insufficient free memory to start this computer. Free memory or sleep another computer, then retry.', 'COMPUTER_MEMORY_LIMIT');
+        if (/EACCES|Permission denied|read-only/i.test(detail)) throw new HermesError(502, 'The browser cannot access its required files. Check the HOB service logs for the failing directory.', 'COMPUTER_PERMISSION_ERROR');
+        if (/Camoufox|browser.*not installed|executable.*not (?:found|installed)/i.test(detail)) throw new HermesError(502, 'The computer browser could not start. Check the bundled Camoufox installation in the HOB service logs.', 'COMPUTER_BROWSER_UNAVAILABLE');
+      }
       if (data.error || data.result?.isError || !data.result) throw new Error('Remote tool failed.');
       const content = data.result.content?.find(item => item.type === 'text')?.text;
       return content ? JSON.parse(content) : data.result;
-    } catch { throw new HermesError(502, 'The configured computer service did not confirm the request. Refresh its status before retrying.', 'COMPUTER_REQUEST_UNCONFIRMED'); }
+    } catch (error) {
+      if (error instanceof HermesError) throw error;
+      throw new HermesError(502, 'The configured computer service did not confirm the request. Refresh its status before retrying.', 'COMPUTER_REQUEST_UNCONFIRMED');
+    }
   }
   async function route(req, res, url, { json, body }) {
     const source = sourceFor(url.pathname);
@@ -120,18 +135,18 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
       const bots = [];
       if (nativePortal) for (const bot of await roster()) {
         if (bot.state && bot.state !== 'active') continue;
-        const cfg = await getComputerConfig('portal', bot.name);
+        const cfg = await getComputerConfig('hob_computer', bot.name);
         if (cfg.connected && nativePortal.managed(cfg)) bots.push({ name: bot.name, displayName: bot.displayName || bot.display_name || (bot.name === 'default' ? 'Main' : bot.name) });
       }
       return send(200, { bots });
     }
     const profile = profileFrom(url);
     await authorize(profile);
-    const managedSource = source === 'portal' && nativePortal;
+    const managedSource = ['portal', 'hob_computer'].includes(source) && nativePortal;
     const vaultMatch = /^\/vault\/items(?:\/([0-9a-f-]+))?$/i.exec(url.pathname.slice(base.length));
     if (source === 'portal' && vaultMatch) {
       if (!managedSource) throw new HermesError(503, 'The bundled vault is unavailable.', 'VAULT_UNAVAILABLE');
-      const cfg = await getComputerConfig(source, profile);
+      const cfg = await getComputerConfig('hob_computer', profile);
       if (!cfg.connected || !nativePortal.managed(cfg)) throw new HermesError(409, 'Assign a computer to this bot before using its vault.', 'VAULT_COMPUTER_REQUIRED');
       const id = vaultMatch[1];
       if (req.method === 'GET' && !id) return send(200, await nativePortal.vault(profile));
@@ -155,7 +170,7 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalid('Invalid computer request.');
       if (url.pathname === base + '/control') {
         if (Object.keys(value).some(key => key !== 'mode') || !['human', 'agent'].includes(value.mode)) throw invalid('Select human or agent control.');
-        const cfg = await getComputerConfig(source, profile);
+        const cfg = await getComputerConfig('hob_computer', profile);
         if (!cfg.connected || !nativePortal.managed(cfg)) throw invalid('Assign the bundled computer first.');
         return send(200, await nativePortal.control(profile, value.mode));
       }
@@ -164,9 +179,12 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
       await onComputerChanged?.();
       return send(200, result);
     }
-    const cfg = await getComputerConfig(source, profile);
+    let cfg = await getComputerConfig(source, profile);
+    // Old HOB viewers used Portal's control URL. External Portal takes priority
+    // there; new HOB viewers always use their dedicated source.
+    if (source === 'portal' && nativePortal && !cfg.connected && ['/wake', '/sleep'].some(action => url.pathname === base + action)) cfg = await getComputerConfig('hob_computer', profile);
     if (url.pathname === base + '/status' && req.method === 'GET') {
-      if (!cfg.connected) return send(200, { configured: false, connected: false, ...(managedSource ? { assignable: true } : {}) });
+      if (!cfg.connected) return send(200, { configured: false, connected: false, ...(source === 'hob_computer' ? { assignable: Boolean(nativePortal) } : {}) });
       try {
         const result = await callMcpTool(cfg, 'computer_list');
         const computers = Array.isArray(result) ? result : result?.computers;
@@ -175,7 +193,7 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
         const detail = active ? await callMcpTool(cfg, 'computer_status', { computer: computerId(active.id) }) : null;
         const current = detail?.computer || detail;
         if (current?.id !== undefined && current.id !== active?.id) throw new Error('The computer service returned another identity.');
-        const managed = managedSource && nativePortal.managed(cfg);
+        const managed = source === 'hob_computer' && nativePortal?.managed(cfg);
         const control = managed ? await nativePortal.viewer(profile) : undefined;
         return send(200, { configured: true, connected: true, serverName: cfg.serverName,
           ...(managed ? { managed: true, controlMode: control.mode } : { origin: cfg.origin, vncToken: cfg.token }),
@@ -188,7 +206,7 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
       if (!cfg.connected) throw invalid('Configure this bot’s computer connection first.');
       const value = await body(req);
       if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => key !== 'computerId')) throw invalid('Select a computer explicitly.');
-      const managed = source === 'portal' && nativePortal?.managed(cfg);
+      const managed = nativePortal?.managed(cfg);
       const controller = managed ? { ...cfg, ...await nativePortal.vncConfig(profile) } : cfg;
       await callMcpTool(controller, `computer_${action}`, { computer: computerId(value.computerId), ...(managed ? { profile } : {}) });
       return send(200, { ok: true });
@@ -210,7 +228,7 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
     void (async () => {
       let cfg = await getComputerConfig(source, profile);
       if (!cfg.connected || socket.destroyed) { socket.destroy(); return; }
-      if (source === 'portal' && nativePortal?.managed(cfg)) {
+      if (source === 'hob_computer' && nativePortal?.managed(cfg)) {
         if (id !== 'portal') { socket.destroy(); return; }
         cfg = { ...cfg, ...await nativePortal.vncConfig(profile) };
       }

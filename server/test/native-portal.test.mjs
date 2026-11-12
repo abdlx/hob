@@ -10,6 +10,7 @@ import { NativePortal } from '../native-portal.mjs';
 import { createAgentComputerRoutes } from '../agent-computer-routes.mjs';
 import { HermesBotNetwork } from '../hermes-bot-network.mjs';
 import { CredentialVault } from '../../portal/src/credential-vault.mjs';
+import { resolveVncExecutable } from '../../portal/src/vnc.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(tmpdir(), 'hob-native-portal-'));
@@ -20,6 +21,92 @@ async function fixture(t) {
   return { root, home, store, workspaceRoot };
 }
 const value = result => JSON.parse(result.content[0].text);
+
+test('HOB assignment preserves external Portal and Agent Computer connections', async t => {
+  const { root, home, store } = await fixture(t);
+  const hermesHome = path.join(root, 'hermes');
+  await mkdir(path.join(hermesHome, 'profiles', 'alpha'), { recursive: true });
+  const filename = path.join(hermesHome, 'profiles', 'alpha', 'config.yaml');
+  let config = { terminal: { cwd: store.profileWorkspace('alpha') }, mcp_servers: {
+    portal: { url: 'https://external-portal.test/mcp', bearer_token: 'external-portal-key', enabled: true },
+    agent_computer: { url: 'https://external-computer.test/mcp', bearer_token: 'external-computer-key' },
+  } };
+  const external = structuredClone(config.mcp_servers);
+  await writeFile(filename, JSON.stringify(config));
+  const portal = new NativePortal({ home, hermesHome, url: 'http://127.0.0.1:9879',
+    client: { dashboard: async (_route, options) => {
+      config = { ...config, mcp_servers: { ...config.mcp_servers, ...options.body.config.mcp_servers } };
+      await writeFile(filename, JSON.stringify(config));
+    } }, fetchImpl: async (_url, options) => options.method === 'PUT' ? Response.json(provisionHobBot(store, 'alpha')) : Response.json({ ok: true }),
+  });
+  await portal.assign('alpha');
+  assert.deepEqual(config.mcp_servers.portal, external.portal);
+  assert.deepEqual(config.mcp_servers.agent_computer, external.agent_computer);
+  assert.equal(config.mcp_servers.hob_computer.url, 'http://127.0.0.1:9879/mcp');
+  const routes = createAgentComputerRoutes({ hermesHome, env: {}, nativePortal: portal, knownBot: () => true });
+  t.after(() => routes.close());
+  assert.equal((await routes.getComputerConfig('hob_computer', 'alpha')).serverName, 'hob_computer');
+  assert.equal((await routes.getComputerConfig('portal', 'alpha')).token, 'external-portal-key');
+  assert.equal((await routes.getComputerConfig('agent_computer', 'alpha')).token, 'external-computer-key');
+  await portal.unassign('alpha');
+  assert.equal(config.mcp_servers.hob_computer.enabled, false);
+  assert.deepEqual(config.mcp_servers.portal, external.portal);
+  assert.deepEqual(config.mcp_servers.agent_computer, external.agent_computer);
+});
+
+test('legacy bundled assignments migrate once without rotating their profile token', async t => {
+  const { root, home } = await fixture(t);
+  const hermesHome = path.join(root, 'hermes');
+  await mkdir(path.join(hermesHome, 'profiles', 'alpha'), { recursive: true });
+  const filename = path.join(hermesHome, 'profiles', 'alpha', 'config.yaml');
+  let config = { mcp_servers: { portal: { url: 'http://127.0.0.1:9879/mcp', bearer_token: 'existing-bot-token', enabled: true } } };
+  await writeFile(filename, JSON.stringify(config));
+  let writes = 0;
+  const portal = new NativePortal({ home, hermesHome, url: 'http://127.0.0.1:9879', client: { dashboard: async (_route, options) => {
+    writes++;
+    config.mcp_servers = { hob_computer: { ...options.body.config.mcp_servers.hob_computer }, portal: { ...config.mcp_servers.portal, ...options.body.config.mcp_servers.portal } };
+    await writeFile(filename, JSON.stringify(config));
+  } } });
+  const routes = createAgentComputerRoutes({ hermesHome, env: {}, nativePortal: portal, knownBot: () => true });
+  t.after(() => routes.close());
+  assert.equal((await routes.getComputerConfig('hob_computer', 'alpha')).token, 'existing-bot-token');
+  assert.equal((await routes.getComputerConfig('portal', 'alpha')).connected, false);
+  assert.equal(await portal.migrate('alpha'), true);
+  assert.equal(await portal.migrate('alpha'), false);
+  assert.equal(writes, 1);
+  assert.equal(config.mcp_servers.hob_computer.bearer_token, 'existing-bot-token');
+  assert.equal(config.mcp_servers.portal.enabled, false);
+});
+
+test('desktop executable resolution supports Debian Xtigervnc and legacy Xvnc', async t => {
+  const { root } = await fixture(t);
+  const debian = path.join(root, 'debian-bin');
+  const legacy = path.join(root, 'legacy-bin');
+  await mkdir(debian); await mkdir(legacy);
+  await writeFile(path.join(debian, 'Xtigervnc'), 'fixture', { mode: 0o755 });
+  await writeFile(path.join(legacy, 'Xvnc'), 'fixture', { mode: 0o755 });
+  assert.equal(resolveVncExecutable({ PATH: debian }), path.join(debian, 'Xtigervnc'));
+  assert.equal(resolveVncExecutable({ PATH: legacy }), path.join(legacy, 'Xvnc'));
+  assert.equal(resolveVncExecutable({ PATH: legacy, PORTAL_XVNC_EXECUTABLE: path.join(debian, 'Xtigervnc') }), path.join(debian, 'Xtigervnc'));
+  assert.throws(() => resolveVncExecutable({ PATH: path.join(root, 'missing') }), /TigerVNC/);
+});
+
+test('bundled Wake reports actionable display failures without exposing private service errors', async t => {
+  const { root } = await fixture(t);
+  const hermesHome = path.join(root, 'hermes');
+  await mkdir(path.join(hermesHome, 'profiles', 'alpha'), { recursive: true });
+  await writeFile(path.join(hermesHome, 'profiles', 'alpha', 'config.yaml'), JSON.stringify({ mcp_servers: {
+    hob_computer: { url: 'http://127.0.0.1:9879/mcp', bearer_token: 'bot-key' },
+  } }));
+  const routes = createAgentComputerRoutes({ hermesHome, env: {}, knownBot: () => true, authenticated: () => true, assertOrigin: () => {},
+    nativePortal: { managed: cfg => cfg.mcpUrl === 'http://127.0.0.1:9879/mcp', vncConfig: async () => ({ token: 'owner-key' }) },
+    fetchImpl: async () => Response.json({ result: { isError: true, content: [{ type: 'text', text: 'Xvnc missing; private-owner-token' }] } }),
+  });
+  t.after(() => routes.close());
+  await assert.rejects(routes.route({ method: 'POST' }, {}, new URL('http://hob/api/hermes/hob-computer/wake?profile=alpha'), {
+    body: async () => ({ computerId: 'portal' }), json: () => {},
+  }), error => error.code === 'COMPUTER_DISPLAY_UNAVAILABLE' && !error.message.includes('private-owner-token'));
+});
 
 test('vault routes list assigned bots and store encrypted credentials under only the selected bot', async t => {
   const { root, home, store } = await fixture(t);
@@ -178,12 +265,12 @@ test('native assignment writes only the selected MCP binding; unassign revokes b
   });
   await Promise.all([portal.assign('alpha'), portal.assign('alpha')]);
   assert.equal(writes[0].profile, 'alpha');
-  assert.deepEqual(Object.keys(writes[0].body.config.mcp_servers), ['portal']);
-  const key = writes[0].body.config.mcp_servers.portal.bearer_token;
-  assert.equal(writes[1].body.config.mcp_servers.portal.bearer_token, key);
+  assert.deepEqual(Object.keys(writes[0].body.config.mcp_servers), ['hob_computer']);
+  const key = writes[0].body.config.mcp_servers.hob_computer.bearer_token;
+  assert.equal(writes[1].body.config.mcp_servers.hob_computer.bearer_token, key);
   await portal.unassign('alpha');
   assert.equal(store.tokenByHash(hashToken(key)).revoked, true);
-  assert.equal(writes.at(-1).body.config.mcp_servers.portal.enabled, false);
+  assert.equal(writes.at(-1).body.config.mcp_servers.hob_computer.enabled, false);
   assert.equal(calls.at(-1).options.method, 'DELETE');
   assert.equal(JSON.stringify(await portal.assign('alpha')).includes('portal_'), false);
 });
@@ -231,13 +318,13 @@ test('managed status keeps credentials server-side and lifecycle calls carry exp
   t.after(() => routes.close());
   let result;
   const helpers = { json: (_res, _code, body) => { result = body; }, body: async () => ({ computerId: 'portal' }) };
-  await routes.route({ method: 'GET' }, {}, new URL('http://hob/api/hermes/portal/status?profile=alpha'), helpers);
+  await routes.route({ method: 'GET' }, {}, new URL('http://hob/api/hermes/hob-computer/status?profile=alpha'), helpers);
   assert.equal(result.managed, true);
   assert.equal(result.controlMode, 'agent');
   assert.equal(result.vncToken, undefined);
   assert.equal(result.origin, undefined);
   assert.equal(JSON.stringify(result).includes('key'), false);
-  await routes.route({ method: 'POST' }, {}, new URL('http://hob/api/hermes/portal/wake?profile=alpha'), helpers);
+  await routes.route({ method: 'POST' }, {}, new URL('http://hob/api/hermes/hob-computer/wake?profile=alpha'), helpers);
   assert.equal(calls.at(-1).options.headers.Authorization, 'Bearer owner-key');
   assert.deepEqual(calls.at(-1).msg.params.arguments, { computer: 'portal', profile: 'alpha' });
 });

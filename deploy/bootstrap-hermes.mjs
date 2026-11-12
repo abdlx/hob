@@ -130,7 +130,7 @@ export async function bootstrapHermes(env = process.env) {
       { name: 'hob web server', executable: process.execPath, args: [resolve(env.HOB_SERVER_ENTRY || join(projectDir, 'server', 'index.mjs'))], cwd: projectDir, env: appEnv },
       ...(portalEnabled ? [{ name: 'Portal computer service', executable: process.execPath,
         args: [join(projectDir, 'portal', 'src', 'server.mjs')], cwd: join(projectDir, 'portal'), restart: true,
-        env: { ...Object.fromEntries(Object.entries(env).filter(([key]) => /^(PATH|HOME|USERPROFILE|SystemRoot|TEMP|TMP|LANG|LC_.*|TZ|XDG_.*|CAMOUFOX_.*|PORTAL_BROWSER_IDLE_SLEEP_MINUTES)$/.test(key))),
+        env: { ...Object.fromEntries(Object.entries(env).filter(([key]) => /^(PATH|HOME|USERPROFILE|SystemRoot|TEMP|TMP|LANG|LC_.*|TZ|XDG_.*|CAMOUFOX_.*|PORTAL_XVNC_EXECUTABLE|PORTAL_BROWSER_IDLE_SLEEP_MINUTES)$/.test(key))),
           PORTAL_HOME: portalHome, PORTAL_HOST: '127.0.0.1', PORTAL_PORT: String(portalPort),
           PORTAL_WORKSPACE_ROOT: resolve(executionRoot), PORTAL_MAIN_WORKSPACE: workspace,
           PORTAL_HIDDEN_ROOTS: JSON.stringify([...new Set([home, stateDir, resolve(executionRoot), workspace])]) },

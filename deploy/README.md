@@ -44,6 +44,11 @@ profile-bound MCP connection through Hermes settings. New agent sessions load
 the connection; start a new conversation if an existing session retains its old
 tool inventory.
 
+The Computer tab shows HOB's assignment first, followed by any external Portal
+and Agent Computer connections for the bot. HOB uses the `hob_computer` MCP
+slot, leaving `portal` and `agent_computer` independent. Older bundled `portal`
+bindings migrate automatically without rotating tokens or moving files.
+
 Portal uses the same files as HOB: Main uses `workspaces/main`; other bots use
 `workspaces/bots/<profile-id>`, under `HOB_WORKSPACE_ROOT` or
 `$HERMES_HOME/workspaces`. `HOB_MAIN_WORKSPACE` is honored. Portal downloads go
