@@ -38,6 +38,8 @@ class CoordinatorTests(unittest.TestCase):
     def test_only_interactive_parent_is_coordinator(self):
         self.assertTrue(coordinator.enabled(self.parent))
         self.assertFalse(coordinator.enabled(self.child))
+        self.finite.finite_turn_required.return_value = None
+        self.assertFalse(coordinator.enabled(self.parent))
         self.finite.finite_turn_required.return_value = True
         self.assertFalse(coordinator.enabled(self.parent))
         os.environ['HERMES_HOB_COORDINATOR'] = '0'

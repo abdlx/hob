@@ -19,7 +19,7 @@ def enabled(agent):
     # Finite consumers (cron/one-shot jobs) must receive their result in the
     # current turn. They are execution workers, not interactive coordinators.
     from gateway.session_finite import finite_turn_required
-    return finite_turn_required() is not True
+    return finite_turn_required() is False
 
 
 def prompt(agent, system_message=None):

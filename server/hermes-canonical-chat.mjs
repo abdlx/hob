@@ -282,9 +282,9 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     }
     if (url.pathname === '/api/sessions' && method === 'POST') {
       const input = await body(req);
-      await ensureMain(profile);
       if (input.agentId && input.agentId !== profile) throw new HermesError(400, 'The selected bot does not match this conversation.', 'INVALID_PROFILE');
       const title = required(input.title || 'New conversation', 'title', 500);
+      await ensureMain(profile);
       const created = await bridge.rpc(profile, 'session.create', { request_id: randomUUID(), source: 'gui', follow_profile_config: true });
       const id = hermesNativeSessionKey(profile, created.session_id);
       observed.add(id);
@@ -368,8 +368,13 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
         ...selected.images.map(image => `Attached image: ${JSON.stringify(image.path)}`)].join('\n\n');
       if (content.length > 100000) throw new HermesError(400, 'The correction is too long.', 'INVALID_REQUEST');
       const current = await refresh(key);
-      if (!current.run || current.run.status !== 'running') throw new HermesError(409, 'The active turn has finished. Send your message again.', 'RUN_NOT_ACTIVE');
+      if (!current.run || !['running', 'waiting_for_approval'].includes(current.run.status)) throw new HermesError(409, 'The active turn has finished. Send your message again.', 'RUN_NOT_ACTIVE');
       if (input.expectedRunId && input.expectedRunId !== current.run.runId) throw new HermesError(409, 'The active turn changed. Send your message again.', 'RUN_REVISION_CHANGED');
+      const question = current.snapshot.prompts.find(prompt => prompt.kind === 'clarify');
+      if (question) {
+        await rpc(owner, 'clarify.respond', { prompt_id: question.prompt_id, execution_generation: question.execution_generation, answer: content });
+        json(res, 200, { accepted: true, runId: current.run.runId }); return true;
+      }
       const result = await rpc(owner, 'session.steer', { text: content, execution_generation: current.generation });
       if (result.status !== 'queued' || result.execution_generation !== current.generation) throw new HermesError(409, 'Hermes did not accept the correction. Your message was not queued.', 'STEER_REJECTED');
       json(res, 200, { accepted: true, runId: current.run.runId }); return true;

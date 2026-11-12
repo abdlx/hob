@@ -420,6 +420,18 @@ test('busy corrections steer the existing native generation without another admi
   assert.equal(finished.status, 409); assert.equal((await finished.json()).code, 'RUN_NOT_ACTIVE');
 });
 
+test('a typed follow-up answers the active clarification rather than waiting behind it', async t => {
+  const f = await fixture(t); f.shared.mode = 'question'; const session = await f.create();
+  const response = await f.turn(session.id), stream = response.text();
+  const correction = await f.call(`/api/sessions/${session.id}/steer`, 'POST', { content: 'Change direction: build a chart' });
+  assert.equal(correction.status, 200);
+  const answered = f.shared.calls.find(call => call.method === 'clarify.respond');
+  assert.equal(answered.params.answer, 'Change direction: build a chart');
+  assert.equal(answered.params.execution_generation, 5);
+  assert.equal(f.shared.calls.filter(call => call.method === 'prompt.submit').length, 1);
+  assert.match(await stream, /event: done/);
+});
+
 test('real HTTP question controls send exact native prompt and generation after adapter restart', async t => {
   const f = await fixture(t); f.shared.mode = 'question'; const session = await f.create();
   const response = await f.turn(session.id); const interrupted = response.text().catch(() => 'connection closed');
