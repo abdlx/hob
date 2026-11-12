@@ -30,7 +30,13 @@ async function mcp(profile, name, args = {}) {
   assert.equal(response.ok, true);
   return (await response.json()).result;
 }
-const decoded = result => { assert.equal(result.isError, undefined); return JSON.parse(result.content[0].text); };
+const decoded = result => {
+  // This probe only runs against disposable profiles. Preserve the launch
+  // failure in CI instead of reducing it to a generic dashboard HTTP 502.
+  const detail = String(result.content?.[0]?.text || '').replace(/portal_(?:owner_)?[a-zA-Z0-9_-]+/g, '[redacted-token]').slice(0, 6000);
+  assert.equal(result.isError, undefined, result.isError ? detail : undefined);
+  return JSON.parse(result.content[0].text);
+};
 const digest = token => createHash('sha256').update(token).digest('hex');
 await api('/api/auth/login', 'POST', { password: process.env.HOB_PASSWORD });
 if (process.argv.includes('--after-restart')) {
@@ -58,6 +64,8 @@ if (process.argv.includes('--after-restart')) {
   assert.equal(await readFile(path.join(ca.terminal.cwd, 'portal-proof.txt'), 'utf8'), 'same HOB files');
   await writeFile(path.join(ca.terminal.cwd, 'portal-proof.json'), JSON.stringify({ tokenHash: digest(ca.mcp_servers.hob_computer.bearer_token) }));
   assert.equal((await mcp(a, 'fs_write', { profile: b, path: 'denied', content: 'wrong profile' })).isError, true);
+  decoded(await mcp(a, 'computer_wake'));
+  decoded(await mcp(a, 'computer_sleep'));
   await computer(a, 'wake', { computerId: 'portal' });
   const status = await computer(a, 'status');
   assert.equal(status.computer.state, 'ready');

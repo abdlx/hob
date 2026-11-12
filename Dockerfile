@@ -64,10 +64,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssh-server 
     libgtk-3-0t64 libx11-xcb1 libasound2t64 libdbus-glib-1-2 && rm -rf /var/lib/apt/lists/*
 # Fetch browser + fingerprint model at build time into a shared read-only cache,
 # so assigning a bot requires no package installation or browser download.
+# Materialize Camoufox's generated Linux fontconfig before dropping privileges.
 ENV XDG_CACHE_HOME=/opt/hob-cache \
     PORTAL_XVNC_EXECUTABLE=/usr/bin/Xtigervnc
 RUN cd /app/portal && npx --no-install camoufox fetch && \
     node --input-type=module -e "import {ensureModel} from 'fpgen-js'; await ensureModel();" && \
+    node --input-type=module -e "import {launchOptions} from 'camoufox'; await launchOptions({headless:true,os:'linux',locale:'en-US',i_know_what_im_doing:true});" && \
     mkdir -p build && gcc -shared -fPIC -O2 src/netguard.c -o build/libportal_netguard.so -ldl && \
     chmod -R a+rX /opt/hob-cache && test -x "$PORTAL_XVNC_EXECUTABLE"
 COPY deploy/s6-rc.d/ /etc/s6-overlay/s6-rc.d/
