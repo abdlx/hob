@@ -8,8 +8,15 @@ const origin = 'http://127.0.0.1:' + (process.env.HOB_PORT || 3000);
 const requestOrigin = new URL(process.env.HOB_PUBLIC_URL || origin).origin;
 let cookie;
 async function api(route, method = 'GET', input) {
-  const response = await fetch(origin + route, { method, headers: { Origin: requestOrigin, Cookie: cookie || '', 'Content-Type': 'application/json' },
-    ...(input === undefined ? {} : { body: JSON.stringify(input) }), signal: AbortSignal.timeout(120000) });
+  const deadline = Date.now() + 120000;
+  let response;
+  do {
+    response = await fetch(origin + route, { method, headers: { Origin: requestOrigin, Cookie: cookie || '', 'Content-Type': 'application/json' },
+      ...(input === undefined ? {} : { body: JSON.stringify(input) }), signal: AbortSignal.timeout(120000) });
+    if (method !== 'GET' || response.status !== 503 || Date.now() >= deadline) break;
+    await response.body?.cancel();
+    await new Promise(resolve => setTimeout(resolve, 500));
+  } while (Date.now() < deadline);
   assert.equal(response.ok, true, route + ' returned ' + response.status);
   if (route === '/api/auth/login') cookie = response.headers.get('set-cookie').split(';')[0];
   return response;
