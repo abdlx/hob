@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createMcpOAuthFixture } from './smoke-mcp.mjs';
+import { createCoordinatorFixture } from './smoke-coordinator.mjs';
 
 export const SMOKE_MODEL = 'hob-container-smoke';
 export const SMOKE_PROMPT = 'HOB_CONTAINER_SMOKE_WRITE';
@@ -51,11 +52,13 @@ function completion(res, input, message) {
 }
 
 export function createSmokeModel({ file = defaultFile() } = {}) {
+  const coordinator = createCoordinatorFixture(completion);
   const mcp = createMcpOAuthFixture({ baseUrl: process.env.HOB_SMOKE_MCP_BASE });
   const held = new Map();
   let recoveryRequests = 0, recoveryReleased = false, resumedRequests = 0;
   return createServer(async (req, res) => {
     if (await mcp(req, res)) return;
+    if (coordinator.route(req, res)) return;
     const json = (status, value) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
     if (req.method === 'GET' && req.url === '/healthz') return json(200, { fixture: true });
     // Test-only controls on this disposable private-network provider, never app routes.
@@ -77,6 +80,7 @@ export function createSmokeModel({ file = defaultFile() } = {}) {
         chunks.push(chunk);
       }
       const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (coordinator.model(res, input)) return;
       if (!Array.isArray(input?.messages)) return json(400, { error: 'Fixture messages are required.' });
       const asked = input.messages.some(item => item.role === 'user' && String(item.content).includes(SMOKE_PROMPT));
       const wrote = input.messages.some(item => item.role === 'tool' && item.tool_call_id === 'hob-smoke-write');

@@ -2,13 +2,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import { conversationDate } from '../services/conversation-date';
 import { apiFetch } from '../services/api';
 import { useChat } from '../context/ChatContext';
-import { Users, Search, MessageSquare, X, Pencil, Settings } from 'lucide-react';
+import { Users, Search, MessageSquare, X, Pencil, Settings, Trash2 } from 'lucide-react';
 
 export const ChatsDrawer: React.FC = () => {
   const {
     sessions,
     activeSessionId,
     selectSession,
+    deleteSession,
     isLeftDrawerOpen,
     toggleLeftDrawer,
     refresh,
@@ -117,7 +118,7 @@ export const ChatsDrawer: React.FC = () => {
               <button
                 key={session.id}
                 onClick={() => selectSession(session.id)}
-                className={`w-full text-left p-3 pr-11 rounded-2xl transition-all flex flex-col space-y-1 cursor-pointer ${
+                className={`w-full text-left p-3 pr-22 rounded-2xl transition-all flex flex-col space-y-1 cursor-pointer ${
                   isActive
                     ? 'bg-accent-soft text-code-strong shadow-xs'
                     : 'text-ink hover:bg-neutral'
@@ -135,12 +136,19 @@ export const ChatsDrawer: React.FC = () => {
                   </p>
                 )}
               </button>
-              {!session.readOnly && session.transport === 'canonical' && <button type="button" aria-label={`Rename ${session.title}`} disabled={renameBusy} className="absolute right-1 top-1 flex h-10 w-10 items-center justify-center rounded-full text-muted hover:bg-hover cursor-pointer" onClick={async () => {
+              {!session.isMain && !session.readOnly && session.transport === 'canonical' && <button type="button" aria-label={`Rename ${session.title}`} disabled={renameBusy} className="absolute right-11 top-1 flex h-10 w-10 items-center justify-center rounded-full text-muted hover:bg-hover cursor-pointer" onClick={async () => {
                 setRenameBusy(true); setRenameError('');
                 try { const result = await apiFetch<{ title: string; revision: number }>(`/api/sessions/${encodeURIComponent(session.id)}/title`, { headers: { 'X-Hob-Profile': session.agentId } }); setEditing({ id: session.id, profile: session.agentId, title: result.title || session.title, revision: result.revision }); }
                 catch (cause) { setRenameError(cause instanceof Error ? cause.message : 'Could not open this title.'); }
                 finally { setRenameBusy(false); }
               }}><Pencil size={14} /></button>}
+              {!session.isMain && !session.readOnly && session.transport === 'canonical' && <button type="button" aria-label={`Delete ${session.title}`} disabled={renameBusy} className="absolute right-1 top-1 flex h-10 w-10 items-center justify-center rounded-full text-muted hover:text-bad hover:bg-hover cursor-pointer" onClick={async () => {
+                if (!window.confirm(`Delete "${session.title}" and its conversation history?`)) return;
+                setRenameBusy(true); setRenameError('');
+                try { await deleteSession(session.id); }
+                catch (cause) { setRenameError(cause instanceof Error ? cause.message : 'Could not delete this chat.'); }
+                finally { setRenameBusy(false); }
+              }}><Trash2 size={14} /></button>}
               </div>
             );
           })}

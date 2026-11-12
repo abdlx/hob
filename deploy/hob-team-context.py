@@ -187,6 +187,9 @@ def _core(state):
 
 
 def prompt_parts(agent, system_message=None):
+    if os.environ.get('HERMES_HOB_COORDINATOR') == '1':
+        from agent import hob_coordinator
+        system_message = hob_coordinator.prompt(agent, system_message)
     state = _state(agent)
     if state is None:
         return None
@@ -218,6 +221,8 @@ def prompt_parts(agent, system_message=None):
     # for a group. Native universal guidance is shared code, not profile data.
     from agent.system_prompt import _guidance_parts, _timestamp_line, _skills_prompt
     guidance = [part for part in _guidance_parts(agent) if part]
+    if state['kind'] == 'group' and os.environ.get('HERMES_HOB_COORDINATOR') == '1':
+        guidance.append(hob_coordinator.prompt(agent) or '')
     if state["kind"] != "group":
         guidance.append(_skills_prompt(agent))
         if system_message:

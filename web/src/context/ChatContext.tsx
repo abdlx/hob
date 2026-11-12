@@ -4,12 +4,14 @@ import type { AgentListItem, AgentProfile, ChatMessage, ChatSession, GroupSummar
 import { chatApi, apiFetch } from '../services/api';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { ChatAttachment } from '../services/attachments';
+import { attachmentDraft, setAttachmentDraft } from '../services/attachments';
 import { requestId } from '../services/id';
 import { displayGatewayNotice, isConnectionError } from '../services/errors';
 import { ConversationWork, type QueuedPrompt } from '../services/conversation-work';
 import { preference, savePreference } from '../services/settings-navigation';
 
 interface ChatContextValue {
+  deleteSession: (id: string) => Promise<void>;
   messages: ChatMessage[]; sessions: ChatSession[]; activeSessionId: string;
   agent: AgentProfile | null; tasks: TaskItem[]; activityWarnings: string[]; approvals: SecurityApproval[]; stats: SystemStats | null;
   agents: AgentListItem[]; selectAgent: (id: string, options?: { stayOnPage?: boolean; draft?: string }) => Promise<void>;
@@ -363,6 +365,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     } catch (err) { if (sessionRef.current === id && viewEpochRef.current === epoch) readFailure(err); }
   }, [setActiveNav, isPreparing, rememberSession, readFailure]);
 
+  const deleteSession = useCallback(async (id: string) => {
+    const selected = sessions.find(session => session.id === id);
+    if (!selected || selected.isMain) throw new Error('The Main chat cannot be deleted.');
+    const profile = chatApi.getProfile(), epoch = viewEpochRef.current;
+    await apiFetch(`/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { 'X-Hob-Profile': profile } });
+    const remaining = await chatApi.forProfile(profile).getSessions();
+    if (chatApi.getProfile() !== profile || viewEpochRef.current !== epoch) return;
+    setSessions(remaining);
+    if (sessionRef.current === id) {
+      const main = remaining.find(session => session.isMain) || remaining[0];
+      if (main) await selectSession(main.id);
+    }
+  }, [sessions, selectSession]);
+
   const createNewSession = useCallback(async () => {
     if (isPreparing) return;
     const profile = chatApi.getProfile();
@@ -484,10 +500,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
     if (targetSessionId && workRef.current.busy(targetSessionId)) {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      workRef.current.enqueue(profile, targetSessionId, content, queued?.id ?? requestId(), timestamp, attachments);
-      if (sessionRef.current === targetSessionId && chatApi.getProfile() === profile) {
-        setQueuedPrompts(workRef.current.getQueue(targetSessionId));
-        setMessages(previous => workRef.current.project(targetSessionId, previous));
+      try {
+        await api.steerSession(targetSessionId, content, workRef.current.getRunId(targetSessionId), attachments.map(file => file.id));
+        if (sessionRef.current === targetSessionId && chatApi.getProfile() === profile) {
+          setMessages(previous => [...previous, { id: requestId(), role: 'user', content, timestamp, status: 'complete', profile }]);
+          setError(null);
+        }
+      } catch (error) {
+        // Never silently queue or replay an unconfirmed correction.
+        setComposerDraft(targetSessionId, [content, getComposerDraft(targetSessionId)].filter(Boolean).join('\n'));
+        if (attachments.length) setAttachmentDraft(targetSessionId, [...attachments, ...attachmentDraft(targetSessionId)]);
+        if (sessionRef.current === targetSessionId && chatApi.getProfile() === profile) setError(errorText(error));
       }
       return;
     }
@@ -549,7 +572,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       if (chatApi.getProfile() === profile && sessionRef.current === id) setIsLoading(workRef.current.busy(id));
       await reconcileMessages();
     }
-  }, [refresh, reconcileMessages, isPreparing, sessions, messages, rememberSession]);
+  }, [refresh, reconcileMessages, isPreparing, sessions, messages, rememberSession, setComposerDraft, getComposerDraft]);
   useEffect(() => {
     sendMessageRef.current = sendMessage;
   }, [sendMessage]);
@@ -592,7 +615,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return () => { clearTimeout(timer); window.removeEventListener('hob:open-conversation', receive); };
   }, [isPreparing, selectAgent, selectSession]);
 
-  return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, agents, selectAgent, tasks, activityWarnings, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isBotsSidebarOpen, toggleBotsSidebar, setBotsSidebarOpen, isLoading, activeNav, error, connected, connectionIssue, isPreparing, isCreatingConversation, activityFilter, setActivityFilter, groups, loadGroups, selectedGroupId, setSelectedGroupId, setActiveNav, sendMessage, selectSession, createNewSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, getComposerDraft, setComposerDraft, subscribeComposerDraft, clearError: () => { operationErrorRef.current = false; workRef.current.clearError(sessionRef.current); setError(null); }, queuedPrompts, removeQueuedPrompt, clearQueue, activity, stopActiveRun, isStopping }}>{children}</ChatContext.Provider>;
+  return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, agents, selectAgent, tasks, activityWarnings, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isBotsSidebarOpen, toggleBotsSidebar, setBotsSidebarOpen, isLoading, activeNav, error, connected, connectionIssue, isPreparing, isCreatingConversation, activityFilter, setActivityFilter, groups, loadGroups, selectedGroupId, setSelectedGroupId, setActiveNav, sendMessage, selectSession, createNewSession, deleteSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, getComposerDraft, setComposerDraft, subscribeComposerDraft, clearError: () => { operationErrorRef.current = false; workRef.current.clearError(sessionRef.current); setError(null); }, queuedPrompts, removeQueuedPrompt, clearQueue, activity, stopActiveRun, isStopping }}>{children}</ChatContext.Provider>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

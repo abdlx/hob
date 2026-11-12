@@ -314,3 +314,27 @@ passed 80 authenticated/native checks across recreation, including separate UIDs
 cross-bot/secret access denial, sandboxed Chromium, relay wakeups, fired heartbeat
 and clock-triggered scheduling. These checks use a deterministic local provider;
 production model accounts and the deployment host still need qualification.
+
+## Interactive coordinators and permanent chats
+
+Each bot has one permanent Main chat. HOB adopts an existing canonical conversation
+once and stores that binding with its durable run journal. Additional conversations
+can be deleted from the drawer when idle; Main cannot be deleted, cleared or renamed
+through HOB. Conversations follow their profile model on each new turn, preserving
+their identity and history when a provider or model changes.
+
+`HERMES_HOB_COORDINATOR=1` is the default. Interactive parent agents can coordinate,
+clarify and manage subagents; execution tools run in background subagents. Native
+background dispatch is mandatory for those parents, including when a model requests
+synchronous execution. If capacity or later-result delivery is unavailable, HOB
+reports the refusal instead of blocking the conversation with a synchronous fallback.
+Finite cron and one-shot workers retain their native execution behavior.
+
+Follow-up messages during an active coordinator turn use native generation-fenced
+steering rather than a frontend job queue. Hermes applies steering at its next
+processing boundary; an in-flight tool or model request does not become instantaneous.
+Workers are steered/stopped through Hermes's session-owned delegation controls.
+
+Hermes upgrades remain manual: review upstream changes, requalify the source digests
+in both compatibility installers, update adapters for changed contracts, and run the
+Linux image acceptance checks before deploying. There is no automatic Hermes updater.

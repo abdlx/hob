@@ -190,8 +190,8 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
             ) : (
               <button
                 type="submit"
-                aria-label={working ? 'Queue message' : 'Send message'}
-                title={working ? 'Queue message (sends when current reply completes)' : 'Send message'}
+                aria-label="Send message"
+                title={working ? 'Send a correction to the active bot' : 'Send message'}
                 disabled={disabled || !canSend || (!value.trim() && !hasAttachments)}
                 className="w-10 h-10 rounded-full bg-ink hover:opacity-85 text-canvas flex items-center justify-center transition-colors cursor-pointer shrink-0 disabled:opacity-30 shadow-xs active:scale-95"
               >

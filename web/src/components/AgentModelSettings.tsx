@@ -15,7 +15,7 @@ export function AgentModelSettings() {
 }
 
 function HermesAgentModel({ profile }: { profile: string }) {
-  const { refresh, createNewSession } = useChat();
+  const { refresh } = useChat();
   const [provider, setProvider] = useState(''), [model, setModel] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [confirmation, setConfirmation] = useState(''), [saved, setSaved] = useState(false);
@@ -44,14 +44,14 @@ function HermesAgentModel({ profile }: { profile: string }) {
   }
   return <section aria-label="Bot model" className="space-y-3">
     <h3 className="text-sm font-semibold text-ink">Model</h3>
-    <p className="text-xs leading-relaxed text-muted">Choose this bot's model for new conversations. Connect providers and add custom endpoints in Settings.</p>
+    <p className="text-xs leading-relaxed text-muted">Choose this bot's model. Its Main chat and conversation history stay intact when you switch models.</p>
     {error && <Notice error>{error}</Notice>}
     <HermesModelPicker key={revision} profile={profile} provider={provider} model={model} busy={busy} onLoaded={initialize}
       chooseProvider={value => { initialized.current = true; setProvider(value); setModel(''); setConfirmation(''); setSaved(false); }}
       chooseModel={value => { initialized.current = true; setModel(value); setConfirmation(''); setSaved(false); }} />
     <button className={buttonClass} disabled={busy || !provider.trim() || !model.trim()} onClick={() => void save()}>{busy ? 'Saving…' : 'Save model'}</button>
     {confirmation && <div className="space-y-2"><Notice>{confirmation}</Notice><button className={buttonClass} disabled={busy} onClick={() => void save(true)}>Confirm this model selection</button></div>}
-    {saved && <Notice>Model saved. <button className="underline text-accent" disabled={busy} onClick={() => void createNewSession()}>Start a new conversation</button> to use it.</Notice>}
+    {saved && <Notice>Model saved. Your existing chat continues with the updated profile model on its next turn.</Notice>}
   </section>;
 }
 

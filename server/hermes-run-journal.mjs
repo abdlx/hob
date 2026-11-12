@@ -18,8 +18,9 @@ const validAttachments = attachments => attachments === undefined || (Array.isAr
 export class HermesRunJournal {
   #filename;
   #records;
+  #mainChats;
   #queue = Promise.resolve();
-  constructor(filename, records = []) { this.#filename = filename; this.#records = records; }
+  constructor(filename, records = [], mainChats = {}) { this.#filename = filename; this.#records = records; this.#mainChats = mainChats; }
 
   static async open(stateDir) {
     await mkdir(stateDir, { recursive: true, mode: 0o700 });
@@ -57,19 +58,36 @@ export class HermesRunJournal {
       if (record.runId !== null) hermesResource(record.runId);
       keys.add(record.key);
     }
-    return new HermesRunJournal(filename, data.runs);
+    const mainChats = data.mainChats ?? {};
+    if (!mainChats || typeof mainChats !== 'object' || Array.isArray(mainChats) || Object.keys(mainChats).length > 2000) throw new Error('Invalid main chat bindings.');
+    for (const [profile, key] of Object.entries(mainChats)) {
+      const owner = parseHermesSessionKey(key);
+      if (owner.profile !== profile || owner.transport !== 'canonical') throw new Error('Invalid main chat binding.');
+    }
+    return new HermesRunJournal(filename, data.runs, mainChats);
   }
 
   get(key) { return structuredClone(this.#records.find(item => item.key === key)); }
   list(profile) { return structuredClone(this.#records.filter(item => !profile || item.profile === profile)); }
   flush() { return this.#queue; }
+  mainChat(profile) { return Object.hasOwn(this.#mainChats, profile) ? this.#mainChats[profile] : undefined; }
+  bindMainChat(profile, key) {
+    const owner = parseHermesSessionKey(key);
+    if (owner.profile !== profile || owner.transport !== 'canonical') throw new Error('Invalid main chat owner.');
+    return this.#mutate((records, mainChats) => {
+      if (Object.hasOwn(mainChats, profile) && mainChats[profile] !== key) throw new HermesError(409, 'The main chat is already assigned.', 'MAIN_CHAT_EXISTS');
+      Object.defineProperty(mainChats, profile, { value: key, enumerable: true, configurable: true, writable: true });
+      return key;
+    });
+  }
 
   async #mutate(change) {
     const work = this.#queue.then(async () => {
       const records = structuredClone(this.#records);
-      const result = change(records);
-      const encoded = JSON.stringify({ version: 1, runs: records }) + '\n';
-      if (JSON.stringify(records) === JSON.stringify(this.#records)) return structuredClone(result);
+      const mainChats = structuredClone(this.#mainChats);
+      const result = change(records, mainChats);
+      const encoded = JSON.stringify({ version: 1, runs: records, mainChats }) + '\n';
+      if (JSON.stringify(records) === JSON.stringify(this.#records) && JSON.stringify(mainChats) === JSON.stringify(this.#mainChats)) return structuredClone(result);
       if (records.length > 10000 || Buffer.byteLength(encoded) > MAX_BYTES) throw new HermesError(503,
         'The run journal is full. Resolve existing work before submitting a new turn.', 'RUN_JOURNAL_LIMIT');
       if (this.#filename) {
@@ -88,6 +106,7 @@ export class HermesRunJournal {
         }); }
       }
       this.#records = records;
+      this.#mainChats = mainChats;
       return structuredClone(result);
     });
     this.#queue = work.catch(() => undefined);

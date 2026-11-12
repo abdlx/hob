@@ -93,6 +93,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
   // These reads never resubmit a model turn or replay tool side effects.
   const deliveryRecovery = new Set(recoverCompleted ? canonicalRuns().filter(run => run.status === 'completed').map(run => run.key) : []);
   const measuredSettlements = new Set();
+  const mainCreations = new Map();
   const rpc = (owner, method, params = {}) => bridge.rpc(owner.profile, method, { session_id: owner.sessionId, ...params });
   const promptId = (key, prompt) => 'native-' + runFingerprint({ key, id: prompt.prompt_id, generation: prompt.execution_generation });
   const revision = (owner, admissionId, generation, epoch) => runFingerprint({ ...owner, admissionId, generation, epoch });
@@ -217,7 +218,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     const rows = new Map();
     for (const row of [...stored.sessions, ...live.sessions]) {
       const sid = String(row.session_id || row.resolved_id || row.id || '');
-      if (!sid || sid.startsWith('cron_') || row.source === 'cron' || exchanges?.isRelaySession(profile, sid)) continue;
+      if (!sid || sid.startsWith('cron_') || ['cron', 'subagent'].includes(row.source) || exchanges?.isRelaySession(profile, sid)) continue;
       const id = hermesNativeSessionKey(profile, sid);
       rows.set(id, { id, agentId: profile, title: row.title || 'New conversation', createdAt: iso(row.started_at), lastMessageSnippet: '', transport: 'canonical' });
     }
@@ -229,7 +230,30 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
       const id = hermesSessionKey(profile, row.id);
       rows.set(id, { id, agentId: profile, title: row.title || 'API conversation', createdAt: iso(row.started_at), lastMessageSnippet: row.preview || '', transport: 'api', readOnly: true });
     }
-    return [...rows.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const main = journal.mainChat(profile);
+    if (main && !rows.has(main)) {
+      const snapshot = await rpc(parseHermesSessionKey(main), 'session.resume');
+      rows.set(main, { id: main, agentId: profile, title: 'Main chat', createdAt: iso(snapshot.started_at), lastMessageSnippet: '', transport: 'canonical' });
+    }
+    return [...rows.values()].map(row => ({ ...row, isMain: row.id === main, ...(row.id === main ? { title: 'Main chat' } : {}) }))
+      .sort((a, b) => Number(b.isMain) - Number(a.isMain) || b.createdAt.localeCompare(a.createdAt));
+  };
+  const ensureMain = profile => {
+    if (mainCreations.has(profile)) return mainCreations.get(profile);
+    const work = (async () => {
+      if (journal.mainChat(profile)) return journal.mainChat(profile);
+      // Adopt an existing conversation once, preserving its history. New bots
+      // use a deterministic native creation request so retries cannot mint duplicates.
+      const existing = (await sessions(profile)).find(row => row.transport === 'canonical');
+      const key = existing?.id || hermesNativeSessionKey(profile, (await bridge.rpc(profile, 'session.create', {
+        request_id: 'hob-main-chat-v1', source: 'gui', follow_profile_config: true,
+      })).session_id);
+      await journal.bindMainChat(profile, key);
+      return key;
+    })();
+    mainCreations.set(profile, work);
+    work.finally(() => { if (mainCreations.get(profile) === work) mainCreations.delete(profile); }).catch(() => undefined);
+    return work;
   };
   const onEvent = ({ profile, event }) => {
     if (['approval.request', 'clarify.request', 'message.complete', 'session.info'].includes(event?.type)) {
@@ -252,11 +276,13 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     const profile = hermesProfile(req.headers['x-hob-profile'] ?? 'default');
     if (url.pathname === '/api/sessions' && method === 'GET') {
       await scanCron(profile);
+      await ensureMain(profile);
       json(res, 200, await sessions(profile));
       return true;
     }
     if (url.pathname === '/api/sessions' && method === 'POST') {
       const input = await body(req);
+      await ensureMain(profile);
       if (input.agentId && input.agentId !== profile) throw new HermesError(400, 'The selected bot does not match this conversation.', 'INVALID_PROFILE');
       const title = required(input.title || 'New conversation', 'title', 500);
       const created = await bridge.rpc(profile, 'session.create', { request_id: randomUUID(), source: 'gui', follow_profile_config: true });
@@ -313,16 +339,43 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
         execution_generation: item.prompt.execution_generation, choice }));
       await refresh(item.key); return true;
     }
-    const match = /^\/api\/sessions\/([^/]+)\/(messages|turns|attachments|abort|run|recover|resolve-unknown|clarify|title)$/.exec(url.pathname);
+    const deletion = /^\/api\/sessions\/([^/]+)$/.exec(url.pathname);
+    if (deletion && method === 'DELETE') {
+      const key = decodeURIComponent(deletion[1]), owner = parseHermesSessionKey(key);
+      if (owner.profile !== profile || owner.transport !== 'canonical') throw new HermesError(400, 'Choose a current conversation belonging to this bot.', 'INVALID_PROFILE');
+      if (key === await ensureMain(profile)) throw new HermesError(409, 'The Main chat cannot be deleted.', 'MAIN_CHAT_PROTECTED');
+      const current = await refresh(key);
+      if (current.snapshot.pending.length) throw new HermesError(409, 'Stop this conversation before deleting it.', 'RUN_ACTIVE');
+      await rpc(owner, 'session.mutate', { request_id: randomUUID(), expected_revision: current.snapshot.revision, operation: 'delete', payload: {} });
+      observed.delete(key);
+      json(res, 200, { deleted: true }); return true;
+    }
+    const match = /^\/api\/sessions\/([^/]+)\/(messages|turns|attachments|steer|abort|run|recover|resolve-unknown|clarify|title)$/.exec(url.pathname);
     if (!match) return false;
     const key = decodeURIComponent(match[1]);
     const owner = parseHermesSessionKey(key);
+    if (method === 'DELETE' && key === journal.mainChat(owner.profile)) throw new HermesError(409, 'The Main chat cannot be deleted or cleared.', 'MAIN_CHAT_PROTECTED');
     if (owner.transport !== 'canonical') {
       if (match[2] === 'turns' && method === 'POST') throw new HermesError(409,
         'This older API conversation is read-only. Start a new conversation for interactive Hermes chat.', 'LEGACY_SESSION_READ_ONLY');
       return false;
     }
+    if (match[2] === 'steer' && method === 'POST') {
+      if (owner.profile !== profile) throw new HermesError(400, 'Choose a conversation belonging to the selected bot.', 'INVALID_PROFILE');
+      const input = await body(req);
+      const selected = attachments.resolve(key, input.attachments);
+      const content = [required(input.content, 'content', 100000), ...selected.references,
+        ...selected.images.map(image => `Attached image: ${JSON.stringify(image.path)}`)].join('\n\n');
+      if (content.length > 100000) throw new HermesError(400, 'The correction is too long.', 'INVALID_REQUEST');
+      const current = await refresh(key);
+      if (!current.run || current.run.status !== 'running') throw new HermesError(409, 'The active turn has finished. Send your message again.', 'RUN_NOT_ACTIVE');
+      if (input.expectedRunId && input.expectedRunId !== current.run.runId) throw new HermesError(409, 'The active turn changed. Send your message again.', 'RUN_REVISION_CHANGED');
+      const result = await rpc(owner, 'session.steer', { text: content, execution_generation: current.generation });
+      if (result.status !== 'queued' || result.execution_generation !== current.generation) throw new HermesError(409, 'Hermes did not accept the correction. Your message was not queued.', 'STEER_REJECTED');
+      json(res, 200, { accepted: true, runId: current.run.runId }); return true;
+    }
     if (match[2] === 'title' && ['GET', 'POST'].includes(method)) {
+      if (method === 'POST' && key === journal.mainChat(owner.profile)) throw new HermesError(409, 'The Main chat keeps its permanent identity.', 'MAIN_CHAT_PROTECTED');
       if (owner.profile !== profile) throw new HermesError(400, 'Choose a conversation belonging to the selected bot.', 'INVALID_PROFILE');
       if (method === 'GET') {
         const { snapshot } = await refresh(key);

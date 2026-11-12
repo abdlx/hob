@@ -209,6 +209,7 @@ try {
   // Override only the image, host port, and the synthetic provider service. All
   // hardening and the real seccomp profile are inherited from compose.yaml.
   const services = { hob: { image, pull_policy: 'never',
+    environment: { HERMES_HOB_COORDINATOR: '0' },
     ports: [{ target: 3000, published: String(port), host_ip: '127.0.0.1', protocol: 'tcp' }] } };
   if (providerTier) {
     // The fixture reuses the application image, so the inherited healthcheck
@@ -312,6 +313,16 @@ try {
     },
   });
   console.log('All ' + smoke.checks.length + ' checks passed across container recreation.');
+  if (providerTier) {
+    // Legacy native checks exercise direct tools deliberately. Separately prove
+    // the production coordinator policy with a real held background child.
+    services.hob.environment.HERMES_HOB_COORDINATOR = '1';
+    await writeFile(override, JSON.stringify({ services }));
+    compose('up', '-d', '--no-build', '--pull', 'never', '--force-recreate', '--wait', '--wait-timeout', '300', 'hob');
+    await ready(); appContainer = compose('ps', '--quiet', 'hob');
+    console.log(docker(['exec', '--user', '10000:10000', '--env', 'HOB_SMOKE_COORDINATOR=1', appContainer,
+      '/usr/local/bin/node', '/app/deploy/probe-coordinator.mjs'], 240000));
+  }
   if (saved.providerTier) console.log('A real Hermes tool turn used only the isolated local fixture provider.');
   else console.log('The synthetic provider tier was disabled (HOB_SMOKE_PROVIDER=0); no model turn was claimed.');
 } catch (error) {

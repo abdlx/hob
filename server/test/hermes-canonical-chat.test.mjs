@@ -47,6 +47,7 @@ async function fixture(t, { telemetry, team, exchanges } = {}) {
       if (!session) throw new HermesError(409, 'Missing session.', 'not_found');
       if (method === 'session.mutate') {
         if (params.expected_revision !== session.revision) throw new HermesError(409, 'Stale revision.', 'STALE_REVISION');
+        if (params.operation === 'delete') { shared.sessions.delete(profile + ':' + params.session_id); return { deleted: true }; }
         session.title = params.payload.title; session.revision++;
         return { title: session.title, revision: session.revision };
       }
@@ -90,6 +91,10 @@ async function fixture(t, { telemetry, team, exchanges } = {}) {
       if (method === 'session.interrupt') {
         if (params.execution_generation !== shared.generation) throw new HermesError(409, 'Stale generation.', 'stale_generation');
         this.finish(session, receipt, 'interrupted'); return { execution_state: 'terminal' };
+      }
+      if (method === 'session.steer') {
+        if (params.execution_generation !== shared.generation) throw new HermesError(409, 'Stale generation.', 'stale_generation');
+        return { status: shared.rejectSteer ? 'rejected' : 'queued', execution_generation: shared.generation };
       }
       if (method === 'prompt.cancel') { this.finish(session, receipt, 'cancelled'); return structuredClone(receipt); }
       if (method === 'prompt.resolve_unknown') {
@@ -160,7 +165,7 @@ test('normal chat history excludes relay execution sessions and exact result not
     { id: 'answer', role: 'assistant', content: 'Here is your summary.' });
   assert.deepEqual((await (await f.call(`/api/sessions/${main.id}/messages`)).json()).map(row => row.content), ['Please tell me the result.', 'Here is your summary.']);
   const sessions = await (await f.call('/api/sessions', 'GET', undefined, 'coder')).json();
-  assert.deepEqual(sessions.map(row => row.id), [conversation.id]);
+  assert.deepEqual(sessions.filter(row => !row.isMain).map(row => row.id), [conversation.id]);
 });
 
 test('cron-enabled history, approvals and background events tolerate synchronous scans and scan failures', async t => {
@@ -320,13 +325,33 @@ test('a goal starts immediately and exposes its native approval through the ordi
   assert.equal(f.shared.calls.filter(call => call.method === 'prompt.submit').length, 1);
 });
 
+test('one protected Main chat survives restart while manual chats can be deleted through their native owner', async t => {
+  const f = await fixture(t);
+  const listed = await (await f.call('/api/sessions')).json(), main = listed.find(row => row.isMain);
+  assert.ok(main); assert.equal(listed.filter(row => row.isMain).length, 1);
+  const manual = await f.create();
+  assert.notEqual(main.id, manual.id);
+  assert.equal((await f.call(`/api/sessions/${main.id}`, 'DELETE', {})).status, 409);
+  const title = await f.call(`/api/sessions/${main.id}/title`, 'POST', { title: 'Replace identity', revision: 1, requestId: 'rename-main-request' });
+  assert.equal(title.status, 409);
+  assert.equal((await f.call(`/api/sessions/${manual.id}`, 'DELETE', {})).status, 200);
+  const after = await (await f.call('/api/sessions')).json();
+  assert.equal(after.some(row => row.id === manual.id), false);
+  assert.equal(after.find(row => row.isMain).id, main.id);
+  await f.stop(); await f.start();
+  assert.equal((await (await f.call('/api/sessions')).json()).find(row => row.isMain).id, main.id);
+  const calls = f.shared.calls.filter(call => call.method === 'session.create');
+  assert.equal(calls.filter(call => call.params.request_id === 'hob-main-chat-v1').length, 1);
+  assert.ok(calls.every(call => call.params.follow_profile_config === true));
+});
+
 test('new conversations are distinct canonical sessions and inherit only their own current profile setup', async t => {
   const f = await fixture(t);
   const a = await f.create('coder'), b = await f.create('coder');
   assert.notEqual(a.id, b.id);
   assert.equal(parseHermesSessionKey(a.id).transport, 'canonical');
   const creates = f.shared.calls.filter(call => call.method === 'session.create');
-  assert.equal(creates.length, 2); assert.equal(creates.every(call => call.profile === 'coder'), true);
+  assert.equal(creates.length, 3); assert.equal(creates.every(call => call.profile === 'coder'), true);
   assert.equal(creates.every(call => call.params.source === 'gui' && call.params.follow_profile_config === true && !('title' in call.params)), true);
 });
 
@@ -370,6 +395,31 @@ test('a terminal native failure surfaces the redacted reason instead of the gene
   assert.equal(state.run.status, 'failed');
 });
 
+test('busy corrections steer the existing native generation without another admission or replay', async t => {
+  const f = await fixture(t); f.shared.mode = 'hold'; const session = await f.create('coder');
+  const response = await f.turn(session.id); const stream = response.text().catch(() => 'closed');
+  const run = (await (await f.call(`/api/sessions/${session.id}/run`, 'GET', undefined, 'coder')).json()).run;
+  for (const content of ['Use a black background', 'Skip checkout']) {
+    const steered = await f.call(`/api/sessions/${session.id}/steer`, 'POST', { content, expectedRunId: run.runId }, 'coder');
+    assert.equal(steered.status, 200); assert.equal((await steered.json()).accepted, true);
+  }
+  const controls = f.shared.calls.filter(call => call.method === 'session.steer');
+  assert.deepEqual(controls.map(call => call.params.text), ['Use a black background', 'Skip checkout']);
+  assert.ok(controls.every(call => call.profile === 'coder' && call.params.execution_generation === 5));
+  assert.equal(f.shared.calls.filter(call => call.method === 'prompt.submit').length, 1);
+  const otherProfile = await f.call(`/api/sessions/${session.id}/steer`, 'POST', { content: 'wrong bot' });
+  assert.equal(otherProfile.status, 400);
+  const stale = await f.call(`/api/sessions/${session.id}/steer`, 'POST', { content: 'old turn', expectedRunId: 'old' }, 'coder');
+  assert.equal(stale.status, 409);
+  f.shared.rejectSteer = true;
+  const rejected = await f.call(`/api/sessions/${session.id}/steer`, 'POST', { content: 'rejected' }, 'coder');
+  assert.equal(rejected.status, 409); assert.equal((await rejected.json()).code, 'STEER_REJECTED');
+  await f.call(`/api/sessions/${session.id}/abort`, 'POST', { expectedRunId: run.runId }, 'coder');
+  await stream;
+  const finished = await f.call(`/api/sessions/${session.id}/steer`, 'POST', { content: 'too late' }, 'coder');
+  assert.equal(finished.status, 409); assert.equal((await finished.json()).code, 'RUN_NOT_ACTIVE');
+});
+
 test('real HTTP question controls send exact native prompt and generation after adapter restart', async t => {
   const f = await fixture(t); f.shared.mode = 'question'; const session = await f.create();
   const response = await f.turn(session.id); const interrupted = response.text().catch(() => 'connection closed');
@@ -388,7 +438,7 @@ test('stale question revisions and changed approval generations cannot answer ne
   const f = await fixture(t); f.shared.mode = 'approval'; const session = await f.create();
   const response = await f.turn(session.id); const stream = response.text().catch(() => 'closed');
   const before = await (await f.call('/api/security/approvals')).json(); assert.equal(before.length, 1);
-  const state = f.shared.sessions.values().next().value; state.prompts[0].execution_generation++;
+  const state = f.shared.sessions.get('default:' + parseHermesSessionKey(session.id).sessionId); state.prompts[0].execution_generation++;
   const stale = await f.call(`/api/security/approvals/${before[0].id}`, 'POST', { decision: 'approved' });
   assert.equal(stale.status, 409); assert.equal(f.shared.calls.some(call => call.method === 'approval.respond'), false);
   f.bridge.close(); await stream;
@@ -468,8 +518,8 @@ test('missing native receipts do not erase history or authorize another task', a
   const f = await fixture(t); f.shared.mode = 'question'; const session = await f.create();
   const response = await f.turn(session.id); const stream = response.text().catch(() => 'closed');
   const original = f.bridge.rpc.bind(f.bridge);
-  f.shared.sessions.values().next().value.pending = [];
-  f.shared.sessions.values().next().value.prompts = [];
+  f.shared.sessions.get('default:' + parseHermesSessionKey(session.id).sessionId).pending = [];
+  f.shared.sessions.get('default:' + parseHermesSessionKey(session.id).sessionId).prompts = [];
   f.bridge.rpc = (profile, method, params) => {
     if (method === 'prompt.receipt') throw new HermesError(409, 'Receipt not found.', 'not_found');
     return original(profile, method, params);

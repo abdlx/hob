@@ -56,6 +56,7 @@ COPY portal/ ./portal/
 COPY --from=portal-build /app/portal/node_modules/ ./portal/node_modules/
 RUN /usr/local/bin/node /app/deploy/check-source.mjs
 RUN /opt/hermes/.venv/bin/python -I /app/deploy/apply-hermes-compat.py /opt/hermes
+RUN /opt/hermes/.venv/bin/python -I /app/deploy/apply-hermes-coordinator.py /opt/hermes
 COPY LICENSE ./LICENSE
 # Only the optional users backend needs a privileged broker. It accepts a closed
 # Unix-socket protocol; the application and native gateway still run as Hermes.
@@ -89,6 +90,7 @@ RUN mkdir -p /etc/cont-init.d && \
     printf '#!/command/with-contenv sh\nexec /usr/local/bin/node /app/deploy/seed-hermes-config.mjs\n' > /etc/cont-init.d/00-hob-config && \
     chmod 755 /etc/cont-init.d/00-hob-config
 ENV HOB_HOST=0.0.0.0 \
+    HERMES_HOB_COORDINATOR=1 \
     HOB_PORT=3000 \
     HERMES_DIR=/opt/hermes \
     HERMES_HOME=/opt/data \

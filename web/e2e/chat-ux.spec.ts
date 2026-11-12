@@ -224,7 +224,7 @@ test('typing stays available during a reply, drafts survive and new content resp
   await input.fill('Send this first'); await input.press('Enter');
   await expect.poll(state.submitted).toBe(true);
   await expect(input).toBeEnabled(); await input.fill('A draft for later');
-  await expect(page.getByRole('button', { name: 'Queue message', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();
   await expect.poll(() => chat.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(100);
   await chat.evaluate(node => { node.scrollTop = 200; });
   const latest = page.getByRole('button', { name: 'Latest messages' });
@@ -243,10 +243,11 @@ test('typing stays available during a reply, drafts survive and new content resp
   expect(state.errors).toEqual([]);
 });
 
-test('queued prompts keep their bot, conversation and request key after switching bots', async ({ page }) => {
+test('follow-ups steer immediately while the reply runs and remain bound to their original bot', async ({ page }) => {
   const state = await fixture(page);
   const sends: { path: string; profile: string; content: string; key: string }[] = [];
   const releases: (() => void)[] = [];
+  const corrections: { path: string; profile: string; content: string }[] = [];
   const histories: Record<string, { id: string; role: string; content: string; timestamp: string }[]> = { 'ux-session': [], 'research-session': [] };
   await page.route('**/api/agents', route => route.fulfill({ json: { agents: [{ id: 'default', name: 'Main' }, { id: 'research', name: 'Research' }] } }));
   await page.route('**/api/agent', route => {
@@ -262,6 +263,12 @@ test('queued prompts keep their bot, conversation and request key after switchin
     return route.fulfill({ json: histories[id] });
   });
   await page.route('**/api/sessions/*/run', route => route.fulfill({ json: { run: null } }));
+  await page.route('**/api/sessions/*/steer', route => {
+    const path = new URL(route.request().url()).pathname, id = path.split('/')[3], body = route.request().postDataJSON();
+    corrections.push({ path, profile: route.request().headers()['x-hob-profile'], content: body.content });
+    histories[id].push({ id: `correction-${corrections.length}`, role: 'user', content: body.content, timestamp: stamp });
+    return route.fulfill({ json: { accepted: true, runId: 'active-main' } });
+  });
   await page.route('**/api/sessions/*/turns', async route => {
     const path = new URL(route.request().url()).pathname, id = path.split('/')[3], body = route.request().postDataJSON();
     const count = sends.length;
@@ -276,20 +283,49 @@ test('queued prompts keep their bot, conversation and request key after switchin
   await input.fill('First Main request'); await input.press('Enter');
   await expect.poll(() => sends.length).toBe(1);
   await input.fill('Private Main follow-up'); await input.press('Enter');
-  await expect(page.getByRole('status', { name: 'Queued messages' })).toContainText('Private Main follow-up');
-  const queuedId = await page.locator('[data-message-id]').filter({ hasText: 'Private Main follow-up' }).getAttribute('data-message-id');
+  await expect.poll(() => corrections.length).toBe(1);
+  await input.fill('Second correction'); await input.press('Enter');
+  await expect.poll(() => corrections.length).toBe(2);
+  expect(sends).toHaveLength(1);
+  await expect(page.getByRole('status', { name: 'Queued messages' })).toHaveCount(0);
+  expect(corrections).toEqual(['Private Main follow-up', 'Second correction'].map(content => ({ path: '/api/sessions/ux-session/steer', profile: 'default', content })));
   await page.getByRole('listitem').filter({ has: page.getByText('Research', { exact: true }) }).click();
   await expect(input).toBeEnabled();
   await expect(page.getByRole('status', { name: 'Queued messages' })).toHaveCount(0);
   await input.fill('Research draft stays here');
   releases[0]();
-  await expect.poll(() => sends.length).toBe(2);
-  expect(sends[1]).toEqual({ path: '/api/sessions/ux-session/turns', profile: 'default', content: 'Private Main follow-up', key: queuedId });
+  await expect.poll(() => histories['ux-session'].some(message => message.role === 'assistant')).toBe(true);
+  expect(sends).toHaveLength(1);
   await expect(input).toHaveValue('Research draft stays here');
   await expect(page.getByRole('region', { name: 'Conversation messages', exact: true })).not.toContainText('Private Main follow-up');
-  releases[1]();
   await page.getByRole('listitem').filter({ has: page.getByText('Main', { exact: true }) }).click();
   await expect(page.getByRole('region', { name: 'Conversation messages', exact: true })).toContainText('Private Main follow-up');
+  expect(state.errors).toEqual([]);
+});
+
+test('Main chat has no delete action while a manual chat can be deleted from the drawer', async ({ page }) => {
+  const state = await fixture(page);
+  let sessions = [
+    { id: 'ux-session', agentId: 'default', title: 'Main chat', isMain: true, transport: 'canonical', createdAt: stamp },
+    { id: 'manual-chat', agentId: 'default', title: 'Temporary research', isMain: false, transport: 'canonical', createdAt: stamp },
+  ];
+  await page.route('**/api/sessions', route => route.fulfill({ json: sessions }));
+  let deletes = 0;
+  await page.route('**/api/sessions/manual-chat', route => {
+    expect(route.request().method()).toBe('DELETE');
+    deletes++; sessions = sessions.filter(row => row.id !== 'manual-chat');
+    return route.fulfill({ json: { deleted: true } });
+  });
+  await openChat(page);
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).filter({ visible: true }).click();
+  const drawer = page.getByRole('dialog', { name: 'Conversations', exact: true });
+  await expect(drawer.getByRole('button', { name: 'Delete Main chat', exact: true })).toHaveCount(0);
+  await expect(drawer.getByRole('button', { name: 'Rename Main chat', exact: true })).toHaveCount(0);
+  page.once('dialog', dialog => dialog.accept());
+  await drawer.getByRole('button', { name: 'Delete Temporary research', exact: true }).click();
+  await expect(drawer.getByRole('button', { name: 'Delete Temporary research', exact: true })).toHaveCount(0);
+  expect(deletes).toBe(1);
+  await expect(drawer.getByText('Main chat', { exact: true })).toBeVisible();
   expect(state.errors).toEqual([]);
 });
 

@@ -94,6 +94,7 @@ export async function bootstrapHermes(env = process.env) {
     GATEWAY_MULTIPLEX_PROFILES: 'true', HERMES_DASHBOARD: '0' };
   // Environment separation does not replace an execution sandbox.
   const runtimeEnv = without(shared, /^(?:HOB_|HERMES_DASHBOARD_|PORTAL_)/);
+  runtimeEnv.HERMES_HOB_COORDINATOR = env.HERMES_HOB_COORDINATOR ?? '1';
   // A path to read-only context authority, never dashboard credentials. The
   // native Python owner reads it; isolated tool subprocesses retain OS jails.
   runtimeEnv.HERMES_HOB_TEAM_STATE_DB = join(stateDir, 'employee-team.sqlite');

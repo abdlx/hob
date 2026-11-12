@@ -9,7 +9,7 @@ const PROTOCOL = 'hermes-gateway-v1';
 const MAX_FRAME = 8 * 1024 * 1024;
 export const SESSION_METHODS = new Set(['ping', 'runtime.describe', 'setup.status', 'setup.runtime_check',
   'session.create', 'session.list', 'session.info', 'session.resume', 'session.detach', 'session.interrupt', 'session.mutate',
-  'session.events.since', 'session.stats', 'prompt.submit', 'prompt.receipt', 'prompt.cancel',
+  'session.events.since', 'session.stats', 'session.steer', 'prompt.submit', 'prompt.receipt', 'prompt.cancel',
   'image.attach_bytes', 'file.attach',
   'prompt.resolve_unknown', 'approval.respond', 'clarify.respond', 'command.dispatch', 'session.control.read', 'session.control',
   'bot_relay.deliver', 'groups.capabilities', 'groups.list', 'groups.create', 'groups.state', 'groups.log', 'groups.send',

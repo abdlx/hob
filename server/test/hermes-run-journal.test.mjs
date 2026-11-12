@@ -4,10 +4,22 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { HermesRunJournal } from '../hermes-run-journal.mjs';
-import { hermesSessionKey } from '../hermes-client.mjs';
+import { hermesSessionKey, hermesNativeSessionKey } from '../hermes-client.mjs';
 
 const key = hermesSessionKey('coder', 'session-1');
 const submission = { input: 'Synthetic private task', requestKey: 'submission-1', credentialBinding: 'a'.repeat(64), retentionSeconds: 86400 };
+test('Main chat bindings persist independently of turns and cannot be reassigned by a later model/session', async () => fixture(async (root, journal) => {
+  const main = hermesNativeSessionKey('coder', 'persistent-main');
+  await journal.bindMainChat('coder', main);
+  await journal.reserve(key, submission);
+  assert.equal((await HermesRunJournal.open(root)).mainChat('coder'), main);
+  await assert.rejects(journal.bindMainChat('coder', hermesNativeSessionKey('coder', 'new-model-chat')), /already assigned/);
+  assert.equal(journal.mainChat('coder'), main);
+  const special = hermesNativeSessionKey('constructor', 'safe-profile');
+  assert.equal(journal.mainChat('constructor'), undefined);
+  await journal.bindMainChat('constructor', special);
+  assert.equal((await HermesRunJournal.open(root)).mainChat('constructor'), special);
+}));
 async function fixture(run) {
   const root = await mkdtemp(path.join(tmpdir(), 'hob-run-journal-'));
   try { await run(root, await HermesRunJournal.open(root)); }

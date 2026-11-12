@@ -243,6 +243,8 @@ test('tablet chat starts unobstructed and the conversation drawer contains and r
   await expect(drawer.locator('time')).not.toHaveText(/T00:00/);
   await drawer.getByRole('button', { name: 'Rename Test conversation', exact: true }).focus();
   await page.keyboard.press('Tab');
+  await expect(drawer.getByRole('button', { name: 'Delete Test conversation', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
   await expect(drawer.getByRole('button', { name: 'Settings', exact: true })).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(drawer.getByRole('button', { name: 'Close conversations', exact: true })).toBeFocused();

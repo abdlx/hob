@@ -96,6 +96,7 @@ class ChatApiClient {
   getSystemStats = () => this.request<SystemStats>('/api/stats');
   resolveSecurityApproval = (id: string, decision: 'approved' | 'rejected') => this.request<void>(`/api/security/approvals/${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify({ decision }) });
   abortSession = (id: string, expectedRunId: string) => this.request<{ accepted: boolean }>(`/api/sessions/${encodeURIComponent(id)}/abort`, { method: 'POST', body: JSON.stringify({ expectedRunId }) });
+  steerSession = (id: string, content: string, expectedRunId?: string, attachments?: string[]) => this.request<{ accepted: boolean; runId: string }>(`/api/sessions/${encodeURIComponent(id)}/steer`, { method: 'POST', body: JSON.stringify({ content, expectedRunId, attachments }) });
   async sendMessage(id: string, content: string, onChunk?: (text: string, replace?: boolean) => void, requestKey?: string, attachments?: string[], onActivity?: (activity: TurnActivity) => void, onAccepted?: (runId: string) => void): Promise<ChatMessage> {
     let response: Response;
     try { response = await fetch(`${baseUrl}/api/sessions/${encodeURIComponent(id)}/turns`, {

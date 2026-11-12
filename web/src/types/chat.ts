@@ -84,6 +84,7 @@ export interface ActivityFeed {
 }
 
 export interface ChatSession {
+  isMain?: boolean;
   id: string;
   title: string;
   createdAt: string;

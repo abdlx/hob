@@ -81,6 +81,9 @@ if _hob_team.enabled():
     return None""")
     key = "agent/system_prompt.py"
     out[key] = _entry(out[key], "build_system_prompt_parts", """from agent import hob_team_context as _hob_team
+if __import__('os').environ.get('HERMES_HOB_COORDINATOR') == '1':
+    from agent import hob_coordinator
+    system_message = hob_coordinator.prompt(agent, system_message)
 _hob_parts = _hob_team.prompt_parts(agent, system_message)
 if _hob_parts is not None:
     return _hob_parts""")
