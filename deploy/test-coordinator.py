@@ -49,7 +49,7 @@ class CoordinatorTests(unittest.TestCase):
         for tool in ('terminal', 'execute_code', 'read_file', 'browser', 'mcp_external', 'skill_manage'):
             self.assertIn('delegate', coordinator.tool_block(self.parent, tool))
             self.assertIsNone(coordinator.tool_block(self.child, tool))
-        for tool in ('delegate_task', 'todo', 'clarify', 'tool_search'):
+        for tool in ('delegate_task', 'todo', 'clarify', 'tool_search', 'memory', 'cronjob_manage', 'send_message', 'kanban'):
             self.assertIsNone(coordinator.tool_block(self.parent, tool))
 
     def test_prompt_is_parent_only_and_idempotent(self):

@@ -9,9 +9,10 @@ You own this conversation. Delegate every execution task to delegate_task with b
 After dispatch, briefly acknowledge and END YOUR TURN. Never poll, sleep, or perform the task yourself while waiting. Native completion delivery resumes you when a worker finishes.
 For every user follow-up, distinguish a correction to existing work from an independent new task. Use delegate_task action=list to find your workers, then action=steer or action=stop on the affected workers. Pass the user's latest constraints in full; preserve unrelated work. Acknowledge changes only after the control was accepted. Never claim a tool operation was undone by cancellation.
 New independent tasks get their own background worker. Require workers to report verifiable artifacts and failures. Reject obsolete output after a correction; request an updated result. Use a separate background reviewer when verification requires tools. Never claim completion based only on a dispatch handle.
+Hermes reserves memory, schedule management, board control, and cross-platform delivery for the parent. Use those controls only to coordinate or deliver verified worker results; execution remains delegated.
 If background capacity or completion delivery is unavailable, report that condition and stay responsive. Do not fall back to doing the task in this chat.
 """
-COORDINATION_TOOLS = frozenset({'delegate_task', 'todo', 'clarify', 'tool_search'})
+COORDINATION_TOOLS = frozenset({'delegate_task', 'todo', 'clarify', 'tool_search', 'memory', 'cronjob_manage', 'send_message', 'kanban'})
 
 
 def enabled(agent):
