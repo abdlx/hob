@@ -27,7 +27,8 @@ const state = () => fetch('http://smoke-model:18793/smoke/coordinator').then(res
 await api('/api/auth/login', 'POST', { password: process.env.HOB_PASSWORD });
 const all = await (await api('/api/sessions')).json(), main = all.find(row => row.isMain);
 assert.equal(all.filter(row => row.isMain).length, 1);
-const session = await (await api('/api/sessions', 'POST', { title: 'Disposable coordinator acceptance' })).json();
+const session = all.find(row => !row.isMain && row.transport === 'canonical' && !row.readOnly)
+  || await (await api('/api/sessions', 'POST', { title: 'Disposable coordinator acceptance' })).json();
 const route = '/api/sessions/' + encodeURIComponent(session.id);
 const turn = content => api(route + '/turns', 'POST', { content, idempotencyKey: 'coordinator-' + crypto.randomUUID() }).then(response => response.text());
 assert.match(await turn('HOB_COORDINATOR_START'), /HOB_COORDINATOR_ACCEPTED/);
@@ -44,7 +45,11 @@ try {
   config.model = { ...config.model, default: 'hob-coordinator-model-v2' };
   await writeFile(file, stringify(config));
   assert.match(await turn('HOB_COORDINATOR_FOLLOWUP model changed'), /HOB_COORDINATOR_AVAILABLE/);
+  const mainRoute = '/api/sessions/' + encodeURIComponent(main.id);
+  assert.match(await (await api(mainRoute + '/turns', 'POST', { content: 'HOB_COORDINATOR_FOLLOWUP main history', idempotencyKey: 'coordinator-main-' + crypto.randomUUID() })).text(), /HOB_COORDINATOR_AVAILABLE/);
   assert.ok((await state()).models.includes('hob-coordinator-model-v2'));
+  assert.equal((await state()).held, 1, 'Changing models must not cancel the running worker');
+  assert.ok((await (await api(mainRoute + '/messages')).json()).some(row => row.content.includes('HOB_COORDINATOR_FOLLOWUP main history')));
 } finally { config.model = previous; await writeFile(file, stringify(config)); }
 assert.equal((await (await api('/api/sessions')).json()).find(row => row.isMain).id, main.id);
 await fetch('http://smoke-model:18793/smoke/coordinator/release', { method: 'POST' });

@@ -88,6 +88,11 @@ _hob_parts = _hob_team.prompt_parts(agent, system_message)
 if _hob_parts is not None:
     return _hob_parts""")
     key = "agent/conversation_loop.py"
+    tree = ast.parse(out[key])
+    restore = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_restore_or_build_system_prompt")
+    lines = out[key].splitlines(keepends=True)
+    lines.insert(restore.lineno - 1, "@(__import__('agent.hob_coordinator', fromlist=['restore_prompt']).restore_prompt if __import__('os').environ.get('HERMES_HOB_COORDINATOR') == '1' else (lambda function: function))\n")
+    out[key] = "".join(lines)
     out[key] = _entry(out[key], "_restore_or_build_system_prompt", """from agent import hob_team_context as _hob_team
 if _hob_team.refresh_prompt(agent, system_message):
     _persist_system_prompt(agent, 'Team prompt persistence failed', persist_tools=True)

@@ -1,5 +1,6 @@
 """Keep interactive HOB owners on coordination; native children own execution."""
 import json
+from functools import wraps
 import os
 
 
@@ -28,6 +29,21 @@ def prompt(agent, system_message=None):
     if system_message and system_message.startswith(INSTRUCTIONS):
         return system_message
     return INSTRUCTIONS + ('\n' + system_message if system_message else '')
+
+
+def restore_prompt(function):
+    """Apply coordinator instructions after native cached-history restoration."""
+    @wraps(function)
+    def call(agent, *args, **kwargs):
+        result = function(agent, *args, **kwargs)
+        current = getattr(agent, '_cached_system_prompt', None)
+        if enabled(agent) and isinstance(current, str) and INSTRUCTIONS not in current:
+            agent._cached_system_prompt = INSTRUCTIONS + '\n\n' + current
+            stable = getattr(agent, '_cached_system_prompt_static', None)
+            if isinstance(stable, str) and stable:
+                agent._cached_system_prompt_static = INSTRUCTIONS + '\n\n' + stable
+        return result
+    return call
 
 
 def tool_block(agent, name):

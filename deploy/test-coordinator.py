@@ -59,6 +59,19 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(coordinator.prompt(self.parent, value), value)
         self.assertEqual(coordinator.prompt(self.child, 'Worker role'), 'Worker role')
 
+    def test_restored_existing_prompt_gets_policy_without_changing_history(self):
+        original = ['existing private user message']
+        agent = types.SimpleNamespace(_delegate_depth=0, messages=original)
+        @coordinator.restore_prompt
+        def restore(owner):
+            owner._cached_system_prompt = 'Existing identity and history'
+            owner._cached_system_prompt_static = 'Existing identity'
+        restore(agent)
+        self.assertTrue(agent._cached_system_prompt.startswith(coordinator.INSTRUCTIONS))
+        self.assertTrue(agent._cached_system_prompt.startswith(agent._cached_system_prompt_static))
+        self.assertIs(agent.messages, original)
+        self.assertEqual(agent.messages, ['existing private user message'])
+
     def revised(self):
         root = os.environ.get('HOB_QUALIFIED_RUNTIME')
         if not root:

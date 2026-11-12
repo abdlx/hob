@@ -27,6 +27,7 @@ export function createCoordinatorFixture(completion) {
         held.set(res, input); res.once('close', () => held.delete(res)); return true;
       }
       if (latest.startsWith('HOB_COORDINATOR_START')) {
+        if (!input.messages.some(item => ['system', 'developer'].includes(item.role) && text(item.content).includes('HOB interactive coordinator'))) return send({ role: 'assistant', content: 'HOB_COORDINATOR_RESTORED_PROMPT_MISSING' });
         const guard = result('coordinator-guard'), delegated = result('coordinator-spawn');
         if (!guard) return send(tool('coordinator-guard', 'terminal', { command: 'printf foreground-execution-must-be-blocked' }));
         if (!text(guard.content).includes('HOB coordinator')) return send({ role: 'assistant', content: 'HOB_COORDINATOR_GUARD_FAILED' });
