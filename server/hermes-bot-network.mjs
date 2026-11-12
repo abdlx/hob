@@ -93,7 +93,7 @@ try {
   if (command === 'roster') {
     const body = await call('/roster', {}, 15000);
     for (const bot of body.bots || []) {
-      console.log((bot.id === body.self ? '* ' : '  ') + bot.name + ' [' + bot.id + ']' + (bot.main ? ' (Main coordinator)' : '') + (bot.description ? ' - ' + bot.description : ''));
+      console.log((bot.id === body.self ? '* ' : '  ') + bot.name + ' [' + bot.id + ']' + (bot.main ? ' (Main coordinator)' : '') + (bot.description ? ' — ' + bot.description : ''));
     }
   } else if (command === 'send') {
     const waitIndex = args.indexOf('--wait');
@@ -163,7 +163,7 @@ const managedBlock = (self, roster, coordinatorOnly = false, architecture = fals
     '',
     'The complete HOB roster is:',
     '',
-    ...roster.map(bot => `- ${label(bot)} - id: \`${bot.name}\`${bot.name === 'default' ? ' (Main coordinator)' : ''}${bot.tags?.length ? ` [${bot.tags.map(blockText).join(', ')}]` : ''}${blockText(bot.description) ? ` - ${blockText(bot.description)}` : ''}`),
+    ...roster.map(bot => `- ${label(bot)} — id: \`${bot.name}\`${bot.name === 'default' ? ' (Main coordinator)' : ''}${bot.tags?.length ? ` [${bot.tags.map(blockText).join(', ')}]` : ''}${blockText(bot.description) ? ` — ${blockText(bot.description)}` : ''}`),
     '',
     'Use the terminal to talk to another bot through HOB:',
     '',
@@ -174,18 +174,18 @@ const managedBlock = (self, roster, coordinatorOnly = false, architecture = fals
     '```',
     '',
     main
-      ? 'You may message any active bot. Delegate clear, self-contained work, include the outcome you need, and wait for the reply before reporting success. Treat a bot reply as that bot's own work, not as your own.'
+      ? 'You may message any active bot. Delegate clear, self-contained work, include the outcome you need, and wait for the reply before reporting success. Treat a bot reply as that bot’s own work, not as your own.'
       : coordinatorOnly ? 'You may message only the coordinator (stable id: `default`). Ask the coordinator for work needing another bot. Return assigned results through your normal reply; never send a circular completion message.'
       : 'You may contact any active teammate directly when its role fits the work. Keep the main coordinator (`default`) informed of blockers and results. Return results to the calling bot through your normal reply; never start a circular exchange.',
     'Each send creates a separate, inspectable exchange and native conversation. The recipient receives only the context you send. For further delegation from an exchange, include --parent <exchange-id> from its request. Never delegate back to an ancestor. Do not claim a timed-out exchange failed; use node .hob/talk.mjs status <exchange-id> to check it. Use independent tasks for parallel delegation; --no-wait starts an independent handoff without blocking, but you must collect its result with status before reporting success. For user-requested recurring work, use Hermes native scheduled jobs with the agreed schedule and delivery target; no schedule exists until Hermes confirms it. Do not create recurring model work from a one-off goal or a reminder draft. Keep normal approvals and confirm the actual schedule briefly.',
     'The relay is a real message to another bot, which acts with its own tools, workspace, memory and approvals. Never claim another bot completed work without its reply. Do not send secrets, credentials, or tokens through bot messages.',
     'For long work or external waiting, use supported native background observation where appropriate. Preserve the existing task and report its actual state. Do not invent an active watcher, bypass an approval, or create paid recurring work just to wait. Delegated results must be collected and reviewed before reporting success.',
-    'Save final deliverables under artifacts/ in your assigned workspace. Copy completed scratch outputs there before reporting delivery, and link the actual saved file. Keep intermediate files separate. Match the user's requested language in replies and conversation titles; use the conversation language for Roman Urdu and mixed-language chats, and do not import another bot or project's language preference.',
+    'Save final deliverables under artifacts/ in your assigned workspace. Copy completed scratch outputs there before reporting delivery, and link the actual saved file. Keep intermediate files separate. Match the user’s requested language in replies and conversation titles; use the conversation language for Roman Urdu and mixed-language chats, and do not import another bot or project’s language preference.',
     '',
     'How to run work:',
-    '- Plan first: on receiving a task, reply with a short plan - what you will do, in what segments, and what (if anything) you need from the user - before starting the work. No silent starts on multi-step work.',
+    '- Plan first: on receiving a task, reply with a short plan — what you will do, in what segments, and what (if anything) you need from the user — before starting the work. No silent starts on multi-step work.',
     '- Work in segments: break the work into a visible step list with exactly one step in progress at a time, and send a short progress update to Main at each segment boundary (what finished, what is next). A long task must never go quiet without a status; silence until done is a defect.',
-    '- Interruptions: if the user sends another message while a task is running, answer the new message from context AND keep the long task running in the background - never drop, restart, or cancel the running task because of the interruption. Status questions are answered from the task registry, not by guessing. New work and running work are tracked separately and both stay visible.',
+    '- Interruptions: if the user sends another message while a task is running, answer the new message from context AND keep the long task running in the background — never drop, restart, or cancel the running task because of the interruption. Status questions are answered from the task registry, not by guessing. New work and running work are tracked separately and both stay visible.',
     '- Never put credentials, tokens, or secrets in memory files, messages, or deliverables. External facts are cited with their source and the time they were read.',
     ...(main ? ['- Delegate long work asynchronously with --no-wait, then finish your foreground response so Hermes can accept the next user turn. Consult the HOB task registry for status. Native scheduling, FIFO and approvals still apply; do not promise arbitrary concurrent turns.'] : []),
     ...(architecture ? [
@@ -198,13 +198,13 @@ const managedBlock = (self, roster, coordinatorOnly = false, architecture = fals
       ] : [
         'Update your assigned step with node .hob/work.mjs progress \'{"requestId":"progress-001","id":"task-001","revision":2,"step":0,"status":"done","note":"Actual checks and next action"}\'. Read tasks first for the current revision. Exactly one step may be in progress. A progress update cannot mark the entire task verified.',
       ]),
-      'Private episodic notes: node .hob/work.mjs remember \'{"summary":"Reusable lesson from my own work","evidence":"Task/source and observation time"}\'. Only your credential can read your private episodes. Never retain session-only facts, private user details, credentials, or another bot's transcript. Automatic turn logs retain completion metadata, not raw transcripts.',
+      'Private episodic notes: node .hob/work.mjs remember \'{"summary":"Reusable lesson from my own work","evidence":"Task/source and observation time"}\'. Only your credential can read your private episodes. Never retain session-only facts, private user details, credentials, or another bot’s transcript. Automatic turn logs retain completion metadata, not raw transcripts.',
       'Propose durable shared facts with node .hob/work.mjs propose \'{"fact":"Observed project fact","evidence":"Source and observation time"}\', or PROMOTE in a reviewed worker reply. All proposals, including standing rules and preferences, require operator core approval; no bot can approve them. Conflicting facts remain proposals for review.',
       'Commitments: node .hob/work.mjs followup \'{"title":"Check delivery","outcome":"Confirm the requested outcome","deadline":"none","source":{"kind":"task","taskId":"task-001"}}\'. Bot proposals are drafts until the operator approves them. The deterministic HOB sweep rechecks task truth before delivery, enforces the configured timezone/quiet hours/daily cap/never-offer list, and sends no model requests. Unknown external state is deferred for operator checking. No external messaging channel is configured by this helper.',
       'Daily HOB maintenance deduplicates eligible reviewed proposals and reports stale candidates; it never rewrites approved core or invokes a background model. Use native scheduling only when the user has requested recurring model work, and retain normal approvals.',
     ] : []),
     ...(coordinatorOnly ? ['', 'Employee-team assignments and replies use these exact fields, in order. Indent multiline continuations by two spaces. A worker OUTPUT is relative to its own workspace; ask the coordinator to publish a nominated artifact.', '```text', TASK_FORMAT, '```', '```text', REPLY_FORMAT, '```', ...(main ? ['After the worker replies, run node .hob/talk.mjs artifact <exchange-id> to receive only its nominated OUTPUT. Read the returned coordinator-local file and check the requested outcome with your own tools. Then run node .hob/talk.mjs review <exchange-id> <returned-sha256> <passed|failed> "<actual checks and findings>". Do not report verified completion merely because a file was copied or the worker said DONE. Artifact-status inspects the existing snapshot and review history.'] : []), 'A session-only fact stays in that session, including its summary. Do not write it to private memory, shared docs or core. Propose eligible core changes to the coordinator; only a user-approved revision is distributed. A DONE reply is self-reported until the coordinator verifies the actual files and result. Attribute worker results by their configured names. External facts require source and observation time; label stale observations stale.',
-      ...(main ? [architecture ? 'HOB's task/follow-up APIs are authoritative. Legacy shared/TASKS.md and FOLLOWUPS.md are offline notes only; never use them to bypass reviewed state.' : 'Keep commitments in the operator-approved follow-up list. Check current state before offering a reminder.', 'Promotion: a worker's PROMOTE lines are proposals, not facts. Every shared core change requires user approval. On conflict, report both versions and wait.', 'If no worker reply has arrived, inspect its native exchange state rather than guessing done or failed.'] : []),] : []),
+      ...(main ? [architecture ? 'HOB’s task/follow-up APIs are authoritative. Legacy shared/TASKS.md and FOLLOWUPS.md are offline notes only; never use them to bypass reviewed state.' : 'Keep commitments in the operator-approved follow-up list. Check current state before offering a reminder.', 'Promotion: a worker’s PROMOTE lines are proposals, not facts. Every shared core change requires user approval. On conflict, report both versions and wait.', 'If no worker reply has arrived, inspect its native exchange state rather than guessing done or failed.'] : []),] : []),
     END,
   ];
   return lines.join('\n');
@@ -363,4 +363,3 @@ export class HermesBotNetwork {
     } finally { await Promise.all(handles.map(handle => handle.close())); }
   }
 }
-

@@ -680,4 +680,3 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   });
   return server;
 }
-

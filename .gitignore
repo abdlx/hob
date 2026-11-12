@@ -43,4 +43,3 @@ server/*.out
 portal/node_modules/
 portal/build/
 .tmp-portal-validation/
-

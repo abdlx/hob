@@ -100,9 +100,8 @@ function BotVault({ profile }: { profile: string }) {
       <h3 className="text-sm font-semibold text-ink">Saved credentials</h3>
       {loading ? <Skeleton className="h-20 w-full" /> : items.length ? items.map(item => <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl border border-hair p-3">
         <div className="min-w-0"><p className="truncate text-sm text-ink">{item.name}</p><p className="break-all text-xs text-muted">{item.origin}</p>{item.username && <p className="break-all text-xs text-muted">{item.username}</p>}</div>
-        <ConfirmButton className={`${buttonClass} shrink-0`} disabled={busy} tone="danger" confirmLabel="Remove" message="Remove this login from this bot's vault?" onConfirm={() => void perform(() => request('/' + encodeURIComponent(item.id), { method: 'DELETE' }), 'Credential removed.')}>Remove</ConfirmButton>
+        <ConfirmButton className={`${buttonClass} shrink-0`} disabled={busy} tone="danger" confirmLabel="Remove" message="Remove this login from this bot’s vault?" onConfirm={() => void perform(() => request('/' + encodeURIComponent(item.id), { method: 'DELETE' }), 'Credential removed.')}>Remove</ConfirmButton>
       </div>) : !error && <p className="text-xs text-muted">No credentials saved for this bot.</p>}
     </section>
   </>;
 }
-

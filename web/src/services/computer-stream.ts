@@ -57,4 +57,3 @@ export function createComputerStream({ create, directUrl, proxyUrl, onState, onE
     close() { if (closed) return; closed = true; stopTimer(); retire(); },
   };
 }
-

@@ -80,4 +80,3 @@ if (process.argv.includes('--after-restart')) {
   assert.equal(response.status, 401);
   console.log('Portal assignment, shared files, token isolation, Camoufox/Xvnc, VNC proxy, takeover, sleep and revocation passed.');
 }
-

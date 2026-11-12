@@ -68,6 +68,7 @@ jobs:
           node-version: '24.21.0'
       - run: npm install --global npm@11.19.0 --no-audit --no-fund
       - run: npm ci --prefix server
+      - run: node deploy/check-source.mjs
       - name: Server tests with inspectable failure evidence
         shell: bash
         run: |
@@ -141,4 +142,3 @@ jobs:
             printf '::error title=container smoke::%s\n' "$detail"
           fi
           exit "$status"
-

@@ -54,6 +54,7 @@ COPY --from=server-build /app/server/node_modules/ ./server/node_modules/
 COPY deploy/ ./deploy/
 COPY portal/ ./portal/
 COPY --from=portal-build /app/portal/node_modules/ ./portal/node_modules/
+RUN /usr/local/bin/node /app/deploy/check-source.mjs
 RUN /opt/hermes/.venv/bin/python -I /app/deploy/apply-hermes-compat.py /opt/hermes
 COPY LICENSE ./LICENSE
 # Only the optional users backend needs a privileged broker. It accepts a closed
@@ -99,4 +100,3 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 CMD ["/us
 # The inherited dispatcher runs stock init, then drops this program to Hermes'
 # runtime user. Our supervisor starts the two private APIs and the public app.
 CMD ["/usr/local/bin/node", "/app/deploy/start.mjs"]
-

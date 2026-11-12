@@ -139,4 +139,3 @@ export async function bootstrapHermes(env = process.env) {
     home, stateDir, workspace,
   };
 }
-

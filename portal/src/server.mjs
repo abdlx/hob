@@ -15,7 +15,7 @@
 //   /api/ui/*            panel API (owner token only)
 // Security model: Tailscale-only binding + Bearer tokens. There are no
 // scoped public endpoints. The server binds PORTAL_HOST
-// (default 127.0.0.1; the installer sets the Tailscale IP) - binding is
+// (default 127.0.0.1; the installer sets the Tailscale IP) — binding is
 // done here in code, never by a proxy flag.
 import http from "node:http";
 import fs from "node:fs";
@@ -414,7 +414,7 @@ async function handleUiApi(req, res, token, parts) {
       const { token: tok, plaintext } = store.newBotToken(profile);
       store.audit({ kind: "ui.create-bot", profile: profile.slug });
       // The bot's isolated browser profile (directory + pinned fingerprint)
-      // is created NOW, in the same request - no manual step, no waiting
+      // is created NOW, in the same request — no manual step, no waiting
       // for the first browser launch. If the fingerprint model is
       // unreachable, preparation reports not-ready and the first
       // browser_start draws it lazily instead; bot creation never fails
@@ -708,7 +708,7 @@ server.listen(PORT, HOST, () => {
 });
 
 // ---- live view (noVNC) WebSocket proxy ------------------------------------
-// GET /api/computers/:id/vnc - the same endpoint and bindings Agent
+// GET /api/computers/:id/vnc — the same endpoint and bindings Agent
 // Computer exposes: Bearer header or ?token=, the 'binary' WebSocket
 // subprotocol, then the raw RFB byte stream. Portal never terminates
 // the RFB stream: bytes pipe straight to the profile's Xvnc display,
@@ -718,7 +718,7 @@ server.listen(PORT, HOST, () => {
 // Which profile is shown is decided by the token: a profile-bound
 // token always shows its own profile; the owner token selects one via
 // ?profile= (default "default"). That is what makes per-bot views work
-// through hob's viewer - each bot profile connects with its own token.
+// through hob's viewer — each bot profile connects with its own token.
 const wss = new WebSocketServer({
   noServer: true,
   handleProtocols: (protocols) => {
@@ -820,7 +820,7 @@ server.on("upgrade", async (req, socket, head) => {
 });
 
 async function shutdown(signal) {
-  console.log(`[portal] ${signal}, closing browsers.`);
+  console.log(`[portal] ${signal}, closing browsers…`);
   browser.stopIdleCleanup();
   try {
     for (const p of store.profiles()) {
@@ -835,5 +835,4 @@ async function shutdown(signal) {
 }
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
-
 

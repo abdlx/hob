@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#EAE8E5">
-<title>Portal - bot control panel</title>
+<title>Portal — bot control panel</title>
 <style>
   /*
    * Portal panel, styled in hob's theme language: warm greige canvas,
@@ -90,7 +90,7 @@
     overflow: auto;
   }
 
-  /* Sidebar: hob's left rail - brand, section nav, the live system
+  /* Sidebar: hob's left rail — brand, section nav, the live system
      block, and sign-in state. Fixed on desktop, stacks on top on
      narrow screens. */
   .layout { display: flex; align-items: stretch; min-height: 100vh; }
@@ -448,7 +448,7 @@
     </nav>
     <div id="sideSystem" class="side-system hidden">
       <p class="group-label">System</p>
-      <div id="status">Loading.</div>
+      <div id="status">Loading…</div>
     </div>
     <div class="side-foot">
       <span id="conn" class="conn"><span class="dot"></span><span id="connText">Not signed in</span></span>
@@ -461,9 +461,9 @@
       <p class="eyebrow">Owner sign-in</p>
       <h2>Welcome back</h2>
       <p class="lede">Enter the owner token. It lives on this laptop and never leaves it.</p>
-      <div class="path-chip"><code>~/.portal/owner-token.txt</code><span>0600 � owner-readable only</span></div>
+      <div class="path-chip"><code>~/.portal/owner-token.txt</code><span>0600 · owner-readable only</span></div>
       <div class="row" style="margin-top:16px">
-        <input id="ownerToken" type="password" placeholder="portal_owner_." autocomplete="off">
+        <input id="ownerToken" type="password" placeholder="portal_owner_…" autocomplete="off">
         <button id="signInBtn" class="btn primary">Sign in</button>
       </div>
       <p id="loginErr" class="muted"></p>
@@ -483,7 +483,7 @@
         <span id="installState" class="muted"></span>
       </div>
       <pre id="installLog" class="hidden"></pre>
-      <p class="lede" style="margin-top:14px">Camoufox is the stealth engine (patched Firefox, free, no key). If it is not installed, bots can still be added and tokens issued, but browser tools will return a clear "not installed" error until the install finishes. Install downloads the browser build once. On a minimal server it also needs three system libraries (libgtk-3, libx11-xcb, libasound2) - if the install log complains about a missing .so file, install those with apt and retry.</p>
+      <p class="lede" style="margin-top:14px">Camoufox is the stealth engine (patched Firefox, free, no key). If it is not installed, bots can still be added and tokens issued, but browser tools will return a clear “not installed” error until the install finishes. Install downloads the browser build once. On a minimal server it also needs three system libraries (libgtk-3, libx11-xcb, libasound2) — if the install log complains about a missing .so file, install those with apt and retry.</p>
     </section>
 
     <section class="card" aria-label="Add a bot">
@@ -505,7 +505,7 @@
           <h2>Bots<span id="botCount" class="count hidden"></span></h2>
         </div>
       </div>
-      <div id="bots">Loading.</div>
+      <div id="bots">Loading…</div>
     </section>
 
     <section class="card" id="sec-vault" aria-label="Per-bot encrypted credentials">
@@ -538,7 +538,7 @@
       <h2>Connect a bot in hob</h2>
       <ol class="steps">
         <li><span>In that bot's Hermes profile config, set the MCP server <code>agent_computer</code> to URL <code id="mcpUrl">http://&lt;tailscale-ip&gt;:9879/mcp</code> with header <code>Authorization: Bearer &lt;that bot's token&gt;</code>.</span></li>
-        <li><span>Ask the bot to run <code>computer_list</code> - it should see one computer, <b>Portal</b>.</span></li>
+        <li><span>Ask the bot to run <code>computer_list</code> — it should see one computer, <b>Portal</b>.</span></li>
         <li><span>Each bot's browser profile, files, and shell stay inside its own workspace folder, and no bot can name another bot's profile. Full steps are in the README.</span></li>
       </ol>
     </section>
@@ -546,7 +546,7 @@
     <section class="card" id="sec-activity" aria-label="Recent activity">
       <p class="eyebrow">Audit</p>
       <h2>Recent activity</h2>
-      <div id="audit" class="activity muted">Loading.</div>
+      <div id="audit" class="activity muted">Loading…</div>
     </section>
   </div>
 </main>
@@ -587,7 +587,7 @@ async function refresh() {
       (s.browser.executable ? ` <code>${esc(s.browser.executable)}</code>` : '') + `</div>` +
       `<div class="status-row"><span class="dot ${s.shell && s.shell.indexOf('bubblewrap') === 0 ? 'ok' : 'idle'}"></span><span>Shell sandbox: <b>${esc(s.shell || 'unknown')}</b></span></div>` +
       `</div>` +
-      `<p class="meta">Computer: ${esc(s.computer.name)} (${esc(s.computer.id)}) � ${s.profiles} profile(s) � uptime ${s.uptimeSec}s � v${esc(s.version)} � listening on ${esc(s.host)}:${s.port}</p>`;
+      `<p class="meta">Computer: ${esc(s.computer.name)} (${esc(s.computer.id)}) · ${s.profiles} profile(s) · uptime ${s.uptimeSec}s · v${esc(s.version)} · listening on ${esc(s.host)}:${s.port}</p>`;
     const { bots } = await api('/api/ui/bots');
     renderBots(bots);
     const chooser = $('vaultProfile');
@@ -609,7 +609,7 @@ function renderBots(bots) {
   const navCount = $('navBotCount');
   navCount.textContent = bots.length ? String(bots.length) : '';
   navCount.classList.toggle('hidden', !bots.length);
-  if (!bots.length) { $('bots').innerHTML = '<p class="empty">No bots yet. Add one above - each one gets its own browser profile, workspace, and token.</p>'; return; }
+  if (!bots.length) { $('bots').innerHTML = '<p class="empty">No bots yet. Add one above — each one gets its own browser profile, workspace, and token.</p>'; return; }
   $('bots').innerHTML = '<div class="bot-list">' +
     bots.map(b => `<article class="bot">
       <div class="bot-top">
@@ -665,12 +665,12 @@ async function onBotAction(ev) {
       if (confirm('Revoke this token? The bot will lose access until it gets a new one.')) { await api(`/api/ui/bots/x/revoke/${id}`, { method: 'POST' }); await refresh(); }
     } else if (act === 'newtok') {
       const j = await api(`/api/ui/bots/${id}/token`, { method: 'POST' });
-      $('newToken').innerHTML = `New token for this bot - copy it now: <code>${esc(j.plaintext)}</code>`;
+      $('newToken').innerHTML = `New token for this bot — copy it now: <code>${esc(j.plaintext)}</code>`;
       await refresh();
     } else if (act === 'rotate') {
       if (confirm('Rotate: create a new token and revoke ALL old tokens for this bot?')) {
         const j = await api(`/api/ui/bots/${id}/rotate`, { method: 'POST' });
-        $('newToken').innerHTML = `Rotated. New token - copy it now: <code>${esc(j.plaintext)}</code>`;
+        $('newToken').innerHTML = `Rotated. New token — copy it now: <code>${esc(j.plaintext)}</code>`;
         await refresh();
       }
     } else if (act === 'del') {
@@ -696,7 +696,7 @@ async function refreshVault() {
     const container = $('vaultItems');
     container.innerHTML = items.length ? items.map(item =>
       '<div class="tok-row"><b>' + esc(item.name) + '</b> <code>' + esc(item.id) +
-      '</code> ' + esc(item.origin) + ' � ' + esc(item.username) +
+      '</code> ' + esc(item.origin) + ' · ' + esc(item.username) +
       ' <button class="btn danger small" data-vault-delete="' + esc(item.id) + '">Delete</button></div>'
     ).join('') : '<p class="muted">No credentials saved for this bot.</p>';
     container.querySelectorAll('[data-vault-delete]').forEach(button => button.addEventListener('click', async () => {
@@ -739,7 +739,7 @@ $('addBotBtn').addEventListener('click', async () => {
   if (!name) { alert('Give the bot a name.'); return; }
   try {
     const j = await api('/api/ui/bots', { method: 'POST', body: JSON.stringify({ name, description: $('botDesc').value.trim() }) });
-    $('newToken').innerHTML = `Bot <b>${esc(j.profile.name)}</b> created. Its token - copy it now, this is the token you give that bot in hob: <code>${esc(j.plaintext)}</code>`;
+    $('newToken').innerHTML = `Bot <b>${esc(j.profile.name)}</b> created. Its token — copy it now, this is the token you give that bot in hob: <code>${esc(j.plaintext)}</code>`;
     $('botName').value = ''; $('botDesc').value = '';
     await refresh();
   } catch (e) { alert('Error: ' + e.message); }
@@ -747,7 +747,7 @@ $('addBotBtn').addEventListener('click', async () => {
 $('installBtn').addEventListener('click', async () => {
   try {
     const j = await api('/api/ui/install-browser', { method: 'POST' });
-    $('installState').textContent = 'Installing. (downloads ~200MB once)';
+    $('installState').textContent = 'Installing… (downloads ~200MB once)';
     $('installLog').classList.remove('hidden');
     const poll = setInterval(async () => {
       try {
@@ -755,7 +755,7 @@ $('installBtn').addEventListener('click', async () => {
         $('installLog').textContent = s.log.slice(-40).join('');
         if (s.state !== 'running') {
           clearInterval(poll);
-          $('installState').textContent = s.state === 'done' ? 'Install finished.' : 'Install FAILED - see log.';
+          $('installState').textContent = s.state === 'done' ? 'Install finished.' : 'Install FAILED — see log.';
           await refresh();
         }
       } catch (e) { clearInterval(poll); }
@@ -767,5 +767,4 @@ setInterval(() => { if (!$('app').classList.contains('hidden')) refresh(); }, 30
 </script>
 </body>
 </html>
-
 

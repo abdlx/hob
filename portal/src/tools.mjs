@@ -114,7 +114,7 @@ const TAB_ARG = {
   tab: {
     type: "string",
     description:
-      "Tab id (e.g. 'tab1') from browser_tab_list. Optional; defaults to the active tab. Tabs are always enabled - nothing disables them.",
+      "Tab id (e.g. 'tab1') from browser_tab_list. Optional; defaults to the active tab. Tabs are always enabled — nothing disables them.",
   },
 };
 
@@ -195,17 +195,17 @@ function resolveInWorkspace(store, profile, p) {
 // tmpfs, /tmp is fresh, and the shell starts in /tmp/workspace. The bot
 // keeps network access. The bind target is under /tmp (not /workspace)
 // because bwrap cannot create a mountpoint on the read-only root, and
-// an unprivileged user cannot create one on the live root either -
+// an unprivileged user cannot create one on the live root either —
 // /tmp is always present and writable, and the fresh tmpfs makes the
 // mkdir succeed. Fail-closed: without bwrap on PATH the shell refuses
 // to run, unless the owner explicitly opts out with
 // PORTAL_ALLOW_UNSANDBOXED_SHELL=1 (test/CI hosts, or hosts without
-// user namespaces) - in which case it runs unsandboxed as the Portal
+// user namespaces) — in which case it runs unsandboxed as the Portal
 // user, exactly as before.
 // The in-sandbox path of the workspace. Under /tmp (not /workspace):
 // bwrap creates the bind mountpoint with mkdir, which fails on the
 // read-only root and is forbidden to an unprivileged user on the live
-// root - /tmp is always present and writable, and the fresh tmpfs
+// root — /tmp is always present and writable, and the fresh tmpfs
 // makes the mkdir succeed there.
 const SANDBOX_WORKSPACE = "/tmp/workspace";
 
@@ -213,7 +213,7 @@ const BWRAP_MISSING_MSG =
   "terminal_exec is sandboxed with bubblewrap (bwrap), which was not found on PATH. " +
   "Install it (Debian/Ubuntu: sudo apt-get install -y bubblewrap) and restart Portal. " +
   "On Ubuntu 24.04, if bwrap exists but sandboxing fails, unprivileged user namespaces may be " +
-  "restricted by AppArmor - the installer smoke test reports the fix. " +
+  "restricted by AppArmor — the installer smoke test reports the fix. " +
   "Owner override for hosts without user namespaces: PORTAL_ALLOW_UNSANDBOXED_SHELL=1 " +
   "(the shell then runs unsandboxed as the Portal user).";
 
@@ -539,7 +539,7 @@ export const TOOLS = [
   {
     name: "browser_snapshot",
     scope: "browser",
-    description: "Accessibility snapshot of the page: interactive elements with refs (e1, e2, .) to use with browser_click / browser_fill.",
+    description: "Accessibility snapshot of the page: interactive elements with refs (e1, e2, …) to use with browser_click / browser_fill.",
     inputSchema: obj({ ...COMPUTER_ARG, ...TAB_ARG }),
     run: async (ctx, args) => {
       resolveComputer(ctx, args.computer);
@@ -937,5 +937,4 @@ export const TOOLS = [
 ];
 
 export const toolByName = new Map(TOOLS.map((t) => [t.name, t]));
-
 

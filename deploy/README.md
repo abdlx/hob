@@ -167,7 +167,7 @@ failed Hermes read leaves the roster untouched. Recreating a name that automatic
 mirroring retired re-enrolls it with fresh credentials; an explicit operator deletion
 remains a permanent tombstone. Partial setup remains pending for
 explicit operator recovery; revoked enrollment stays revoked if setup was in flight.
-For an immediate pass, Settings  Agents  Refresh, or
+For an immediate pass, Settings → Agents → Refresh, or
 `node deploy/reconcile-roster.mjs` (optionally `--main Hob`) applies the same operations
 over the authenticated API: it adopts every unenrolled native profile, revokes dashboard
 bots whose profile is gone, and prints the resulting active roster. It never edits
@@ -309,4 +309,3 @@ passed 80 authenticated/native checks across recreation, including separate UIDs
 cross-bot/secret access denial, sandboxed Chromium, relay wakeups, fired heartbeat
 and clock-triggered scheduling. These checks use a deterministic local provider;
 production model accounts and the deployment host still need qualification.
-

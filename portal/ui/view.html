@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#000000">
-<title>Portal - live view</title>
+<title>Portal — live view</title>
 <style>
   :root {
     color-scheme: light;
@@ -25,7 +25,7 @@
   #screen { position: fixed; inset: 0; }
   #screen canvas { display: block; }
   /* Floating status pill, hob's language: white, full-rounded, soft
-     shadow, hairline border - it hovers over the video, not a bar. */
+     shadow, hairline border — it hovers over the video, not a bar. */
   #bar {
     position: fixed;
     left: 50%;
@@ -73,7 +73,7 @@
 <div id="screen"></div>
 <div id="bar">
   <span id="dot" class="dot"></span>
-  <span id="status">Connecting.</span>
+  <span id="status">Connecting…</span>
   <span id="who"></span>
   <button id="takeover" type="button" hidden>Take over</button>
   <button id="reconnect" type="button">Reconnect</button>
@@ -135,7 +135,7 @@
     finally { takeover.disabled = false; }
   });
   whoEl.textContent = 'Profile: ' + profile;
-  document.title = 'Portal - live view: ' + profile;
+  document.title = 'Portal — live view: ' + profile;
 
   let rfb = null;
   function connect() {
@@ -156,7 +156,7 @@
     const wsUrl = scheme + '//' + location.host + '/api/computers/portal/vnc'
       + '?token=' + encodeURIComponent(viewerToken)
       + '&profile=' + encodeURIComponent(profile);
-    statusEl.textContent = 'Connecting.';
+    statusEl.textContent = 'Connecting…';
     dotEl.classList.remove('on');
     rfb = new RFB(screenEl, wsUrl, { wsProtocols: ['binary'] });
     rfb.viewOnly = true;
@@ -166,7 +166,7 @@
     rfb.qualityLevel = 6;
     rfb.compressionLevel = 2;
     rfb.addEventListener('connect', () => {
-      statusEl.textContent = 'Connected - live view of ' + profile;
+      statusEl.textContent = 'Connected — live view of ' + profile;
       dotEl.classList.add('on');
       void control().catch(() => {});
     });
@@ -174,7 +174,7 @@
       dotEl.classList.remove('on');
       statusEl.textContent = e.detail && e.detail.clean
         ? 'Disconnected.'
-        : 'Connection failed - is the browser running and the token valid?';
+        : 'Connection failed — is the browser running and the token valid?';
     });
     rfb.addEventListener('credentialsrequired', () => {
       statusEl.textContent = 'The view needs a valid token.';
@@ -186,5 +186,4 @@
 </script>
 </body>
 </html>
-
 

@@ -9,4 +9,3 @@ export function provisionHobBot(store, slug, name = slug) {
   if (!plaintext) ({ token, plaintext } = store.newBotToken(profile, 'hob-managed'));
   return { profile, plaintext, workspace: store.profileWorkspace(slug) };
 }
-

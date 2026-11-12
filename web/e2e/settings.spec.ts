@@ -698,7 +698,7 @@ test('automation saves a real conversation-scoped heartbeat and displays native 
   await automation.getByLabel('Heartbeat instructions', { exact: true }).fill('Check overdue approved dependencies.');
   await automation.getByLabel('Heartbeat interval (minutes)', { exact: true }).fill('15');
   await automation.getByRole('button', { name: 'Save heartbeat' }).click();
-  await expect(automation.getByText('Every 15 minutes � 0 checks', { exact: true })).toBeVisible();
+  await expect(automation.getByText('Every 15 minutes · 0 checks', { exact: true })).toBeVisible();
   expect(state.writes.find(write => write.path.endsWith('/autonomy'))).toEqual({ path: '/api/hermes/workspace/autonomy', profile: 'default', body: { sessionKey: nativeSession, kind: 'heartbeat', action: 'set', prompt: 'Check overdue approved dependencies.', intervalSeconds: 900 } });
   await automation.getByRole('button', { name: 'Pause heartbeat' }).click();
   await expect(automation.getByRole('button', { name: 'Resume heartbeat' })).toBeVisible();
@@ -775,7 +775,7 @@ test('team core review requires an explicit approval and reports incomplete dist
   await page.locator('.hob-settings-directory').getByRole('button', { name: 'Memory & history', exact: true }).click();
   const controls = page.getByRole('region', { name: 'Shared team core and documents' });
   await controls.getByRole('button', { name: 'Open team controls' }).click();
-  await expect(controls.getByText('Published core � revision 0')).toBeVisible();
+  await expect(controls.getByText('Published core · revision 0')).toBeVisible();
   await expect(controls.getByText(/20-turn session window is not active/)).toBeVisible();
   await controls.getByLabel('Proposed team core').fill('Checked project fact.');
   await controls.getByLabel('Promotion evidence').fill('Verified deliverable receipt.');
@@ -784,7 +784,7 @@ test('team core review requires an explicit approval and reports incomplete dist
   await expect(approve).toBeDisabled(); expect(team.core.revision).toBe(0);
   await controls.getByRole('checkbox', { name: 'I reviewed this exact core change and its evidence.' }).check();
   await approve.click();
-  await expect(controls.getByText('Published core � revision 1')).toBeVisible();
+  await expect(controls.getByText('Published core · revision 1')).toBeVisible();
   await controls.getByRole('button', { name: 'Load core revision history' }).click();
   await controls.getByRole('button', { name: 'Restore revision 1 as a proposal' }).click();
   await expect(controls.getByLabel('Proposed team core')).toHaveValue('Checked project fact.');
@@ -855,4 +855,3 @@ test('non-metered routes require exact billing review and expose revocation on a
   expect(writes).toEqual(['/api/hermes/team/execution/routes/preview', '/api/hermes/team/execution/routes', '/api/hermes/team/execution/routes/revoke']);
   expect(fixtureState.errors).toEqual([]);
 });
-

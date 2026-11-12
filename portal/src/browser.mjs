@@ -2,10 +2,10 @@
 // driven through the `camoufox` npm package (Playwright API over
 // Firefox's Juggler protocol). NOT CDP: Mozilla removed the CDP
 // implementation from Firefox entirely in Firefox 141 (July 2025),
-// and Camoufox is Firefox 158 - there is no CDP endpoint to program
+// and Camoufox is Firefox 158 — there is no CDP endpoint to program
 // against. Playwright's Page/Context API is the programming surface,
 // which is exactly what this layer uses (goto, evaluate, locators,
-// mouse/keyboard) - no CDP sessions anywhere, so nothing here is
+// mouse/keyboard) — no CDP sessions anywhere, so nothing here is
 // Chromium-specific.
 //
 // Each profile gets:
@@ -17,7 +17,7 @@
 //     salts all seeded draws (fonts, voices, GPU, noise) from the
 //     pinned fingerprint, so the presented identity is stable across
 //     restarts. Canvas/WebGL readback still varies per session (the
-//     canvas seed is not honoured by the shipped build) - pinned
+//     canvas seed is not honoured by the shipped build) — pinned
 //     identity means stable navigator/screen/WebGL/fonts/timezone,
 //     not bit-identical pixels.
 //   - timezone Asia/Karachi + locale en-US + 1280x800 viewport,
@@ -114,7 +114,7 @@ export function resetBrowserCache() {
 }
 
 export async function browserInfo() {
-  // listInstalled() reads the install dir from disk - no download, no launch.
+  // listInstalled() reads the install dir from disk — no download, no launch.
   try {
     if (
       process.env.CAMOUFOX_EXECUTABLE &&
@@ -429,7 +429,7 @@ export class BrowserManager {
 
   // ---- tabs ---------------------------------------------------------------
   // Tabs are always enabled: every profile's browser can hold as many
-  // pages as the machine can carry. A tab id (tab1, tab2, .) is assigned
+  // pages as the machine can carry. A tab id (tab1, tab2, …) is assigned
   // when a page is first seen and stays with that page while it lives.
   // Refs from a snapshot belong to the tab that was snapshotted; switching
   // tabs swaps the ref map, so a ref can never silently act on the
@@ -712,7 +712,7 @@ export class BrowserManager {
 
   // A headed browser is a superset of a headless one: every MCP tool
   // works identically on a headed page, so a running headed browser
-  // satisfies a headless request. The reverse is not true - a viewer
+  // satisfies a headless request. The reverse is not true — a viewer
   // needs pixels, so a headless browser is closed and relaunched headed
   // (the on-disk profile, cookies and logins survive the relaunch).
   async ensure(profile, opts = {}) {
@@ -1005,7 +1005,7 @@ export class BrowserManager {
     const sel = e.refs.get(ref);
     if (!sel) {
       throw new Error(
-        `unknown ref: ${ref}. Take a fresh browser_snapshot first - refs go stale after the page changes.`,
+        `unknown ref: ${ref}. Take a fresh browser_snapshot first — refs go stale after the page changes.`,
       );
     }
     return sel;
@@ -1236,5 +1236,4 @@ export class BrowserManager {
     });
   }
 }
-
 

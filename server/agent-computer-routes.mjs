@@ -72,7 +72,7 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
         const servers = native?.mcp_servers || {};
         config = desc.configKeys.map(key => servers[key]).find(Boolean);
       } catch (error) {
-        if (error.code !== 'ENOENT') throw new HermesError(503, 'The selected bot's computer configuration could not be read safely.', 'COMPUTER_CONFIG_INVALID');
+        if (error.code !== 'ENOENT') throw new HermesError(503, 'The selected bot’s computer configuration could not be read safely.', 'COMPUTER_CONFIG_INVALID');
       }
     }
     // Environment configuration belongs only to Main, never to another bot.
@@ -185,7 +185,7 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
     const action = url.pathname === base + '/wake' ? 'wake' : url.pathname === base + '/sleep' ? 'sleep' : null;
     if (action && req.method === 'POST') {
       assertOrigin(req);
-      if (!cfg.connected) throw invalid('Configure this bot's computer connection first.');
+      if (!cfg.connected) throw invalid('Configure this bot’s computer connection first.');
       const value = await body(req);
       if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => key !== 'computerId')) throw invalid('Select a computer explicitly.');
       const managed = source === 'portal' && nativePortal?.managed(cfg);
@@ -249,4 +249,3 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
   const close = () => { for (const socket of upstreams) socket.terminate(); for (const socket of wss.clients) socket.terminate(); wss.close(); };
   return { route, upgrade, getAgentComputerConfig, getComputerConfig, close };
 }
-

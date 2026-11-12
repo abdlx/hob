@@ -115,4 +115,3 @@ export function nativePortalFromEnv({ client, env = process.env } = {}) {
   if (!env.HOB_PORTAL_HOME || !env.HOB_PORTAL_URL || !env.HERMES_HOME) return null;
   return new NativePortal({ home: env.HOB_PORTAL_HOME, url: env.HOB_PORTAL_URL, hermesHome: env.HERMES_HOME, client });
 }
-

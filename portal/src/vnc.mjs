@@ -2,7 +2,7 @@
 //
 // A headed Camoufox draws into its profile's Xvnc display, and the RFB
 // stream Xvnc serves is what viewers connect to through the
-// /api/computers/:id/vnc WebSocket endpoint - the same byte-pipe shape
+// /api/computers/:id/vnc WebSocket endpoint — the same byte-pipe shape
 // Agent Computer uses (WebSocket upgrade + token auth, then raw bytes
 // forwarded to the VNC server; the RFB stream is never terminated in
 // Portal, just like Agent Computer's control plane never terminates it).
@@ -158,7 +158,7 @@ export async function startDisplay(slug) {
       }
       // The lock file is the ownership record: it must name our PID.
       // An orphan holding this display makes our Xvnc exit, while the
-      // port still answers - trusting the port alone pipes the viewer
+      // port still answers — trusting the port alone pipes the viewer
       // at the orphan's screen.
       for (let i = 0; i < 50; i++) {
         if (lockPid(n) === proc.pid) return true;
@@ -229,5 +229,4 @@ export async function stopDisplay(slug) {
 export async function stopAllDisplays() {
   await Promise.all([...displays.keys()].map((slug) => stopDisplay(slug)));
 }
-
 

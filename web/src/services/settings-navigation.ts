@@ -26,4 +26,3 @@ export const preference = (key: string, fallback: string) => {
 export const savePreference = (key: string, value: string) => {
   try { localStorage.setItem(key, value); return true; } catch { return false; }
 };
-

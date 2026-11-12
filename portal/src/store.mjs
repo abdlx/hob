@@ -266,7 +266,7 @@ export class Store {
     }
     this.save();
     // Profile files are NEVER deleted automatically: the owner removes
-    // ~/?.portal/profiles/<slug> by hand if they want it gone.
+    // ~/​.portal/profiles/<slug> by hand if they want it gone.
     return { deleted: p.slug, revokedTokens: revoked };
   }
 
@@ -332,7 +332,7 @@ export class Store {
   }
 
   // A bot's workspace: the one directory it may write to. Everything
-  // the agent stores - files, shell output, browser downloads - lives
+  // the agent stores — files, shell output, browser downloads — lives
   // under here. The browser profile itself sits beside it in the
   // profile home, out of the agent's reach.
   profileWorkspace(slug) {
@@ -382,5 +382,4 @@ export class Store {
 }
 
 export { slugify, fingerprintSeed };
-
 

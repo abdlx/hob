@@ -45,4 +45,3 @@ export function obj(props, required = []) {
   return { type: "object", properties: props, required, additionalProperties: false };
 }
 
-

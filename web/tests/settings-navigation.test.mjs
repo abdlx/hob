@@ -25,4 +25,3 @@ test('plugin feedback distinguishes installation, activation, restart and refuse
   assert.throws(() => pluginResultMessage('install', { ok: false }), /did not confirm/);
   assert.throws(() => pluginResultMessage('install', {}), /did not confirm/);
 });
-

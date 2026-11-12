@@ -10,4 +10,3 @@ idempotent owner-only provisioning, real per-profile wake/sleep, HOB private
 state mounts hidden from shell sandboxes, and fail-closed persisted state loads.
 No standalone installer, systemd service, Tailscale dependency, or separate
 Portal workspace is created by HOB.
-

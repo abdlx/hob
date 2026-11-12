@@ -138,8 +138,8 @@ const reconcileTeam = () => {
 };
 // Reconciliation catches source edits, missed watcher events, restarts and edited copies.
 const teamTimer = setInterval(reconcileTeam, 30000); teamTimer.unref();
-// A signal must finish the graceful browser stop - that close is what flushes cookies
-// and storage to the profile - but it must also finish inside the supervisor's window:
+// A signal must finish the graceful browser stop — that close is what flushes cookies
+// and storage to the profile — but it must also finish inside the supervisor's window:
 // `deploy/start.mjs` escalates to SIGKILL at 30 s, so wait at most 25 s and then leave.
 const shutdown = async () => {
   if (stopping) return;
@@ -159,4 +159,3 @@ const shutdown = async () => {
 };
 process.on('SIGTERM', () => void shutdown());
 process.on('SIGINT', () => void shutdown());
-

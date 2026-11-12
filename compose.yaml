@@ -55,4 +55,3 @@ services:
 
 volumes:
   hermes-data:
-

@@ -267,4 +267,3 @@ test('assignment guidance follows the native binding without overwriting authore
   assert.equal(unassigned.includes('## Assigned computer'), false);
   assert.ok(unassigned.includes('Keep these instructions.'));
 });
-

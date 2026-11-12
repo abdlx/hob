@@ -152,12 +152,12 @@ export function AgentComputerViewer({ profile, source = 'agent_computer' }: { pr
   if (!status.connected && !status.configured) return status.assignable ? (
     <div className="space-y-3 rounded-xl border border-line p-4">
       <p className="text-sm font-medium text-ink">Give this bot a computer</p>
-      <p className="text-xs text-muted">A persistent browser profile with files and downloads in this bot's HOB working directory.</p>
+      <p className="text-xs text-muted">A persistent browser profile with files and downloads in this bot’s HOB working directory.</p>
       {error && <Notice error>{error}</Notice>}
       <button type="button" disabled={busy !== ''} onClick={() => void manage('assign')}
         className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
         {busy === 'assign' ? <Loader2 size={13} className="animate-spin" /> : <Monitor size={13} />}
-        {busy === 'assign' ? 'Assigning.' : 'Assign computer'}
+        {busy === 'assign' ? 'Assigning…' : 'Assign computer'}
       </button>
     </div>
   ) : null;
@@ -306,7 +306,7 @@ export function AgentComputerViewer({ profile, source = 'agent_computer' }: { pr
             <HardDrive size={12} className="text-gray-500" />
             <span>{activeComputer?.memoryMb ? `${activeComputer.memoryMb} MB` : '1024 MB'}</span>
           </span></>}
-          {status.managed && <span>Shared HOB workspace � {humanControl ? 'Human control' : 'Agent control'}</span>}
+          {status.managed && <span>Shared HOB workspace · {humanControl ? 'Human control' : 'Agent control'}</span>}
           {activeComputer?.health?.browser_engine && (
             <span className="text-faint capitalize">{activeComputer.health.browser_engine} browser</span>
           )}
@@ -373,4 +373,3 @@ export function AgentComputerViewer({ profile, source = 'agent_computer' }: { pr
     </div>
   );
 }
-
