@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { HermesError, hermesProfile, hermesResource, hermesSessionKey, parseHermesSessionKey } from './hermes-client.mjs';
 import { avatarUrl } from './hermes-avatars.mjs';
-import { messageContentText } from './hermes-content.mjs';
+import { messageContentText, chatMessageText } from './hermes-content.mjs';
 import { HermesRunJournal, TERMINAL_RUNS, runFingerprint } from './hermes-run-journal.mjs';
 import { createHermesChatPreviews } from './hermes-chat-previews.mjs';
 import { hermesActivityFeed } from './hermes-activity.mjs';
@@ -241,10 +241,11 @@ export function createHermesChatRoutes(client, bots, journal = new HermesRunJour
     }
     if (match[2] === 'messages' && method === 'GET') {
       const messages = rows(await client.runtime(`${sessionPath}/messages`, { profile: owner.profile }));
-      json(res, 200, messages.filter(message => ['user', 'assistant', 'system'].includes(message.role)
-        && !exchanges?.isRelayNotification(owner.profile, messageContentText(message.content))).map((message, index) => ({
-        id: String(message.id ?? `${owner.sessionId}-${index}`), role: message.role,
-        content: messageContentText(message.content), timestamp: iso(message.timestamp), status: 'complete',
+      json(res, 200, messages.map((message, index) => ({ ...message, displayContent: chatMessageText(message), displayIndex: index }))
+        .filter(message => message.displayContent !== null && ['user', 'assistant', 'system'].includes(message.role)
+        && !exchanges?.isRelayNotification(owner.profile, messageContentText(message.content))).map(message => ({
+        id: String(message.id ?? `${owner.sessionId}-${message.displayIndex}`), role: message.role,
+        content: message.displayContent, timestamp: iso(message.timestamp), status: 'complete',
         profile: owner.profile,
       }))); return true;
     }

@@ -26,6 +26,33 @@ test('returning to an active conversation restores its complete streamed prefix'
   assert.equal(state.project('main', []).at(-1).content, 'Replacement');
 });
 
+test('follow-ups appear before acknowledgement and survive stale history after the original turn finishes', () => {
+  const state = new ConversationWork(), history = [user('old', 'Earlier message')];
+  const turn = begin(state, 'default', 'main', history);
+  state.presentUser('default', 'main', 'Change direction', 'follow-up', '2026-11-12T12:30:00Z', history);
+  assert.equal(state.project('main', history).at(-1).content, 'Change direction');
+  assert.equal(state.project('main', history).at(-1).status, 'sending');
+  state.finish(turn);
+  assert.equal(state.project('main', history).at(-1).id, 'follow-up');
+  state.settleUser('main', 'follow-up', 'complete');
+  assert.equal(state.project('main', history).at(-1).status, 'complete');
+  const saved = [...history, user('native-follow-up', 'Change direction')];
+  assert.deepEqual(state.project('main', saved), saved);
+  assert.equal(state.project('other-chat', []).length, 0);
+});
+
+test('one native echo cannot swallow two identical follow-ups and failures stay visible', () => {
+  const state = new ConversationWork(), history = [user('old', 'Continue')];
+  state.presentUser('default', 'main', 'Continue', 'send-1', '', history);
+  state.presentUser('default', 'main', 'Continue', 'send-2', '', history);
+  const saved = [...history, user('native-1', 'Continue')];
+  assert.equal(state.project('main', saved).length, 3);
+  assert.equal(state.project('main', saved).at(-1).id, 'send-2');
+  state.settleUser('main', 'send-2', 'error');
+  assert.equal(state.project('main', saved).at(-1).status, 'error');
+  assert.deepEqual(state.project('main', [...saved, user('native-2', 'Continue')]).map(row => row.id), ['old', 'native-1', 'native-2']);
+});
+
 test('native admitted user rows replace optimistic prompts without collapsing identical old prompts', () => {
   const state = new ConversationWork(); const history = [user('old', 'Hello')];
   begin(state, 'default', 'main', history);

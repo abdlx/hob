@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { HermesError, hermesProfile, hermesResource, hermesSessionKey, hermesNativeSessionKey, parseHermesSessionKey } from './hermes-client.mjs';
-import { messageContentText } from './hermes-content.mjs';
+import { messageContentText, chatMessageText } from './hermes-content.mjs';
 import { TERMINAL_RUNS, runFingerprint } from './hermes-run-journal.mjs';
 import { createHermesAttachments } from './hermes-attachments.mjs';
 import { hermesActivityFeed } from './hermes-activity.mjs';
@@ -282,6 +282,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     }
     if (url.pathname === '/api/sessions' && method === 'POST') {
       const input = await body(req);
+      await ensureMain(profile);
       if (input.agentId && input.agentId !== profile) throw new HermesError(400, 'The selected bot does not match this conversation.', 'INVALID_PROFILE');
       const title = required(input.title || 'New conversation', 'title', 500);
       await ensureMain(profile);
@@ -396,10 +397,11 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     }
     if (match[2] === 'messages' && method === 'GET') {
       const { snapshot } = await refresh(key);
-      json(res, 200, snapshot.messages.filter(message => ['user', 'assistant', 'system'].includes(message.role)
+      json(res, 200, snapshot.messages.map((message, index) => ({ ...message, displayContent: chatMessageText(message), displayIndex: index }))
+        .filter(message => message.displayContent !== null && ['user', 'assistant', 'system'].includes(message.role)
         && !exchanges?.isRelayNotification(owner.profile, messageContentText(message.content)))
-        .map((message, index) => ({ id: String(message.row_id ?? message.id ?? `${owner.sessionId}-${index}`), role: message.role,
-          content: messageContentText(message.content), timestamp: iso(message.timestamp), status: 'complete',
+        .map(message => ({ id: String(message.row_id ?? message.id ?? `${owner.sessionId}-${message.displayIndex}`), role: message.role,
+          content: message.displayContent, timestamp: iso(message.timestamp), status: 'complete',
           profile: owner.profile }))); return true;
     }
     if (match[2] === 'run' && method === 'GET') { json(res, 200, { run: (await refresh(key)).run }); return true; }

@@ -223,6 +223,7 @@ test('typing stays available during a reply, drafts survive and new content resp
   const input = page.getByRole('textbox', { name: 'Message', exact: true });
   await input.fill('Send this first'); await input.press('Enter');
   await expect.poll(state.submitted).toBe(true);
+  await expect(chat.getByText('Send this first', { exact: true })).toBeInViewport();
   await expect(input).toBeEnabled(); await input.fill('A draft for later');
   await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();
   await expect.poll(() => chat.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(100);
@@ -248,6 +249,7 @@ test('follow-ups steer immediately while the reply runs and remain bound to thei
   const sends: { path: string; profile: string; content: string; key: string }[] = [];
   const releases: (() => void)[] = [];
   const corrections: { path: string; profile: string; content: string }[] = [];
+  const correctionReleases: (() => void)[] = [];
   const histories: Record<string, { id: string; role: string; content: string; timestamp: string }[]> = { 'ux-session': [], 'research-session': [] };
   await page.route('**/api/agents', route => route.fulfill({ json: { agents: [{ id: 'default', name: 'Main' }, { id: 'research', name: 'Research' }] } }));
   await page.route('**/api/agent', route => {
@@ -263,9 +265,10 @@ test('follow-ups steer immediately while the reply runs and remain bound to thei
     return route.fulfill({ json: histories[id] });
   });
   await page.route('**/api/sessions/*/run', route => route.fulfill({ json: { run: null } }));
-  await page.route('**/api/sessions/*/steer', route => {
+  await page.route('**/api/sessions/*/steer', async route => {
     const path = new URL(route.request().url()).pathname, id = path.split('/')[3], body = route.request().postDataJSON();
     corrections.push({ path, profile: route.request().headers()['x-hob-profile'], content: body.content });
+    await new Promise<void>(resolve => { correctionReleases.push(resolve); });
     histories[id].push({ id: `correction-${corrections.length}`, role: 'user', content: body.content, timestamp: stamp });
     return route.fulfill({ json: { accepted: true, runId: 'active-main' } });
   });
@@ -284,8 +287,11 @@ test('follow-ups steer immediately while the reply runs and remain bound to thei
   await expect.poll(() => sends.length).toBe(1);
   await input.fill('Private Main follow-up'); await input.press('Enter');
   await expect.poll(() => corrections.length).toBe(1);
+  await expect(page.getByRole('region', { name: 'Conversation messages', exact: true }).getByText('Private Main follow-up', { exact: true })).toBeInViewport();
+  correctionReleases[0]();
   await input.fill('Second correction'); await input.press('Enter');
   await expect.poll(() => corrections.length).toBe(2);
+  await expect(page.getByRole('region', { name: 'Conversation messages', exact: true }).getByText('Second correction', { exact: true })).toBeInViewport();
   expect(sends).toHaveLength(1);
   await expect(page.getByRole('status', { name: 'Queued messages' })).toHaveCount(0);
   expect(corrections).toEqual(['Private Main follow-up', 'Second correction'].map(content => ({ path: '/api/sessions/ux-session/steer', profile: 'default', content })));
@@ -293,6 +299,7 @@ test('follow-ups steer immediately while the reply runs and remain bound to thei
   await expect(input).toBeEnabled();
   await expect(page.getByRole('status', { name: 'Queued messages' })).toHaveCount(0);
   await input.fill('Research draft stays here');
+  correctionReleases[1]();
   releases[0]();
   await expect.poll(() => histories['ux-session'].some(message => message.role === 'assistant')).toBe(true);
   expect(sends).toHaveLength(1);

@@ -29,6 +29,7 @@ export class ConversationWork {
   private draftListeners = new Map<string, Set<() => void>>();
   private queues = new Map<string, QueuedPrompt[]>();
   private queueListeners = new Map<string, Set<() => void>>();
+  private outgoing = new Map<string, Map<string, { message: ChatMessage; historyIds: Set<string> }>>();
 
   busy(sessionId: string) { return this.active.has(sessionId); }
   version(sessionId: string) { return this.versions.get(sessionId) || 0; }
@@ -52,6 +53,21 @@ export class ConversationWork {
   }
   getRunId(sessionId: string) {
     return this.active.get(sessionId)?.runId;
+  }
+
+  presentUser(profile: string, sessionId: string, content: string, id: string, timestamp: string, history: ChatMessage[]) {
+    const pending = this.outgoing.get(sessionId) || new Map();
+    pending.set(id, { message: { id, profile, role: 'user', content, timestamp, status: 'sending' }, historyIds: new Set(history.map(row => row.id)) });
+    this.outgoing.set(sessionId, pending);
+    this.versions.set(sessionId, this.version(sessionId) + 1);
+  }
+
+  settleUser(sessionId: string, id: string, status: 'complete' | 'error' | 'unconfirmed') {
+    const pending = this.outgoing.get(sessionId)?.get(id);
+    if (pending) {
+      pending.message.status = status;
+      this.versions.set(sessionId, this.version(sessionId) + 1);
+    }
   }
 
   getQueue(sessionId: string): QueuedPrompt[] {
@@ -140,8 +156,10 @@ export class ConversationWork {
   project(sessionId: string, history: ChatMessage[]) {
     const work = this.active.get(sessionId);
     const queued = this.queues.get(sessionId) || [];
-    if (!work && !queued.length && !history.some(message => message.status === 'queued')) return history;
-    const result = history.filter(message => message.status !== 'queued' && (!work || (message.id !== work.user.id && message.id !== work.reply.id)) && !queued.some(q => q.id === message.id));
+    const pending = this.outgoing.get(sessionId);
+    if (!work && !queued.length && !pending?.size && !history.some(message => message.status === 'queued')) return history;
+    const localIds = new Set(pending?.keys());
+    const result = history.filter(message => message.status !== 'queued' && !localIds.has(message.id) && (!work || (message.id !== work.user.id && message.id !== work.reply.id)) && !queued.some(q => q.id === message.id));
     if (work) {
       const admitted = result.some(message => message.role === 'user' && message.content === work.user.content && !work.historyIds.has(message.id));
       if (!admitted) result.push({ ...work.user });
@@ -152,6 +170,16 @@ export class ConversationWork {
         result.push({ ...item.message });
       }
     }
+    for (const [id, item] of pending || []) {
+      const admitted = result.find(row => row.role === 'user' && row.id !== work?.user.id
+        && !localIds.has(row.id) && row.content === item.message.content && !item.historyIds.has(row.id));
+      if (admitted) {
+        pending!.delete(id);
+        // One saved message acknowledges one send, even for repeated text.
+        for (const other of pending!.values()) other.historyIds.add(admitted.id);
+      } else result.push({ ...item.message });
+    }
+    if (pending && !pending.size) this.outgoing.delete(sessionId);
     return result;
   }
 }

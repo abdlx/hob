@@ -409,7 +409,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           id: `welcome-${id}`,
           role: 'assistant',
           content: `Hi! I'm ${found.name}. What can we build or research today?`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          timestamp: new Date().toISOString(),
         },
       ]);
       if (options.draft !== undefined) {
@@ -471,7 +471,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const sendMessage = useCallback(async (content: string, attachments: ChatAttachment[] = [], queued?: QueuedPrompt) => {
     const isPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1';
     if (isPreview) {
-      const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const time = new Date().toISOString();
       const userMessage: ChatMessage = {
         id: `preview-user-${Date.now()}`,
         role: 'user',
@@ -486,7 +486,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             id: `preview-ai-${Date.now()}`,
             role: 'assistant',
             content: `Understood! Working on "${content}".`,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            timestamp: new Date().toISOString(),
           },
         ]);
       }, 250);
@@ -499,18 +499,28 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setError('This older conversation is read-only. Start a new conversation to continue with Hermes.'); return;
     }
     if (targetSessionId && workRef.current.busy(targetSessionId)) {
-      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const timestamp = new Date().toISOString();
+      const messageId = requestId();
+      workRef.current.presentUser(profile, targetSessionId, content, messageId, timestamp, messages);
+      if (sessionRef.current === targetSessionId && chatApi.getProfile() === profile) {
+        setMessages(previous => workRef.current.project(targetSessionId, previous));
+      }
       try {
         await api.steerSession(targetSessionId, content, workRef.current.getRunId(targetSessionId), attachments.map(file => file.id));
+        workRef.current.settleUser(targetSessionId, messageId, 'complete');
         if (sessionRef.current === targetSessionId && chatApi.getProfile() === profile) {
-          setMessages(previous => [...previous, { id: requestId(), role: 'user', content, timestamp, status: 'complete', profile }]);
+          setMessages(previous => workRef.current.project(targetSessionId, previous));
           setError(null);
         }
       } catch (error) {
+        workRef.current.settleUser(targetSessionId, messageId, isConnectionError(error) ? 'unconfirmed' : 'error');
         // Never silently queue or replay an unconfirmed correction.
         setComposerDraft(targetSessionId, [content, getComposerDraft(targetSessionId)].filter(Boolean).join('\n'));
         if (attachments.length) setAttachmentDraft(targetSessionId, [...attachments, ...attachmentDraft(targetSessionId)]);
-        if (sessionRef.current === targetSessionId && chatApi.getProfile() === profile) setError(errorText(error));
+        if (sessionRef.current === targetSessionId && chatApi.getProfile() === profile) {
+          setMessages(previous => workRef.current.project(targetSessionId, previous));
+          setError(errorText(error));
+        }
       }
       return;
     }
@@ -533,7 +543,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           setSessions(previous => [session, ...previous]);
         }
       }
-      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const timestamp = new Date().toISOString();
       const current = work = workRef.current.begin(profile, id, content, queued?.id ?? requestId(), requestId(), timestamp, sessionRef.current === id && chatApi.getProfile() === profile ? messages : []);
       setActivities(prev => ({ ...prev, [id]: { label: 'Working…', phase: 'working', startTime: Date.now() } }));
       if (sessionRef.current === id && chatApi.getProfile() === profile) setMessages(previous => workRef.current.project(id, previous));

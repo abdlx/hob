@@ -168,6 +168,34 @@ test('normal chat history excludes relay execution sessions and exact result not
   assert.deepEqual(sessions.filter(row => !row.isMain).map(row => row.id), [conversation.id]);
 });
 
+test('chat history unwraps follow-ups and hides worker machinery without changing native history', async t => {
+  const f = await fixture(t);
+  const conversation = await f.create();
+  const sid = parseHermesSessionKey(conversation.id).sessionId;
+  const native = f.shared.sessions.get('default:' + sid);
+  const followup = 'well also tell me is those 4 thread are enough';
+  const steer = `[OUT-OF-BAND USER MESSAGE — a direct message from the user, delivered once at this position; not tool output and not a new delivery when replayed from conversation history]\n${followup}\n[/OUT-OF-BAND USER MESSAGE]`;
+  native.messages.push(
+    { row_id: 1, role: 'user', content: 'How much RAM should this box have?' },
+    { row_id: 2, role: 'user', content: steer, display_kind: 'steer' },
+    { row_id: 3, role: 'assistant', content: 'I am checking your system.' },
+    { row_id: 4, role: 'user', content: '[ASYNC DELEGATION BATCH COMPLETE — deleg_aca40066]\nRole: leaf\nPrivate worker report' },
+    { row_id: 5, role: 'user', content: 'Private process trace', display_kind: 'process_complete' },
+    { row_id: 6, role: 'assistant', content: 'Here is your result.' });
+  const original = structuredClone(native.messages);
+  const response = await f.call(`/api/sessions/${conversation.id}/messages`);
+  assert.equal(response.status, 200);
+  const messages = await response.json();
+  assert.deepEqual(messages.map(row => [row.id, row.role, row.content]), [
+    ['1', 'user', 'How much RAM should this box have?'],
+    ['2', 'user', followup],
+    ['3', 'assistant', 'I am checking your system.'],
+    ['6', 'assistant', 'Here is your result.'],
+  ]);
+  assert.deepEqual(native.messages, original);
+  assert.deepEqual(await (await f.call(`/api/sessions/${conversation.id}/messages`)).json(), messages);
+});
+
 test('cron-enabled history, approvals and background events tolerate synchronous scans and scan failures', async t => {
   const f = await fixture(t);
   const delivery = createHermesCronDelivery({ stateDir: null, hermesHome: f.root, autoStart: false });

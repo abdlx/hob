@@ -24,6 +24,9 @@ test('discovery precedes password login, mobile sessions bootstrap cookies once,
   assert.equal(login.instanceId, info.instanceId); assert.match(login.token, /^hobm_[a-f0-9]{64}$/);
   const status = await (await call('/api/mobile/device', 'GET', undefined, login.token)).json();
   assert.equal(status.pushEnabled, false); assert.equal(JSON.stringify(status).includes(login.token), false);
+  // Native screens call workspace APIs with the device bearer directly, without
+  // bootstrapping a browser cookie or sending the instance password again.
+  assert.equal((await call('/api/runtime', 'GET', undefined, login.token)).status, 200);
   const bootstrap = await (await call('/api/mobile/session', 'POST', undefined, login.token)).json();
   const enter = () => fetch(origin + '/api/mobile/bootstrap', { method: 'POST', redirect: 'manual', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ ticket: bootstrap.ticket }) });
   const entered = await enter(); assert.equal(entered.status, 303); assert.equal(entered.headers.get('location'), '/chat?mobile=1');
@@ -34,6 +37,7 @@ test('discovery precedes password login, mobile sessions bootstrap cookies once,
   assert.equal(registered.pushEnabled, true); assert.equal(JSON.stringify(registered).includes(pushToken), false);
   assert.equal((await call('/api/mobile/device', 'DELETE', undefined, login.token)).status, 200);
   assert.equal((await call('/api/mobile/device', 'GET', undefined, login.token)).status, 401);
+  assert.equal((await call('/api/runtime', 'GET', undefined, login.token)).status, 401);
   assert.equal((await fetch(origin + '/api/auth/status', { headers: { Cookie: cookie } }).then(res => res.json())).authenticated, false);
 });
 

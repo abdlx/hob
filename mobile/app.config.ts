@@ -7,8 +7,8 @@ const config: ExpoConfig = {
   platforms: ['ios', 'android'], icon: './assets/hob-mark.png',
   ...(project.owner ? { owner: project.owner } : {}),
   ios: { supportsTablet: true, bundleIdentifier: process.env.HOB_IOS_BUNDLE_ID || project.iosBundleIdentifier, infoPlist: { ITSAppUsesNonExemptEncryption: false, NSMicrophoneUsageDescription: microphonePurpose } },
-  android: { package: process.env.HOB_ANDROID_PACKAGE || project.androidPackage, permissions: ['android.permission.RECORD_AUDIO'], ...(process.env.GOOGLE_SERVICES_JSON ? { googleServicesFile: process.env.GOOGLE_SERVICES_JSON } : {}) },
-  plugins: ['expo-secure-store', 'expo-notifications', 'expo-sharing', ['expo-image-picker', { photosPermission: 'Choose media to attach to your hob prompt.', cameraPermission: 'Take a photo to attach to your hob prompt.', microphonePermission: microphonePurpose }]],
+  android: { package: process.env.HOB_ANDROID_PACKAGE || project.androidPackage, softwareKeyboardLayoutMode: 'resize', predictiveBackGestureEnabled: true, permissions: ['android.permission.RECORD_AUDIO'], ...(process.env.GOOGLE_SERVICES_JSON ? { googleServicesFile: process.env.GOOGLE_SERVICES_JSON } : {}) },
+  plugins: ['expo-font', 'expo-secure-store', 'expo-notifications', 'expo-sharing', ['expo-image-picker', { photosPermission: 'Choose media to attach to your hob prompt.', cameraPermission: 'Take a photo to attach to your hob prompt.', microphonePermission: microphonePurpose }]],
   extra: { ...(projectId ? { eas: { projectId } } : {}) },
 };
 export default config;

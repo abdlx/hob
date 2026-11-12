@@ -1,4 +1,4 @@
-import { messageContentText } from './hermes-content.mjs';
+import { messageContentText, chatMessageText } from './hermes-content.mjs';
 
 const CHAT_SOURCES = new Set(['api', 'api_server', 'gui', 'desktop', 'local', 'cli', 'tui']);
 const activity = row => Number(row.last_active || row.started_at) || Date.parse(row.last_active || row.started_at) || 0;
@@ -25,9 +25,9 @@ export function createHermesChatPreviews(client, { exchanges } = {}) {
         profile, query: { limit: 500, order: 'latest' }, timeoutMs: 4000,
       });
       if (!Array.isArray(history.data)) throw new Error('Invalid conversation messages.');
-      const last = history.data.findLast(row => ['user', 'assistant'].includes(row.role) && messageContentText(row.content).trim()
+      const last = history.data.findLast(row => ['user', 'assistant'].includes(row.role) && chatMessageText(row)?.trim()
         && !exchanges?.isRelayNotification(profile, messageContentText(row.content)));
-      const text = last ? messageContentText(last.content)
+      const text = last ? chatMessageText(last)
         .replace(/!\[([^\]]*)\]\([^)]*\)/g, (_match, label) => label || 'Image')
         .replace(/(?:^|\n)\s*(?:@image:|MEDIA:)[^\n]+/gi, ' Image ')
         .slice(0, 1000) : '';
