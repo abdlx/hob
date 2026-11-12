@@ -107,6 +107,9 @@ jobs:
           node-version: '24.21.0'
       - name: Build the single image from this checkout
         run: docker build --build-arg HOB_GIT_COMMIT="$GITHUB_SHA" --build-arg HOB_GIT_REF="$GITHUB_REF_NAME" --tag hob:ci .
+      - name: Start bundled desktop as unprivileged runtime user
+        if: matrix.isolation == 'shared'
+        run: docker run --rm --user 10000:10000 --env HOB_SMOKE_PORTAL=1 --entrypoint /usr/local/bin/node hob:ci /app/deploy/probe-portal-desktop.mjs
       - name: Execute team adapter tests against exact pinned native sources
         # The installer checks the upstream digests itself. Keep a pristine copy
         # from the pinned base image for the optional source-level hook probes.

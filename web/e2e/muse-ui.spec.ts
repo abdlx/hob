@@ -202,7 +202,7 @@ test('settings exposes every original category once using grouped rows', async (
   await expect(page.getByRole('group', { name: 'Color theme' })).toBeVisible();
   await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(categories).toBeVisible();
-  await expect(categories.getByRole('button')).toHaveCount(11);
+  await expect(categories.getByRole('button')).toHaveCount(12);
   expect(state.errors).toEqual([]);
 });
 
