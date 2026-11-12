@@ -20,6 +20,7 @@ import { createHermesCronDelivery } from './hermes-cron-delivery.mjs';
 import { createHermesTeamRoutes } from './hermes-team-routes.mjs';
 import { createBrowserRoutes } from './browser-routes.mjs';
 import { createAgentComputerRoutes } from './agent-computer-routes.mjs';
+import { nativePortalFromEnv } from './native-portal.mjs';
 import { MobileDevices } from './mobile-devices.mjs';
 
 class HttpError extends Error {
@@ -193,6 +194,9 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   }) : null;
   const agentComputerRoutes = hermes ? createAgentComputerRoutes({
     client: hermes,
+    nativePortal: nativePortalFromEnv({ client: hermes }),
+    roster: () => bots?.roster?.() || [],
+    onComputerChanged: () => bots?.syncSharedNetwork?.(),
     hermesHome: process.env.HERMES_HOME,
     authenticated: req => authenticated(req),
     assertOrigin: req => assertOrigin(req),
@@ -676,3 +680,4 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
   });
   return server;
 }
+

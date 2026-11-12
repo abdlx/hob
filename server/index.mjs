@@ -1,4 +1,5 @@
 import { hobEnv } from './hob-config.mjs';
+import { nativePortalFromEnv } from './native-portal.mjs';
 import { HermesClient } from './hermes-client.mjs';
 import { createApp } from './app.mjs';
 import path from 'node:path';
@@ -59,6 +60,7 @@ const browser = await BrowserManager.open({
 const team = new HermesTeam({ stateDir: process.env.HOB_STATE_DIR, workspaceRoot: process.env.HOB_WORKSPACE_ROOT || path.join(process.env.HERMES_HOME, 'workspaces'), roster: () => registry.list(), architectureDefault: true });
 const teamArtifacts = createTeamArtifactHandoffs({ team, workspaceRoot: process.env.HOB_WORKSPACE_ROOT || path.join(process.env.HERMES_HOME, 'workspaces'), roster: () => registry.list() });
 const bots = new HermesBots({
+  portal: nativePortalFromEnv({ client: new HermesClient(clientOptions) }),
   team,
   registry, isolation,
   client: new HermesClient(clientOptions),
@@ -136,8 +138,8 @@ const reconcileTeam = () => {
 };
 // Reconciliation catches source edits, missed watcher events, restarts and edited copies.
 const teamTimer = setInterval(reconcileTeam, 30000); teamTimer.unref();
-// A signal must finish the graceful browser stop — that close is what flushes cookies
-// and storage to the profile — but it must also finish inside the supervisor's window:
+// A signal must finish the graceful browser stop - that close is what flushes cookies
+// and storage to the profile - but it must also finish inside the supervisor's window:
 // `deploy/start.mjs` escalates to SIGKILL at 30 s, so wait at most 25 s and then leave.
 const shutdown = async () => {
   if (stopping) return;
@@ -157,3 +159,4 @@ const shutdown = async () => {
 };
 process.on('SIGTERM', () => void shutdown());
 process.on('SIGINT', () => void shutdown());
+

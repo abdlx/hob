@@ -271,6 +271,8 @@ try {
       return JSON.parse(docker(['exec', container, '/usr/local/bin/node', '-e', script, url], 10000)).location;
     } });
   const saved = await smoke.firstBoot();
+  if (!usersIsolation) console.log('Bundled Portal: ' + docker(['exec', '--user', '10000:10000', '--env', 'HOB_SMOKE_PORTAL=1', container,
+    '/usr/local/bin/node', '/app/deploy/probe-portal.mjs'], 240000));
   verifyRuntimeUsers(container);
   if (usersIsolation) console.log('OS isolation proof: ' + docker(['exec', container, '/usr/bin/python3', '/app/deploy/isolation-proof.py'], 120000));
   if (usersIsolation) console.log('Nominated artifact handoff: ' + docker(['exec', '--user', '10000:10000', '--env', 'HOB_SMOKE_TEAM_ARTIFACTS=1', container,
@@ -285,6 +287,8 @@ try {
   appContainer = compose('ps', '--quiet', 'hob');
   assert.notEqual(appContainer, container, 'Recreation must replace the container.');
   await smoke.afterRestart(saved);
+    if (!usersIsolation) console.log('Bundled Portal persistence: ' + docker(['exec', '--user', '10000:10000', '--env', 'HOB_SMOKE_PORTAL=1', appContainer,
+      '/usr/local/bin/node', '/app/deploy/probe-portal.mjs', '--after-restart'], 120000));
   verifyRuntimeUsers(compose('ps', '--quiet', 'hob'));
   if (usersIsolation) console.log('OS isolation after recreation: ' + docker(['exec', compose('ps', '--quiet', 'hob'), '/usr/bin/python3', '/app/deploy/isolation-proof.py'], 120000));
   if (saved.providerTier) await smoke.activeCrashRecovery({
@@ -332,3 +336,4 @@ try {
   }
   if (cleanupError && !runError) throw cleanupError;
 }
+

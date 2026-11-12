@@ -3,6 +3,7 @@ export const settingsSections = [
   { id: 'models', title: 'Models & providers', description: 'Models, endpoints and credentials', keywords: 'api key account oauth login inference token' },
   { id: 'agents', title: 'Agents & bots', description: 'Create independent agent identities', keywords: 'profile personality soul instructions' },
   { id: 'tools', title: 'Tools & computer', description: 'Capabilities and execution access', keywords: 'browser terminal filesystem permissions dependencies' },
+  { id: 'vault', title: 'Vault', description: 'Saved logins for bot computers', keywords: 'portal password credentials username login autofill security' },
   { id: 'integrations', title: 'Plugins & integrations', description: 'Native plugins and MCP connections', keywords: 'catalog install update server oauth dependencies' },
   { id: 'skills', title: 'Skills', description: 'Reusable instructions and proposals', keywords: 'workshop skill.md discovery activation' },
   { id: 'memory', title: 'Memory & history', description: 'Memory providers and continuity', keywords: 'persistent context recall retention' },
@@ -25,3 +26,4 @@ export const preference = (key: string, fallback: string) => {
 export const savePreference = (key: string, value: string) => {
   try { localStorage.setItem(key, value); return true; } catch { return false; }
 };
+

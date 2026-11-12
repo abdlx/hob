@@ -9,6 +9,7 @@ import { HermesBotIsolation, isolationMode, prepareBotIsolation } from '../serve
 import { mcpOAuthOrigin } from '../server/hermes-mcp-oauth.mjs';
 import { hobEnv, hobLocalHome } from '../server/hob-config.mjs';
 import { HermesTeam } from '../server/hermes-team.mjs';
+import { Store as PortalStore } from '../portal/src/store.mjs';
 
 async function listenerCredentials(filename) {
   const candidate = { version: 1, apiKey: randomBytes(32).toString('hex'), dashboardToken: randomBytes(32).toString('hex') };
@@ -63,6 +64,18 @@ export async function bootstrapHermes(env = process.env) {
   }
   for (const directory of [home, stateDir, workspace]) await mkdir(directory, { recursive: true, mode: 0o700 });
   const credentials = await listenerCredentials(join(stateDir, 'listener-auth.json'));
+  // Portal is a bundled private service, using exactly the Hermes execution
+  // directories. Browser state and owner keys stay outside those workspaces.
+  // OS-user isolation needs a privileged per-user Portal launcher; refuse to
+  // weaken that boundary by running a shared owner process against its jails.
+  const portalEnabled = env.HOB_PORTAL_ENABLED !== 'false' && mode !== 'users';
+  const portalHome = join(stateDir, 'portal');
+  const portalPort = Number(env.HOB_PORTAL_PORT || 9879);
+  if (!Number.isInteger(portalPort) || portalPort < 1 || portalPort > 65535) throw new Error('Invalid bundled Portal port');
+  if (portalEnabled) {
+    await mkdir(portalHome, { recursive: true, mode: 0o700 });
+    new PortalStore(portalHome, { workspaceRoot: executionRoot, mainWorkspace: workspace });
+  }
   await seedHermesConfig(home, workspace);
   // The native process can start scheduled work before the app finishes booting.
   // Create authority before launching either process; defaults enable no team work.
@@ -80,7 +93,7 @@ export async function bootstrapHermes(env = process.env) {
     API_SERVER_KEY: credentials.apiKey, API_SERVER_HOST: '127.0.0.1', API_SERVER_PORT: '8642',
     GATEWAY_MULTIPLEX_PROFILES: 'true', HERMES_DASHBOARD: '0' };
   // Environment separation does not replace an execution sandbox.
-  const runtimeEnv = without(shared, /^(?:HOB_|HERMES_DASHBOARD_)/);
+  const runtimeEnv = without(shared, /^(?:HOB_|HERMES_DASHBOARD_|PORTAL_)/);
   // A path to read-only context authority, never dashboard credentials. The
   // native Python owner reads it; isolated tool subprocesses retain OS jails.
   runtimeEnv.HERMES_HOB_TEAM_STATE_DB = join(stateDir, 'employee-team.sqlite');
@@ -89,7 +102,7 @@ export async function bootstrapHermes(env = process.env) {
   // Keep foreground ownership with our supervisor, including in an s6 image.
   // The explicit profile also prevents a sticky CLI selection redirecting Main.
   runtimeEnv.HERMES_GATEWAY_EXTERNAL_SUPERVISOR = '1';
-  const dashboardEnv = { ...without(shared, /^(?:HOB_|HERMES_DASHBOARD_|HERMES_HOB_TEAM_STATE_DB$)/),
+  const dashboardEnv = { ...without(shared, /^(?:HOB_|PORTAL_|HERMES_DASHBOARD_|HERMES_HOB_TEAM_STATE_DB$)/),
     HERMES_DASHBOARD_SESSION_TOKEN: credentials.dashboardToken };
   if (mode === 'users') dashboardEnv.HERMES_DASHBOARD_FILES_ROOT = executionRoot;
   const publicOrigin = mcpOAuthOrigin(env.HOB_PUBLIC_URL);
@@ -104,6 +117,7 @@ export async function bootstrapHermes(env = process.env) {
     dashboardEnv.HERMES_DESKTOP = '1';
   }
   const appEnv = { ...shared, ...(mode === 'users' ? { HOB_WORKSPACE_ROOT: executionRoot, HOB_BROWSER_DATA_DIR: '/var/lib/hob-isolation/browsers' } : {}), HOB_STATE_DIR: stateDir, HERMES_DASHBOARD_SESSION_TOKEN: credentials.dashboardToken,
+    HOB_PORTAL_HOME: portalEnabled ? portalHome : '', HOB_PORTAL_URL: portalEnabled ? `http://127.0.0.1:${portalPort}` : '',
     HERMES_API_URL: 'http://127.0.0.1:8642', HERMES_DASHBOARD_URL: 'http://127.0.0.1:8080' };
   const hermes = env.HERMES_EXECUTABLE || 'hermes';
   return {
@@ -114,7 +128,15 @@ export async function bootstrapHermes(env = process.env) {
           dashboardToken: credentials.dashboardToken, apiKey: credentials.apiKey, signal,
           prepareIsolation: mode === 'users' ? (client, signal) => prepareBotIsolation(new HermesBotIsolation(), client, stateDir, signal) : undefined }) },
       { name: 'hob web server', executable: process.execPath, args: [resolve(env.HOB_SERVER_ENTRY || join(projectDir, 'server', 'index.mjs'))], cwd: projectDir, env: appEnv },
+      ...(portalEnabled ? [{ name: 'Portal computer service', executable: process.execPath,
+        args: [join(projectDir, 'portal', 'src', 'server.mjs')], cwd: join(projectDir, 'portal'), restart: true,
+        env: { ...Object.fromEntries(Object.entries(env).filter(([key]) => /^(PATH|HOME|USERPROFILE|SystemRoot|TEMP|TMP|LANG|LC_.*|TZ|XDG_.*|CAMOUFOX_.*|PORTAL_BROWSER_IDLE_SLEEP_MINUTES)$/.test(key))),
+          PORTAL_HOME: portalHome, PORTAL_HOST: '127.0.0.1', PORTAL_PORT: String(portalPort),
+          PORTAL_WORKSPACE_ROOT: resolve(executionRoot), PORTAL_MAIN_WORKSPACE: workspace,
+          PORTAL_HIDDEN_ROOTS: JSON.stringify([...new Set([home, stateDir, resolve(executionRoot), workspace])]) },
+      }] : []),
     ],
     home, stateDir, workspace,
   };
 }
+

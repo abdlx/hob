@@ -1,6 +1,7 @@
 export type ComputerConnectionState = 'idle' | 'connecting' | 'connected' | 'failed' | 'disconnected';
 export interface ComputerRfb {
   disconnect(): void;
+  viewOnly?: boolean;
   addEventListener(name: string, listener: (event: Event) => void): void;
   scaleViewport: boolean; clipViewport: boolean; background: string; qualityLevel: number; compressionLevel: number;
   _sock: unknown; _rfbConnectionState: string; _fbWidth: number; _fbHeight: number; _fbDepth: number;
@@ -46,6 +47,7 @@ export function createComputerStream({ create, directUrl, proxyUrl, onState, onE
   }
   return {
     connect,
+    setViewOnly(value: boolean) { if (current) current.viewOnly = value; },
     reconnect() { attempts = 0; connect(); },
     requestUpdate(send: (client: ComputerRfb) => void) {
       if (!closed && current?._rfbConnectionState === 'connected' && current._fbWidth > 0 && current._fbHeight > 0) {
@@ -55,3 +57,4 @@ export function createComputerStream({ create, directUrl, proxyUrl, onState, onE
     close() { if (closed) return; closed = true; stopTimer(); retire(); },
   };
 }
+

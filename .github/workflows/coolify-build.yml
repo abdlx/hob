@@ -10,6 +10,7 @@ on:
       - 'compose.isolation.yaml'
       - 'deploy/**'
       - 'server/**'
+      - 'portal/**'
       - 'web/**'
       - '.github/workflows/coolify-build.yml'
   pull_request:
@@ -20,6 +21,7 @@ on:
       - 'compose.isolation.yaml'
       - 'deploy/**'
       - 'server/**'
+      - 'portal/**'
       - 'web/**'
       - '.github/workflows/coolify-build.yml'
 
@@ -139,3 +141,4 @@ jobs:
             printf '::error title=container smoke::%s\n' "$detail"
           fi
           exit "$status"
+

@@ -31,6 +31,11 @@ WORKDIR /app/server
 COPY server/package.json server/package-lock.json ./
 RUN --mount=type=cache,id=hob-npm,target=/root/.npm npm ci --omit=dev
 
+FROM ${NODE_BUILD_IMAGE} AS portal-build
+WORKDIR /app/portal
+COPY portal/package.json portal/package-lock.json ./
+RUN --mount=type=cache,id=hob-npm,target=/root/.npm npm ci --omit=dev
+
 FROM ${HERMES_IMAGE} AS runtime
 # Build provenance is baked into the image so a running container can report
 # exactly which commit Coolify checked out. Compose passes these from Coolify's
@@ -47,11 +52,22 @@ COPY server/ ./server/
 # After `server/`, so the installed deps win over anything in the build context.
 COPY --from=server-build /app/server/node_modules/ ./server/node_modules/
 COPY deploy/ ./deploy/
+COPY portal/ ./portal/
+COPY --from=portal-build /app/portal/node_modules/ ./portal/node_modules/
 RUN /opt/hermes/.venv/bin/python -I /app/deploy/apply-hermes-compat.py /opt/hermes
 COPY LICENSE ./LICENSE
 # Only the optional users backend needs a privileged broker. It accepts a closed
 # Unix-socket protocol; the application and native gateway still run as Hermes.
-RUN apt-get update && apt-get install -y --no-install-recommends openssh-server acl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-server acl \
+    tigervnc-standalone-server bubblewrap slirp4netns gcc libc6-dev \
+    libgtk-3-0t64 libx11-xcb1 libasound2t64 libdbus-glib-1-2 && rm -rf /var/lib/apt/lists/*
+# Fetch browser + fingerprint model at build time into a shared read-only cache,
+# so assigning a bot requires no package installation or browser download.
+ENV XDG_CACHE_HOME=/opt/hob-cache
+RUN cd /app/portal && npx --no-install camoufox fetch && \
+    node --input-type=module -e "import {ensureModel} from 'fpgen-js'; await ensureModel();" && \
+    mkdir -p build && gcc -shared -fPIC -O2 src/netguard.c -o build/libportal_netguard.so -ldl && \
+    chmod -R a+rX /opt/hob-cache
 COPY deploy/s6-rc.d/ /etc/s6-overlay/s6-rc.d/
 RUN chmod 755 /etc/s6-overlay/s6-rc.d/hob-isolation/run && mkdir -p /etc/hob-isolation && \
     /usr/local/bin/node --input-type=module -e "import {resolveChromiumExecutable} from './server/browser-executable.mjs'; import{writeFileSync}from'node:fs'; const exe=await resolveChromiumExecutable(); if(!exe)throw Error('Chromium missing'); writeFileSync('/etc/hob-isolation/chromium.path',exe+'\\n');"
@@ -83,3 +99,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 CMD ["/us
 # The inherited dispatcher runs stock init, then drops this program to Hermes'
 # runtime user. Our supervisor starts the two private APIs and the public app.
 CMD ["/usr/local/bin/node", "/app/deploy/start.mjs"]
+

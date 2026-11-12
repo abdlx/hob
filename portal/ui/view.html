@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#000000">
+<title>Portal - live view</title>
+<style>
+  :root {
+    color-scheme: light;
+    --ink: #17191D;
+    --muted: #687588;
+    --faint: #8792A1;
+    --surface: #FFFFFF;
+    --hair: rgba(25, 35, 50, 0.08);
+    --edge: rgba(25, 35, 50, 0.1);
+    --accent: #1677FF;
+    --accent-strong: #0D6CE5;
+    --ok-dot: #16CC8A;
+    --bad: #B42318;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    --font: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; }
+  #screen { position: fixed; inset: 0; }
+  #screen canvas { display: block; }
+  /* Floating status pill, hob's language: white, full-rounded, soft
+     shadow, hairline border - it hovers over the video, not a bar. */
+  #bar {
+    position: fixed;
+    left: 50%;
+    bottom: 16px;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    max-width: calc(100vw - 24px);
+    padding: 7px 8px 7px 14px;
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid var(--hair);
+    border-radius: 9999px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+    color: var(--ink);
+    font: 500 13px/1.4 var(--font);
+    -webkit-font-smoothing: antialiased;
+    white-space: nowrap;
+  }
+  #bar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); flex: none; }
+  #bar .dot.on { background: var(--ok-dot); }
+  #who {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #bar button {
+    margin-left: 2px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 9999px;
+    padding: 7px 13px;
+    cursor: pointer;
+    font: 600 12.5px/1 var(--font);
+    flex: none;
+  }
+  #bar button:hover { background: var(--accent-strong); }
+  #bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div id="screen"></div>
+<div id="bar">
+  <span id="dot" class="dot"></span>
+  <span id="status">Connecting.</span>
+  <span id="who"></span>
+  <button id="takeover" type="button" hidden>Take over</button>
+  <button id="reconnect" type="button">Reconnect</button>
+</div>
+<script type="module">
+  import RFB from '/novnc/core/rfb.js';
+
+  const params = new URLSearchParams(location.search);
+  const token = params.get('token') || '';
+  let ownerToken = '';
+  let viewerToken = token;
+  const profile = params.get('profile') || 'default';
+  const statusEl = document.getElementById('status');
+  const dotEl = document.getElementById('dot');
+  const whoEl = document.getElementById('who');
+  const screenEl = document.getElementById('screen');
+  const takeover = document.getElementById('takeover');
+  let mode = 'agent';
+  let owner = false;
+  const controlUrl = '/api/ui/viewer-control/' + encodeURIComponent(profile);
+  async function control(method = 'GET', nextMode) {
+    const response = await fetch(controlUrl, {
+      method,
+      headers: { 'Authorization': 'Bearer ' + (ownerToken || token), ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}) },
+      ...(method === 'POST' ? { body: JSON.stringify({ mode: nextMode }) } : {}),
+      cache: 'no-store',
+    });
+    if (response.status === 401) {
+      owner = false;
+      takeover.hidden = false;
+      takeover.textContent = 'Take over';
+      return;
+    }
+    if (!response.ok) throw new Error('Control update failed: ' + response.status);
+    owner = true;
+    mode = (await response.json()).mode;
+    takeover.hidden = false;
+    takeover.textContent = mode === 'human' ? 'Hand over to agent' : 'Take over';
+    if (rfb) rfb.viewOnly = mode !== 'human';
+  }
+  takeover.addEventListener('click', async () => {
+    takeover.disabled = true;
+    try {
+      if (!owner) {
+        const candidate = window.prompt('Enter the Portal owner token to take control:');
+        if (!candidate) return;
+        ownerToken = candidate.trim();
+        await control();
+        if (!owner) { ownerToken = ''; throw new Error('Owner authentication rejected'); }
+      }
+      await control('POST', mode === 'human' ? 'agent' : 'human');
+      // The VNC connection must itself use owner credentials for input to pass
+      // the server-side RFB filter; merely toggling viewOnly is insufficient.
+      if (viewerToken !== (ownerToken || token)) {
+        viewerToken = ownerToken || token;
+        connect();
+      }
+    } catch (error) { statusEl.textContent = error.message; }
+    finally { takeover.disabled = false; }
+  });
+  whoEl.textContent = 'Profile: ' + profile;
+  document.title = 'Portal - live view: ' + profile;
+
+  let rfb = null;
+  function connect() {
+    if (rfb) {
+      try {
+        if (rfb._rfbConnectionState && rfb._rfbConnectionState !== 'disconnected') {
+          rfb.disconnect();
+        }
+      } catch {}
+      rfb = null;
+    }
+    screenEl.innerHTML = '';
+    if (!token) {
+      statusEl.textContent = 'No token in the URL. Open this view from the Portal panel.';
+      return;
+    }
+    const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = scheme + '//' + location.host + '/api/computers/portal/vnc'
+      + '?token=' + encodeURIComponent(viewerToken)
+      + '&profile=' + encodeURIComponent(profile);
+    statusEl.textContent = 'Connecting.';
+    dotEl.classList.remove('on');
+    rfb = new RFB(screenEl, wsUrl, { wsProtocols: ['binary'] });
+    rfb.viewOnly = true;
+    rfb.scaleViewport = true;
+    rfb.clipViewport = false;
+    rfb.background = '#000000';
+    rfb.qualityLevel = 6;
+    rfb.compressionLevel = 2;
+    rfb.addEventListener('connect', () => {
+      statusEl.textContent = 'Connected - live view of ' + profile;
+      dotEl.classList.add('on');
+      void control().catch(() => {});
+    });
+    rfb.addEventListener('disconnect', (e) => {
+      dotEl.classList.remove('on');
+      statusEl.textContent = e.detail && e.detail.clean
+        ? 'Disconnected.'
+        : 'Connection failed - is the browser running and the token valid?';
+    });
+    rfb.addEventListener('credentialsrequired', () => {
+      statusEl.textContent = 'The view needs a valid token.';
+    });
+  }
+  document.getElementById('reconnect').addEventListener('click', connect);
+  connect();
+  setInterval(() => { if (token && owner) void control().catch(() => {}); }, 4000);
+</script>
+</body>
+</html>
+
+

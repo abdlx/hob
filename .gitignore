@@ -39,3 +39,8 @@ docs/*
 !docs/assets/
 !docs/assets/**
 server/*.out
+# Bundled Portal generated dependencies and native build output
+portal/node_modules/
+portal/build/
+.tmp-portal-validation/
+

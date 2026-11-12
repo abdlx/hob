@@ -9,6 +9,8 @@
 !server/**
 !deploy/
 !deploy/**
+!portal/
+!portal/**
 **/.git
 **/.git/**
 **/.env
@@ -51,3 +53,4 @@ openclaw/.codex
 openclaw/.claude
 openclaw/.aws
 openclaw/.vscode
+

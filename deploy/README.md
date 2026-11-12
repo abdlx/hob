@@ -32,6 +32,58 @@ drop. Our application supervisor then launches:
 - `hermes -p default gateway run --no-supervise --external-supervisor`: the private
   runtime API, bound to 127.0.0.1:8642.
 - The custom web server on port 3000.
+- The bundled Portal computer service on loopback port 9879 (shared mode).
+
+### Bot computers and workspace sharing
+
+The standard Docker image includes Portal, Camoufox, its fingerprint model,
+TigerVNC and shell sandbox dependencies. No separate Portal install, service,
+volume or public port is required. Open a bot's Computer tab and click **Assign
+computer**. HOB provisions a persistent browser profile and saves that bot's
+profile-bound MCP connection through Hermes settings. New agent sessions load
+the connection; start a new conversation if an existing session retains its old
+tool inventory.
+
+Portal uses the same files as HOB: Main uses `workspaces/main`; other bots use
+`workspaces/bots/<profile-id>`, under `HOB_WORKSPACE_ROOT` or
+`$HERMES_HOME/workspaces`. `HOB_MAIN_WORKSPACE` is honored. Portal downloads go
+to `downloads/` inside the bot's directory. Shell tools bind that very directory
+at `/tmp/workspace` inside their sandbox. No copying or synchronization is used.
+Custom remote execution backends and mismatched `terminal.cwd` paths are refused
+instead of quietly creating another working area.
+
+Only browser cookies, fingerprints, encrypted vault data and service credentials
+live under `$HOB_STATE_DIR/portal`. This is private application state, not an
+additional workspace. Include it in the existing HOB state backup. Unassign
+revokes access and closes the browser while preserving files and cookies.
+Removing an enrolled bot also revokes its Portal tokens. Reassignment reuses its
+profile and issues a new token after revocation.
+
+In **Settings > Vault**, select a bot with an assigned bundled computer, then
+add a login name, HTTPS site URL, username and password. Saved entries can be
+removed there. Passwords remain in Portal's per-bot encrypted vault and never
+appear in HOB list responses; the agent uses Portal autofill on matching sites.
+Unassigned bots and external computer services are excluded from this selector.
+
+Use **Wake** to start the desktop, **Take over** to enable human input and pause
+agent browser actions, and **Return to agent** to release it. Sleeping closes
+only that bot's browser/display. Reconnecting viewers cannot wake a sleeping
+profile. The UI proxies VNC through HOB authentication; Portal owner credentials
+are never returned to the browser.
+
+For Linux source development, install `portal/` dependencies with
+`npm ci --prefix portal`, install TigerVNC, bubblewrap, slirp4netns and Camoufox's
+system libraries, then run `cd portal && npx camoufox fetch` once. The production
+Docker build performs these steps automatically. Native Windows Xvnc is not
+supported; use the Linux image or WSL.
+
+`HOB_PORTAL_ENABLED=false` disables the bundled service; `HOB_PORTAL_PORT`
+changes its private port. Existing external Portal and Agent Computer connections
+remain supported. Assigning the bundled service never replaces an enabled
+external Portal connection. The optional `HOB_ISOLATION=users` deployment does
+not expose bundled assignment: Portal's shared owner process does not implement
+the privileged launcher required by those OS-user jails. Existing isolated HOB
+browsers continue to use their existing backend.
 
 The upstream container's separate dashboard slot is disabled to avoid binding a
 second settings server. The image takes `02-reconcile-profiles` out of automatic
@@ -115,7 +167,7 @@ failed Hermes read leaves the roster untouched. Recreating a name that automatic
 mirroring retired re-enrolls it with fresh credentials; an explicit operator deletion
 remains a permanent tombstone. Partial setup remains pending for
 explicit operator recovery; revoked enrollment stays revoked if setup was in flight.
-For an immediate pass, Settings → Agents → Refresh, or
+For an immediate pass, Settings  Agents  Refresh, or
 `node deploy/reconcile-roster.mjs` (optionally `--main Hob`) applies the same operations
 over the authenticated API: it adopts every unenrolled native profile, revokes dashboard
 bots whose profile is gone, and prints the resulting active roster. It never edits
@@ -257,3 +309,4 @@ passed 80 authenticated/native checks across recreation, including separate UIDs
 cross-bot/secret access denial, sandboxed Chromium, relay wakeups, fired heartbeat
 and clock-triggered scheduling. These checks use a deterministic local provider;
 production model accounts and the deployment host still need qualification.
+

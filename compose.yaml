@@ -19,6 +19,8 @@ services:
       HOB_SESSION_SECRET: ${SERVICE_REALBASE64_64_HOB}
       HOB_SECURE_COOKIES: ${HOB_SECURE_COOKIES:-false}
       HOB_CAPTCHA: ${HOB_CAPTCHA:-human}
+      HOB_PORTAL_ENABLED: ${HOB_PORTAL_ENABLED:-true}
+      HOB_PORTAL_PORT: ${HOB_PORTAL_PORT:-9879}
       # Optional Expo push access token when enhanced push security is enabled.
       HOB_EXPO_ACCESS_TOKEN: ${HOB_EXPO_ACCESS_TOKEN:-}
       # Override when an external TLS proxy or older Coolify changes the origin.
@@ -53,3 +55,4 @@ services:
 
 volumes:
   hermes-data:
+

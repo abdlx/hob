@@ -24,6 +24,7 @@ import { HermesAutonomySettings } from '../components/HermesAutonomySettings';
 import { HermesGoals, HermesWorkshop } from './HermesWorkspace';
 import { BotPreferences } from '../components/BotPreferences';
 import { NotificationSettings } from '../components/NotificationSettings';
+import { PortalVaultSettings } from '../components/PortalVaultSettings';
 
 interface Profile { name: string; display_name?: string; description?: string; model?: string; provider?: string; state?: string }
 
@@ -41,8 +42,8 @@ export function HermesSettings() {
   const matches = searchSettings(search);
   const current = settingsSections.find(item => item.id === section)!;
   const openCategory = (id: SettingsSection) => { setVisited(previous => new Set([...previous, id])); setSection(id); setMobileCategory(true); savePreference('hob:settings-section', id); };
-  const icons = { general: Paintbrush, models: KeyRound, agents: Bot, tools: MonitorSmartphone, integrations: Grid2X2, skills: Lightbulb, memory: Brain, learning: Hand, automation: CalendarClock, channels: MessageCircle, advanced: SlidersHorizontal };
-  const groups: SettingsSection[][] = [['general'], ['models', 'agents', 'tools', 'integrations', 'channels'], ['skills', 'memory', 'learning', 'automation'], ['advanced']];
+  const icons = { general: Paintbrush, models: KeyRound, agents: Bot, tools: MonitorSmartphone, vault: KeyRound, integrations: Grid2X2, skills: Lightbulb, memory: Brain, learning: Hand, automation: CalendarClock, channels: MessageCircle, advanced: SlidersHorizontal };
+  const groups: SettingsSection[][] = [['general'], ['models', 'agents', 'tools', 'vault', 'integrations', 'channels'], ['skills', 'memory', 'learning', 'automation'], ['advanced']];
   return <div className={`hob-settings-root ${mobileCategory ? 'hob-settings-detail' : ''}`}>
     <div className="settings-workspace hob-settings-layout">
       <aside className="hob-settings-directory">
@@ -58,7 +59,7 @@ export function HermesSettings() {
       </aside>
       <div className="hob-settings-content min-w-0">
         <div className="mb-5"><h2 className="text-xl font-semibold text-ink">{current.title}</h2><p className="mt-1 text-sm text-muted">{current.description}</p></div>
-        <ProfileSettings key={profile} profile={profile} setProfile={value => { setVisited(new Set([section])); setProfile(value); }} section={section} visited={visited} />
+        {section === 'vault' ? <PortalVaultSettings initialProfile={profile} /> : <ProfileSettings key={profile} profile={profile} setProfile={value => { setVisited(new Set([section])); setProfile(value); }} section={section} visited={visited} />}
       </div>
     </div>
   </div>;
@@ -181,7 +182,7 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
       <Field label="Credential name" hint="Provider and tool credentials are stored by Hermes for the selected bot."><input className={inputClass} list="hermes-credential-names" value={key} disabled={busy} onChange={event => setKey(event.target.value)} /><datalist id="hermes-credential-names">{Object.keys(credentials).map(name => <option key={name} value={name} />)}</datalist></Field>
       <Field label="API key" hint={credentials[key]?.is_set ? 'A credential is already stored. Leave it unchanged unless you intend to replace it.' : 'Enter the key supplied by your provider.'}><input className={inputClass} type="password" autoComplete="new-password" value={secret} disabled={busy} onChange={event => setSecret(event.target.value)} /></Field>
       <button className={buttonClass} disabled={busy || !key.trim() || !secret.trim()} onClick={() => runAction(async () => { const result = await submit('credentials', { key: key.trim(), value: secret }) as { ok?: boolean }; if (result.ok !== true) throw new Error('Hermes did not confirm the saved credential. Refresh before retrying.'); setSecret(''); }, 'Credential saved for this bot.')}>Save credential</button>
-      <Field label="Custom endpoint (optional)" hint="For a local or compatible provider, enter its API base URL. Leave blank to use the provider’s normal endpoint."><input className={inputClass} value={baseUrl} placeholder="http://localhost:8000/v1" disabled={busy} onChange={event => { setBaseUrl(event.target.value); setModelConfirmation(''); }} /></Field>
+      <Field label="Custom endpoint (optional)" hint="For a local or compatible provider, enter its API base URL. Leave blank to use the provider's normal endpoint."><input className={inputClass} value={baseUrl} placeholder="http://localhost:8000/v1" disabled={busy} onChange={event => { setBaseUrl(event.target.value); setModelConfirmation(''); }} /></Field>
       {baseUrl.trim() && ['custom', 'local'].includes(provider.trim().toLowerCase()) && <div className="space-y-3">
         <Field label="Endpoint name" hint="Give this endpoint a distinct name. Reusing a name updates that saved endpoint."><input className={inputClass} value={endpointName} disabled={busy} onChange={event => { setEndpointName(event.target.value); setModelConfirmation(''); }} /></Field>
         <Field label="Custom endpoint API key (optional)" hint="This key belongs to this endpoint. Leave blank for a keyless local server or to preserve its existing credential."><input className={inputClass} type="password" autoComplete="new-password" value={endpointSecret} disabled={busy} onChange={event => { setEndpointSecret(event.target.value); setModelConfirmation(''); }} /></Field>
@@ -225,7 +226,7 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
       <Field label="Name" hint="Use lowercase letters, digits, underscores or hyphens; start with a letter."><input className={inputClass} value={newName} disabled={busy} onChange={event => setNewName(event.target.value)} /></Field>
       <Field label="Personality and instructions"><textarea className={inputClass} rows={4} value={soul} disabled={busy} onChange={event => setSoul(event.target.value)} /></Field>
       <Field label="Bot role" hint="Shown in About and shared with the bot roster. Optional; leave blank if this bot has no specific role."><textarea className={inputClass} rows={2} maxLength={2000} value={newRole} disabled={busy} onChange={event => setNewRole(event.target.value)} /></Field>
-      <Notice>New bots have their own state. Creating one does not copy another bot’s private memories or channel credentials.</Notice>
+      <Notice>New bots have their own state. Creating one does not copy another bot's private memories or channel credentials.</Notice>
       <button className={buttonClass} disabled={busy || !/^[a-z][a-z0-9_-]{0,63}$/.test(newName) || newName === 'default'} onClick={() => runAction(async () => { await request('/api/hermes/profiles', { method: 'POST', body: JSON.stringify({ name: newName, soul, description: newRole.trim() }) }); setNewName(''); setNewRole(''); setSoul(''); }, 'Bot created. Select it above to connect its model and credentials.')}>Create bot</button>
       {profiles.filter(item => item.state === 'setup_required').map(item => <div key={item.name} className="space-y-2">
         <Notice>Setup for {item.name} did not finish. Confirm that its existing Hermes profile should be used as your bot; this assigns its working directory and private listener credential. No model key or memory is copied from another bot.</Notice>
@@ -254,3 +255,4 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
     </div>
   </div>;
 }
+

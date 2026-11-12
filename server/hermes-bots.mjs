@@ -28,7 +28,7 @@ export function hermesDisplayName(value) {
   if (typeof value !== 'string') throw new HermesError(400, 'Enter a bot name.', 'INVALID_REQUEST');
   const name = value.replace(/\s+/g, ' ').trim();
   if (!name || name.length > 64 || /[\u0000-\u001f\u007f]/.test(name)) {
-    throw new HermesError(400, 'Bot names must be 1–64 printable characters.', 'INVALID_REQUEST');
+    throw new HermesError(400, 'Bot names must be 1-64 printable characters.', 'INVALID_REQUEST');
   }
   return name;
 }
@@ -168,7 +168,7 @@ export class HermesBotRegistry {
   }
   token(name) {
     const item = this.#record(name);
-    if (item.state !== 'active') throw new HermesError(409, 'Finish this bot’s setup before using it.', 'BOT_SETUP_REQUIRED');
+    if (item.state !== 'active') throw new HermesError(409, 'Finish this bot's setup before using it.', 'BOT_SETUP_REQUIRED');
     return item.apiKey;
   }
   relayToken(name) {
@@ -283,6 +283,7 @@ export class HermesBots {
   #client;
   #workspaceRoot;
   #browser;
+  #portal;
   #network;
   #isolation;
   // Latest native profile metadata, merged into relay/roster views. It is only
@@ -293,8 +294,9 @@ export class HermesBots {
   #profileSync;
   #reconciling = null;
   #missingProfiles = new Map();
-  constructor({ registry, client, workspaceRoot, browser, network, relayUrl, isolation, team, profileSync = 'mirror' }) {
+  constructor({ registry, client, workspaceRoot, browser, network, relayUrl, isolation, team, portal, profileSync = 'mirror' }) {
     this.#registry = registry; this.#client = client; this.#browser = browser; this.#isolation = isolation;
+    this.#portal = portal;
     this.#profileSync = profileSyncMode(profileSync);
     this.#workspaceRoot = path.resolve(workspaceRoot, 'bots');
     this.#network = network ?? (relayUrl ? new HermesBotNetwork({
@@ -302,6 +304,7 @@ export class HermesBots {
       credential: name => this.#registry.relayToken(name),
       workspaceRoot: path.resolve(workspaceRoot),
       relayUrl, fileMode: isolation ? 0o640 : 0o600,
+      computerContext: portal ? name => portal.instructions(name) : undefined,
       team,
     }) : null);
   }
@@ -389,8 +392,8 @@ export class HermesBots {
    * Point every active bot at its managed browser.
    *
    * Binding normally happens once, during setup, but bots that predate the
-   * managed browser — and bots whose setup-time binding failed, which is
-   * recorded as active anyway — would otherwise keep driving a throwaway Hermes
+   * managed browser - and bots whose setup-time binding failed, which is
+   * recorded as active anyway - would otherwise keep driving a throwaway Hermes
    * browser while the dashboard watched an idle HOB one. Boot calls this, so an
    * upgrade repairs those profiles without the operator recreating them.
    *
@@ -641,7 +644,7 @@ export class HermesBots {
     }
     const created = await this.#client.dashboard('/api/profiles', { method: 'POST', body });
     if (created?.ok !== true || created.name !== name) {
-      throw new HermesError(502, 'Hermes did not confirm this bot’s creation. Refresh the roster before taking further action.', 'BOT_CREATION_UNCERTAIN');
+      throw new HermesError(502, 'Hermes did not confirm this bot's creation. Refresh the roster before taking further action.', 'BOT_CREATION_UNCERTAIN');
     }
     await this.#registry.update(name, { nativeCreated: true });
     return this.finishSetup(name);
@@ -726,6 +729,7 @@ export class HermesBots {
   }
   async remove(name, { deleteNative = true, bySync = false } = {}) {
     if (name === 'default') throw new HermesError(400, 'The Main bot cannot be deleted.', 'INVALID_PROFILE');
+    await this.#portal?.remove(name);
     await this.#registry.update(name, { state: 'revoked', ...(bySync ? { retiredBy: 'sync' } : {}) });
     await this.#isolation?.revoke(name);
     await this.#afterChange();
@@ -742,3 +746,4 @@ export class HermesBots {
     }
   }
 }
+

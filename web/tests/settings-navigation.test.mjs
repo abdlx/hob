@@ -4,6 +4,8 @@ import { preference, savePreference, searchSettings, settingsSection } from '../
 import { pluginResultMessage } from '../src/services/hermes-plugins.ts';
 
 test('settings search discovers capabilities and safely restores a known category', () => {
+  assert.equal(settingsSection('vault'), 'vault');
+  assert.ok(searchSettings('password').some(item => item.id === 'vault'));
   assert.ok(searchSettings('api key').some(item => item.id === 'models'));
   assert.ok(searchSettings('cron').some(item => item.id === 'automation'));
   assert.equal(settingsSection('integrations'), 'integrations');
@@ -23,3 +25,4 @@ test('plugin feedback distinguishes installation, activation, restart and refuse
   assert.throws(() => pluginResultMessage('install', { ok: false }), /did not confirm/);
   assert.throws(() => pluginResultMessage('install', {}), /did not confirm/);
 });
+

@@ -27,13 +27,22 @@ async function fixture(run) {
   }
 }
 
-test('fresh startup provisions three services and private local listener credentials, with no provider requirement', async () => {
+test('fresh startup provisions four services and private local listener credentials, with no provider requirement', async () => {
   await fixture(async env => {
     const commands = await bootstrap(env);
     const config = JSON.parse(await readFile(join(env.HERMES_HOME, 'config.yaml'), 'utf8'));
     assert.deepEqual(config, { gateway: { multiplex_profiles: true }, terminal: { cwd: env.HOB_MAIN_WORKSPACE },
       auth: { adopt_external_logins: false } });
     const [dashboard, runtime, app] = commands.processes;
+    assert.equal(commands.processes.length, 4);
+    const portal = commands.processes[3];
+    assert.equal(portal.name, 'Portal computer service');
+    assert.equal(portal.restart, true);
+    assert.equal(portal.env.PORTAL_HOST, '127.0.0.1');
+    assert.equal(portal.env.PORTAL_MAIN_WORKSPACE, env.HOB_MAIN_WORKSPACE);
+    assert.equal(portal.env.PORTAL_WORKSPACE_ROOT, join(env.HERMES_HOME, 'workspaces'));
+    assert.equal(app.env.HOB_PORTAL_HOME, portal.env.PORTAL_HOME);
+    for (const key of ['HOB_PASSWORD', 'HOB_SESSION_SECRET', 'API_SERVER_KEY', 'HERMES_DASHBOARD_SESSION_TOKEN']) assert.equal(portal.env[key], undefined);
     assert.deepEqual(dashboard.args, ['-p', 'default', 'serve', '--host', '127.0.0.1', '--port', '8080', '--isolated']);
     assert.deepEqual(runtime.args, ['-p', 'default', 'gateway', 'run', '--no-supervise', '--external-supervisor']);
     assert.equal(runtime.restart, true);
@@ -53,6 +62,15 @@ test('fresh startup provisions three services and private local listener credent
       assert.equal(command.args.join(' ').includes(runtime.env.API_SERVER_KEY), false);
       assert.equal(command.args.join(' ').includes(dashboard.env.HERMES_DASHBOARD_SESSION_TOKEN), false);
     }
+  });
+});
+
+test('bundled computer can be disabled without inheriting a forged owner endpoint', async () => {
+  await fixture(async env => {
+    const commands = await bootstrap({ ...env, HOB_PORTAL_ENABLED: 'false', HOB_PORTAL_HOME: '/untrusted', HOB_PORTAL_URL: 'https://untrusted.test' });
+    assert.equal(commands.processes.length, 3);
+    assert.equal(commands.processes[2].env.HOB_PORTAL_HOME, '');
+    assert.equal(commands.processes[2].env.HOB_PORTAL_URL, '');
   });
 });
 
@@ -277,3 +295,4 @@ test('global browser endpoint overrides cannot merge bot cookie jars at startup'
     }
   });
 });
+

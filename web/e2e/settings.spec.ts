@@ -5,6 +5,44 @@ import type { Page } from '@playwright/test';
 // This verifies UI contracts; it does not claim a live Hermes install or model run.
 const sha = 'a'.repeat(40);
 const nativeSession = Buffer.from(JSON.stringify(['default', 'native-conversation', 'canonical'])).toString('base64url');
+
+test('Vault saves credentials to the selected computer bot and clears secrets when switching bots', async ({ page }) => {
+  const state = await fixture(page);
+  const records: Record<string, { id: string; name: string; origin: string; username: string; updatedAt: number }[]> = { default: [], research: [] };
+  const writes: { profile: string; body: Record<string, unknown> }[] = [];
+  await page.route('**/api/hermes/portal/vault/**', route => {
+    const url = new URL(route.request().url());
+    const profile = url.searchParams.get('profile') || 'default';
+    if (url.pathname.endsWith('/bots')) return route.fulfill({ json: { bots: [{ name: 'default', displayName: 'Main' }, { name: 'research', displayName: 'Research' }] } });
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON();
+      writes.push({ profile, body });
+      expect(route.request().headers()['x-hob-profile']).toBe(profile);
+      const item = { id: '49d13978-c111-4c7a-9d14-095bbf53db43', name: body.name, origin: body.origin, username: body.username, updatedAt: Date.now() };
+      records[profile].push(item);
+      return route.fulfill({ status: 201, json: { item } });
+    }
+    return route.fulfill({ json: { items: records[profile] } });
+  });
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'Vault', exact: true }).click();
+  const bot = page.getByRole('combobox', { name: /^Bot/ });
+  await bot.selectOption('research');
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Work account');
+  await page.getByRole('textbox', { name: /^Site URL/ }).fill('https://example.com');
+  await page.getByLabel('Username or email', { exact: true }).fill('research@example.com');
+  await page.getByLabel('Password', { exact: true }).fill('synthetic-password');
+  await page.getByRole('button', { name: 'Save credential', exact: true }).click();
+  await expect(page.getByText('research@example.com', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
+  expect(writes).toEqual([{ profile: 'research', body: { name: 'Work account', origin: 'https://example.com', username: 'research@example.com', password: 'synthetic-password' } }]);
+  await page.getByLabel('Password', { exact: true }).fill('unsaved-secret');
+  await bot.selectOption('default');
+  await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
+  await expect(page.getByText('No credentials saved for this bot.', { exact: true })).toBeVisible();
+  await expect(page.getByText('research@example.com', { exact: true })).toHaveCount(0);
+  expect(state.errors).toEqual([]);
+});
 async function fixture(page: Page, extraApps = false, savedProviderCards = false) {
   const errors: string[] = [], writes: { path: string; body: Record<string, unknown>; profile: string | null }[] = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -20,6 +58,7 @@ async function fixture(page: Page, extraApps = false, savedProviderCards = false
     const json = (value: unknown, status = 200) => route.fulfill({ status, json: value });
     if (request.method() !== 'GET') writes.push({ path, body: request.postDataJSON(), profile: request.headers()['x-hob-profile'] || null });
     if (path === '/api/hermes/team/work/inbox') return json({ items: [] });
+    if (path === '/api/hermes/portal/vault/bots') return json({ bots: [] });
     if (path === '/api/auth/status') return json({ authenticated: true, configured: true });
     if (path === '/api/runtime') return json({ runtime: 'hermes' });
     if (path === '/api/readiness') return json({ ready: true, status: 'ready' });
@@ -659,7 +698,7 @@ test('automation saves a real conversation-scoped heartbeat and displays native 
   await automation.getByLabel('Heartbeat instructions', { exact: true }).fill('Check overdue approved dependencies.');
   await automation.getByLabel('Heartbeat interval (minutes)', { exact: true }).fill('15');
   await automation.getByRole('button', { name: 'Save heartbeat' }).click();
-  await expect(automation.getByText('Every 15 minutes · 0 checks', { exact: true })).toBeVisible();
+  await expect(automation.getByText('Every 15 minutes � 0 checks', { exact: true })).toBeVisible();
   expect(state.writes.find(write => write.path.endsWith('/autonomy'))).toEqual({ path: '/api/hermes/workspace/autonomy', profile: 'default', body: { sessionKey: nativeSession, kind: 'heartbeat', action: 'set', prompt: 'Check overdue approved dependencies.', intervalSeconds: 900 } });
   await automation.getByRole('button', { name: 'Pause heartbeat' }).click();
   await expect(automation.getByRole('button', { name: 'Resume heartbeat' })).toBeVisible();
@@ -682,7 +721,7 @@ test('every settings category fits a narrow phone without horizontal panel scrol
     await page.setViewportSize({ width, height: 800 });
     await page.goto('/settings');
     const categories = page.locator('.hob-settings-directory').getByRole('navigation', { name: 'Settings categories' });
-    await expect(categories.getByRole('button')).toHaveCount(11);
+    await expect(categories.getByRole('button')).toHaveCount(12);
     const labels = await categories.getByRole('button').allTextContents();
     for (const label of labels) {
       await categories.getByRole('button').filter({ hasText: label }).click();
@@ -736,7 +775,7 @@ test('team core review requires an explicit approval and reports incomplete dist
   await page.locator('.hob-settings-directory').getByRole('button', { name: 'Memory & history', exact: true }).click();
   const controls = page.getByRole('region', { name: 'Shared team core and documents' });
   await controls.getByRole('button', { name: 'Open team controls' }).click();
-  await expect(controls.getByText('Published core · revision 0')).toBeVisible();
+  await expect(controls.getByText('Published core � revision 0')).toBeVisible();
   await expect(controls.getByText(/20-turn session window is not active/)).toBeVisible();
   await controls.getByLabel('Proposed team core').fill('Checked project fact.');
   await controls.getByLabel('Promotion evidence').fill('Verified deliverable receipt.');
@@ -745,7 +784,7 @@ test('team core review requires an explicit approval and reports incomplete dist
   await expect(approve).toBeDisabled(); expect(team.core.revision).toBe(0);
   await controls.getByRole('checkbox', { name: 'I reviewed this exact core change and its evidence.' }).check();
   await approve.click();
-  await expect(controls.getByText('Published core · revision 1')).toBeVisible();
+  await expect(controls.getByText('Published core � revision 1')).toBeVisible();
   await controls.getByRole('button', { name: 'Load core revision history' }).click();
   await controls.getByRole('button', { name: 'Restore revision 1 as a proposal' }).click();
   await expect(controls.getByLabel('Proposed team core')).toHaveValue('Checked project fact.');
@@ -816,3 +855,4 @@ test('non-metered routes require exact billing review and expose revocation on a
   expect(writes).toEqual(['/api/hermes/team/execution/routes/preview', '/api/hermes/team/execution/routes', '/api/hermes/team/execution/routes/revoke']);
   expect(fixtureState.errors).toEqual([]);
 });
+

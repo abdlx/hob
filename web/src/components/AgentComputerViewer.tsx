@@ -39,6 +39,9 @@ interface Computer {
 }
 
 interface AgentComputerStatus {
+  assignable?: boolean;
+  managed?: boolean;
+  controlMode?: 'agent' | 'human';
   configured?: boolean;
   connected: boolean;
   serverName?: string;
@@ -86,6 +89,10 @@ export function AgentComputerViewer({ profile, source = 'agent_computer' }: { pr
   const isRunning = status?.connected === true && activeComputer?.state === 'ready';
   const origin = status?.origin;
   const token = status?.vncToken;
+  const humanControl = status?.controlMode === 'human';
+  useEffect(() => {
+    if (status?.managed) streamRef.current?.setViewOnly(!humanControl);
+  }, [humanControl, status?.managed, connState]);
   useEffect(() => {
     if (!isRunning || !id || !screenRef.current) return;
     const element = screenRef.current;
@@ -97,6 +104,7 @@ export function AgentComputerViewer({ profile, source = 'agent_computer' }: { pr
         element.replaceChildren();
         const client = new Constructor(element, url, { wsProtocols: ['binary'] });
         client.scaleViewport = true; client.clipViewport = false; client.background = '#000000';
+        if (status?.managed) client.viewOnly = !humanControl;
         client.qualityLevel = 6; client.compressionLevel = 2;
         // Preserve the existing TigerVNC compatibility encodings; cursor pixels
         // come from the server and continuous updates are deliberately omitted.
@@ -114,7 +122,7 @@ export function AgentComputerViewer({ profile, source = 'agent_computer' }: { pr
     const pump = setInterval(update, 40);
     document.addEventListener('visibilitychange', update);
     return () => { clearInterval(pump); document.removeEventListener('visibilitychange', update); stream.close(); streamRef.current = null; element.replaceChildren(); };
-  }, [profile, id, isRunning, origin, token, basePath]);
+  }, [profile, id, isRunning, origin, token, basePath, status?.managed, humanControl]);
   const control = async (action: 'wake' | 'sleep') => {
     if (!id || busy) return;
     setBusy(action); setError('');
@@ -126,10 +134,33 @@ export function AgentComputerViewer({ profile, source = 'agent_computer' }: { pr
   };
   const handleWake = () => control('wake');
   const handleSleep = () => control('sleep');
+  const manage = async (action: 'assign' | 'unassign' | 'control') => {
+    if (busy) return;
+    setBusy(action); setError('');
+    try {
+      await apiFetch(`${basePath}/${action}?profile=${encodeURIComponent(profile)}`, {
+        method: 'POST', headers: { 'X-Hob-Profile': profile },
+        body: JSON.stringify(action === 'control' ? { mode: humanControl ? 'agent' : 'human' } : {}),
+      });
+      if (mounted.current) await loadStatus();
+    } catch (cause) { if (mounted.current) setError(errorText(cause)); }
+    finally { if (mounted.current) setBusy(''); }
+  };
   if (!status) return error ? <Notice error>{error}</Notice> : <Skeleton className="h-40 w-full" />;
   // Unconfigured sources hide so a bot with only one computer shows only
   // that one; a configured-but-unavailable source keeps its frame + error.
-  if (!status.connected && !status.configured) return null;
+  if (!status.connected && !status.configured) return status.assignable ? (
+    <div className="space-y-3 rounded-xl border border-line p-4">
+      <p className="text-sm font-medium text-ink">Give this bot a computer</p>
+      <p className="text-xs text-muted">A persistent browser profile with files and downloads in this bot's HOB working directory.</p>
+      {error && <Notice error>{error}</Notice>}
+      <button type="button" disabled={busy !== ''} onClick={() => void manage('assign')}
+        className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
+        {busy === 'assign' ? <Loader2 size={13} className="animate-spin" /> : <Monitor size={13} />}
+        {busy === 'assign' ? 'Assigning.' : 'Assign computer'}
+      </button>
+    </div>
+  ) : null;
   const isWaking = busy === 'wake' || activeComputer?.state === 'starting';
   const isSleeping = busy === 'sleep';
   const displayState = !status.connected ? 'unavailable' : isWaking ? 'Starting...' : isSleeping ? 'Sleeping...' : activeComputer?.state || 'Unknown';
@@ -158,6 +189,10 @@ export function AgentComputerViewer({ profile, source = 'agent_computer' }: { pr
         </div>
 
         <div className="flex items-center gap-1">
+          {status.managed && isRunning && <button type="button" disabled={busy !== ''} onClick={() => void manage('control')}
+            className="rounded px-2 py-1 text-[11px] text-gray-200 hover:bg-white/10 disabled:opacity-40">
+            {humanControl ? 'Return to agent' : 'Take over'}
+          </button>}
           {isRunning ? (
             <button
               type="button"
@@ -263,14 +298,15 @@ export function AgentComputerViewer({ profile, source = 'agent_computer' }: { pr
       {/* Footer controls & specs */}
       <div className="flex items-center justify-between px-3 py-2 border-t border-white/10 bg-[#12151b] text-[11px] text-gray-400">
         <div className="flex items-center gap-3">
-          <span className="flex items-center gap-1 text-gray-300">
+          {!status.managed && <><span className="flex items-center gap-1 text-gray-300">
             <Cpu size={12} className="text-gray-500" />
             <span>{activeComputer?.cpuMillis ? `${(activeComputer.cpuMillis / 1000).toFixed(1)} vCPU` : '1 vCPU'}</span>
           </span>
           <span className="flex items-center gap-1 text-gray-300">
             <HardDrive size={12} className="text-gray-500" />
             <span>{activeComputer?.memoryMb ? `${activeComputer.memoryMb} MB` : '1024 MB'}</span>
-          </span>
+          </span></>}
+          {status.managed && <span>Shared HOB workspace � {humanControl ? 'Human control' : 'Agent control'}</span>}
           {activeComputer?.health?.browser_engine && (
             <span className="text-faint capitalize">{activeComputer.health.browser_engine} browser</span>
           )}
@@ -331,7 +367,10 @@ export function AgentComputerViewer({ profile, source = 'agent_computer' }: { pr
 
         {error && <Notice error>{error}</Notice>}
         {windowFrame}
+        {status.managed && <button type="button" disabled={busy !== ''} onClick={() => void manage('unassign')}
+          className="text-xs text-muted hover:text-ink disabled:opacity-50">Unassign computer</button>}
       </div>
     </div>
   );
 }
+

@@ -41,6 +41,7 @@ Hermes Agent is a capable personal agent runtime, but its native surfaces are op
 - **A real browser, not a screenshot toy.** Per-bot Chromium processes with persistent logins, multi-tab control, a live viewer, human takeover, and exact-coordinate input.
 - **Native Hermes underneath.** Sessions, tools, approvals, questions, memory, skills, and scheduling stay owned by upstream Hermes. hob owns the interface, authentication, routing, and browser gateway.
 - **Deployable as one container.** The Docker image combines the dashboard, Node server, and a digest-pinned Hermes runtime. Only the app port is exposed.
+- **Portal included.** In a bot's Computer tab, assign a persistent Camoufox profile, wake its desktop, or take over. Portal files and downloads use that bot's exact HOB working directory. The standard image installs Portal automatically; see [computer setup and deployment limits](deploy/README.md#bot-computers-and-workspace-sharing).
 
 Hermes source is vendored only as a reference. The image applies checksum-guarded compatibility extensions to the pinned runtime: native dashboard heartbeat admission, profile-scoped JSON controls for complete proposal reviews and schedule previews, timezone-cache refresh after a bot's timezone changes, and console evaluation on the selected browser page. Hermes retains scheduling, memory/skill application, and execution ownership. Rebuild the application image when upgrading these controls.
 

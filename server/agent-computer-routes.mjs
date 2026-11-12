@@ -3,6 +3,7 @@ import path from 'node:path';
 import { parseDocument } from 'yaml';
 import { WebSocketServer, WebSocket } from 'ws';
 import { HermesError, hermesProfile } from './hermes-client.mjs';
+import { normalizeOrigin } from '../portal/src/credential-vault.mjs';
 
 // Portal speaks the same MCP + REST + VNC surface as Agent Computer, so one
 // parameterized bridge serves both. A source with no configuration reports
@@ -42,7 +43,7 @@ const publicComputer = value => value && typeof value === 'object' ? {
 
 /** Explicit per-profile configuration. No baked-in endpoint, credential or computer identity. */
 export function createAgentComputerRoutes({ client, hermesHome, authenticated = () => false,
-  assertOrigin = () => { throw new Error('Origin authority is unavailable.'); }, knownBot, env = process.env, fetchImpl = fetch } = {}) {
+  assertOrigin = () => { throw new Error('Origin authority is unavailable.'); }, knownBot, roster = () => [], nativePortal, onComputerChanged, env = process.env, fetchImpl = fetch } = {}) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
   const upstreams = new Set();
   const authorize = async profile => {
@@ -71,7 +72,7 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
         const servers = native?.mcp_servers || {};
         config = desc.configKeys.map(key => servers[key]).find(Boolean);
       } catch (error) {
-        if (error.code !== 'ENOENT') throw new HermesError(503, 'The selected bot’s computer configuration could not be read safely.', 'COMPUTER_CONFIG_INVALID');
+        if (error.code !== 'ENOENT') throw new HermesError(503, 'The selected bot's computer configuration could not be read safely.', 'COMPUTER_CONFIG_INVALID');
       }
     }
     // Environment configuration belongs only to Main, never to another bot.
@@ -115,9 +116,57 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
     const base = SOURCES[source].base;
     if (!authenticated(req)) throw new HermesError(401, 'Sign in to hob.', 'UNAUTHORIZED');
     const send = (status, value) => { json(res, status, value); return true; };
-    const profile = profileFrom(url), cfg = await getComputerConfig(source, profile);
+    if (source === 'portal' && url.pathname === base + '/vault/bots' && req.method === 'GET') {
+      const bots = [];
+      if (nativePortal) for (const bot of await roster()) {
+        if (bot.state && bot.state !== 'active') continue;
+        const cfg = await getComputerConfig('portal', bot.name);
+        if (cfg.connected && nativePortal.managed(cfg)) bots.push({ name: bot.name, displayName: bot.displayName || bot.display_name || (bot.name === 'default' ? 'Main' : bot.name) });
+      }
+      return send(200, { bots });
+    }
+    const profile = profileFrom(url);
+    await authorize(profile);
+    const managedSource = source === 'portal' && nativePortal;
+    const vaultMatch = /^\/vault\/items(?:\/([0-9a-f-]+))?$/i.exec(url.pathname.slice(base.length));
+    if (source === 'portal' && vaultMatch) {
+      if (!managedSource) throw new HermesError(503, 'The bundled vault is unavailable.', 'VAULT_UNAVAILABLE');
+      const cfg = await getComputerConfig(source, profile);
+      if (!cfg.connected || !nativePortal.managed(cfg)) throw new HermesError(409, 'Assign a computer to this bot before using its vault.', 'VAULT_COMPUTER_REQUIRED');
+      const id = vaultMatch[1];
+      if (req.method === 'GET' && !id) return send(200, await nativePortal.vault(profile));
+      assertOrigin(req);
+      if (req.method === 'POST' && !id) {
+        const input = await body(req);
+        if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['name', 'origin', 'username', 'password'].includes(key))) throw invalid('Enter a name, HTTPS site URL, username and password.');
+        if (typeof input.name !== 'string' || !input.name.trim() || input.name.length > 120) throw invalid('Enter a credential name under 120 characters.');
+        if (typeof input.username !== 'string' || input.username.length > 320) throw invalid('Enter a username under 320 characters.');
+        if (typeof input.password !== 'string' || !input.password || input.password.length > 16384) throw invalid('Enter a password under 16 KiB.');
+        let origin;
+        try { origin = normalizeOrigin(input.origin); } catch { throw invalid('Enter an HTTPS site URL without embedded credentials.'); }
+        return send(201, await nativePortal.vault(profile, 'POST', { name: input.name.trim(), origin, username: input.username, password: input.password }));
+      }
+      if (req.method === 'DELETE' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id || '')) return send(200, await nativePortal.vault(profile, 'DELETE', undefined, id));
+      throw invalid('Invalid vault request.');
+    }
+    if (managedSource && ['/assign', '/unassign', '/control'].some(suffix => url.pathname === base + suffix) && req.method === 'POST') {
+      assertOrigin(req);
+      const value = await body(req);
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalid('Invalid computer request.');
+      if (url.pathname === base + '/control') {
+        if (Object.keys(value).some(key => key !== 'mode') || !['human', 'agent'].includes(value.mode)) throw invalid('Select human or agent control.');
+        const cfg = await getComputerConfig(source, profile);
+        if (!cfg.connected || !nativePortal.managed(cfg)) throw invalid('Assign the bundled computer first.');
+        return send(200, await nativePortal.control(profile, value.mode));
+      }
+      if (Object.keys(value).length) throw invalid('Computer assignment does not accept custom paths or credentials.');
+      const result = await nativePortal[url.pathname.endsWith('/unassign') ? 'unassign' : 'assign'](profile);
+      await onComputerChanged?.();
+      return send(200, result);
+    }
+    const cfg = await getComputerConfig(source, profile);
     if (url.pathname === base + '/status' && req.method === 'GET') {
-      if (!cfg.connected) return send(200, { configured: false, connected: false });
+      if (!cfg.connected) return send(200, { configured: false, connected: false, ...(managedSource ? { assignable: true } : {}) });
       try {
         const result = await callMcpTool(cfg, 'computer_list');
         const computers = Array.isArray(result) ? result : result?.computers;
@@ -126,17 +175,22 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
         const detail = active ? await callMcpTool(cfg, 'computer_status', { computer: computerId(active.id) }) : null;
         const current = detail?.computer || detail;
         if (current?.id !== undefined && current.id !== active?.id) throw new Error('The computer service returned another identity.');
-        return send(200, { configured: true, connected: true, serverName: cfg.serverName, origin: cfg.origin,
-          vncToken: cfg.token, computers: computers.map(publicComputer).filter(Boolean), computer: active ? publicComputer({ ...active, ...current }) : null });
-      } catch { return send(200, { configured: true, connected: false, error: 'The configured computer service is unavailable. Refresh before retrying.' }); }
+        const managed = managedSource && nativePortal.managed(cfg);
+        const control = managed ? await nativePortal.viewer(profile) : undefined;
+        return send(200, { configured: true, connected: true, serverName: cfg.serverName,
+          ...(managed ? { managed: true, controlMode: control.mode } : { origin: cfg.origin, vncToken: cfg.token }),
+          computers: computers.map(publicComputer).filter(Boolean), computer: active ? publicComputer({ ...active, ...current }) : null });
+      } catch { return send(200, { configured: true, connected: false, ...(managedSource && nativePortal.managed(cfg) ? { managed: true } : {}), error: 'The configured computer service is unavailable. Refresh before retrying.' }); }
     }
     const action = url.pathname === base + '/wake' ? 'wake' : url.pathname === base + '/sleep' ? 'sleep' : null;
     if (action && req.method === 'POST') {
       assertOrigin(req);
-      if (!cfg.connected) throw invalid('Configure this bot’s computer connection first.');
+      if (!cfg.connected) throw invalid('Configure this bot's computer connection first.');
       const value = await body(req);
       if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => key !== 'computerId')) throw invalid('Select a computer explicitly.');
-      await callMcpTool(cfg, `computer_${action}`, { computer: computerId(value.computerId) });
+      const managed = source === 'portal' && nativePortal?.managed(cfg);
+      const controller = managed ? { ...cfg, ...await nativePortal.vncConfig(profile) } : cfg;
+      await callMcpTool(controller, `computer_${action}`, { computer: computerId(value.computerId), ...(managed ? { profile } : {}) });
       return send(200, { ok: true });
     }
     return false;
@@ -154,12 +208,17 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
       id = computerId(url.searchParams.get('computerId'));
     } catch { socket.destroy(); return true; }
     void (async () => {
-      const cfg = await getComputerConfig(source, profile);
+      let cfg = await getComputerConfig(source, profile);
       if (!cfg.connected || socket.destroyed) { socket.destroy(); return; }
+      if (source === 'portal' && nativePortal?.managed(cfg)) {
+        if (id !== 'portal') { socket.destroy(); return; }
+        cfg = { ...cfg, ...await nativePortal.vncConfig(profile) };
+      }
       wss.handleUpgrade(req, socket, head, downstream => {
         const target = new URL(`/api/computers/${encodeURIComponent(id)}/vnc`, cfg.origin);
         target.protocol = target.protocol === 'https:' ? 'wss:' : 'ws:';
         if (cfg.token) target.searchParams.set('token', cfg.token);
+        if (cfg.profile) target.searchParams.set('profile', cfg.profile);
         const upstream = new WebSocket(target, ['binary'], { handshakeTimeout: 15000,
           ...(cfg.token ? { headers: { Authorization: `Bearer ${cfg.token}` } } : {}) });
         upstreams.add(upstream);
@@ -190,3 +249,4 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
   const close = () => { for (const socket of upstreams) socket.terminate(); for (const socket of wss.clients) socket.terminate(); wss.close(); };
   return { route, upgrade, getAgentComputerConfig, getComputerConfig, close };
 }
+
