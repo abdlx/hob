@@ -30,7 +30,7 @@ export async function instanceRequest<T>(origin: string, path: string, { token, 
   if (!response.ok) {
     if (response.status === 401) throw new LoginExpired(token ? 'Your login expired. Sign in again.' : 'That password was not accepted.');
     const detail = body.error?.message || body.error || body.message;
-    throw new Error(typeof detail === 'string' ? detail.slice(0, 400) : `The instance returned HTTP ${response.status}.`);
+    throw Object.assign(new Error(typeof detail === 'string' ? detail.slice(0, 400) : `The instance returned HTTP ${response.status}.`), { status: response.status });
   }
   return body as T;
 }

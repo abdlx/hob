@@ -2,7 +2,7 @@ export interface Bot { id: string; name: string; model?: string; roleDescription
 export interface Session { id: string; title: string; createdAt: string; lastMessageSnippet?: string; agentId: string; readOnly?: boolean }
 export interface ChatMessage { id: string; role: 'user' | 'assistant' | 'system'; content: string; timestamp: string; status?: string; profile?: string }
 export interface TurnActivity { label: string; phase?: string; tool?: string }
-export interface Attachment { id: string; name: string; mime: string; size: number }
+export interface Attachment { uploadId?: string; id: string; name: string; mime: string; size: number }
 export interface LibraryEntry { name: string; path: string; directory: boolean; size?: number }
 export interface FilePreview { name: string; dataUrl: string; mimeType: string; size: number }
 export interface Skill { name: string; description?: string; enabled: boolean; provenance?: string }
@@ -24,6 +24,7 @@ export type RootStackParams = {
   Identity: { profile: string };
   Tools: { profile: string };
   Browser: { profile: string };
+  WebSettings: { profile: string };
   Settings: { profile: string };
   Appearance: { profile: string };
   Model: { profile: string };

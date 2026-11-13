@@ -27,6 +27,7 @@ export class MobileDevices {
       CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, token_hash TEXT UNIQUE NOT NULL, fingerprint TEXT NOT NULL,
         name TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, push_token TEXT, last_push TEXT);
+      CREATE TABLE IF NOT EXISTS notification_preferences (device_id TEXT PRIMARY KEY, settings TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS push_queue (id TEXT PRIMARY KEY, device_id TEXT NOT NULL, event_id TEXT NOT NULL,
         payload TEXT NOT NULL, status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_at INTEGER NOT NULL,
@@ -53,6 +54,19 @@ export class MobileDevices {
     const row = this.#db.prepare('SELECT id,name,expires_at,push_token,last_push FROM devices WHERE id=?').get(id);
     return { deviceId: row.id, name: row.name, expiresAt: row.expires_at, pushEnabled: Boolean(row.push_token), lastPush: row.last_push, instanceId: this.instanceId };
   }
+  preferences(id) {
+    const row = this.#db.prepare('SELECT settings FROM notification_preferences WHERE device_id=?').get(id);
+    return row ? JSON.parse(row.settings) : { muted: [], start: '', end: '', zone: 'UTC' };
+  }
+  setPreferences(id, value) {
+    if (!Array.isArray(value.muted) || value.muted.length > 1000 || value.muted.some(p => typeof p !== 'string' || !/^[a-z][a-z0-9_-]{0,63}$/.test(p))) throw invalid('Choose valid bots.');
+    const clock = /^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/;
+    if (!(value.start === '' && value.end === '') && !(clock.test(value.start) && clock.test(value.end) && value.start !== value.end)) throw invalid('Enter two different quiet hours using HH:MM.');
+    try { new Intl.DateTimeFormat('en', { timeZone: value.zone }).format(); } catch { throw invalid('Invalid time zone.'); }
+    const settings = { muted: value.muted, start: value.start, end: value.end, zone: value.zone || 'UTC' };
+    this.#db.prepare('INSERT OR REPLACE INTO notification_preferences VALUES (?,?)').run(id, JSON.stringify(settings));
+    return settings;
+  }
   register(id, token) {
     if (token !== null && !expoToken(token)) throw invalid('A valid Expo push token is required.');
     if (this.#db.prepare('SELECT push_token FROM devices WHERE id=?').get(id)?.push_token === token) return this.status(id);
@@ -69,21 +83,30 @@ export class MobileDevices {
     return this.status(id);
   }
   revoke(id) {
+    this.#db.prepare('DELETE FROM notification_preferences WHERE device_id=?').run(id);
     this.#db.prepare('DELETE FROM push_queue WHERE device_id=?').run(id);
     this.#db.prepare('DELETE FROM devices WHERE id=?').run(id);
   }
-  completed({ profile, sessionId, admissionId, createdAt = this.#now() }) {
+  completed({ profile, sessionId, admissionId, kind = 'reply', createdAt = this.#now() }) {
     if (this.#closed || !admissionId || !sessionId || !Number.isFinite(createdAt) || createdAt < this.#now() - 7 * 86400_000) return;
     hermesProfile(profile);
-    const eventId = digest(JSON.stringify([profile, sessionId, admissionId]));
-    const payload = { title: 'hob', body: `${profile === 'default' ? 'Main' : profile} has a new reply.`,
-      data: { kind: 'reply', instanceId: this.instanceId, profile, sessionKey: hermesNativeSessionKey(profile, sessionId), eventId } };
+    const eventId = digest(JSON.stringify(kind === 'reply' ? [profile, sessionId, admissionId] : [profile, sessionId, admissionId, kind]));
+    const payload = { title: 'hob', body: `${profile === 'default' ? 'Main' : profile} ${({ approval: 'needs approval', failed: 'reported a failed task', task: 'finished a scheduled task' })[kind] || 'has a new reply'}.`,
+      data: { kind, instanceId: this.instanceId, profile, sessionKey: hermesNativeSessionKey(profile, sessionId), eventId } };
     this.#db.exec('BEGIN IMMEDIATE');
     try {
       const inserted = this.#db.prepare('INSERT OR IGNORE INTO events VALUES (?,?)').run(eventId, createdAt).changes;
       if (inserted) for (const device of this.#db.prepare('SELECT id FROM devices WHERE push_token IS NOT NULL AND fingerprint=? AND expires_at>? AND created_at<=?')
-        .all(this.#fingerprint, this.#now(), createdAt)) this.#db.prepare('INSERT OR IGNORE INTO push_queue (id,device_id,event_id,payload,status,next_at) VALUES (?,?,?,?,?,?)')
+        .all(this.#fingerprint, this.#now(), createdAt)) {
+        const pref = this.preferences(device.id);
+        if (pref.muted.includes(profile)) continue;
+        if (pref.start) {
+          const time = new Intl.DateTimeFormat('en-GB', { timeZone: pref.zone, hourCycle: 'h23', hour: '2-digit', minute: '2-digit' }).format(this.#now());
+          if (pref.start < pref.end ? time >= pref.start && time < pref.end : time >= pref.start || time < pref.end) continue;
+        }
+        this.#db.prepare('INSERT OR IGNORE INTO push_queue (id,device_id,event_id,payload,status,next_at) VALUES (?,?,?,?,?,?)')
           .run(randomUUID(), device.id, eventId, JSON.stringify(payload), 'pending', this.#now());
+      }
       this.#db.exec('COMMIT');
     } catch (error) { this.#db.exec('ROLLBACK'); throw error; }
   }

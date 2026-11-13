@@ -28,8 +28,8 @@ import { PortalVaultSettings } from '../components/PortalVaultSettings';
 
 interface Profile { name: string; display_name?: string; description?: string; model?: string; provider?: string; state?: string }
 
-export function HermesSettings() {
-  const [profile, setProfile] = useState(() => chatApi.getProfile());
+export function HermesSettings({ initialProfile }: { initialProfile?: string } = {}) {
+  const [profile, setProfile] = useState(() => initialProfile && /^[a-z][a-z0-9_-]{0,63}$/.test(initialProfile) ? initialProfile : chatApi.getProfile());
   const [section, setSection] = useState(() => settingsSection(preference('hob:settings-section', 'models')));
   const [visited, setVisited] = useState<Set<SettingsSection>>(() => new Set([section]));
   const [search, setSearch] = useState('');
@@ -58,6 +58,7 @@ export function HermesSettings() {
         {matches.length === 0 && <p className="py-2 text-sm text-muted">No matching category. Search all native fields in Advanced configuration.</p>}
       </aside>
       <div className="hob-settings-content min-w-0">
+        {initialProfile && mobileCategory && <button type="button" className="md:hidden mb-3 text-accent" onClick={() => setMobileCategory(false)}>‹ Settings</button>}
         <div className="mb-5"><h2 className="text-xl font-semibold text-ink">{current.title}</h2><p className="mt-1 text-sm text-muted">{current.description}</p></div>
         {section === 'vault' ? <PortalVaultSettings initialProfile={profile} /> : <ProfileSettings key={profile} profile={profile} setProfile={value => { setVisited(new Set([section])); setProfile(value); }} section={section} visited={visited} />}
       </div>

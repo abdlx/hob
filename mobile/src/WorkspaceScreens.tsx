@@ -1096,6 +1096,7 @@ export function BrowserScreen({ route, navigation }: Props<'Browser'>) {
 export function SettingsScreen({ route, navigation }: Props<'Settings'>) {
   const { profile } = route.params, p = usePalette();
   const items = [
+    { name: 'WebSettings' as const, icon: 'Tools' as const, label: 'All workspace settings' },
     { name: 'Model' as const, icon: 'Bot' as const, label: 'Model' },
     { name: 'Appearance' as const, icon: 'Interests' as const, label: 'Appearance' },
     { name: 'Identity' as const, icon: 'Identity' as const, label: 'Identity' },

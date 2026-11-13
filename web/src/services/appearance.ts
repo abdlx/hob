@@ -13,6 +13,7 @@ export function applyTheme(theme: Theme) {
 export function setTheme(theme: Theme) {
   const saved = savePreference('hob:theme', theme);
   applyTheme(theme);
+  if (location.pathname === '/mobile/settings') window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'appearance', mode: theme }));
   return saved;
 }
 export function initializeAppearance() {

@@ -6,7 +6,7 @@ import { deviceRequest } from './api';
 import type { Connection } from './connection';
 
 Notifications.setNotificationHandler({ handleNotification: async notification => {
-  const show = AppState.currentState !== 'active' || notification.request.content.data?.kind === 'test';
+  const show = AppState.currentState !== 'active' || ['test', 'approval', 'failed'].includes(String(notification.request.content.data?.kind));
   return { shouldShowBanner: show, shouldShowList: show, shouldPlaySound: show, shouldSetBadge: false };
 } });
 export async function enableNotifications(connection: Connection) {

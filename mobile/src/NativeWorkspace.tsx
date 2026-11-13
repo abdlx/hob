@@ -8,6 +8,7 @@ import type { Connection } from './connection';
 import type { RootStackParams } from './workspace-types';
 import { WorkspaceProvider } from './WorkspaceContext';
 import { usePalette } from './ui';
+import { WebSettings } from './WebSettings';
 import { ChatScreen } from './ChatScreen';
 import { BotsScreen } from './BotsScreen';
 import { openPage } from './navigation';
@@ -103,17 +104,17 @@ function Navigator({ connectionScreen, target }: { connectionScreen: React.Compo
           screenOptions={{
             headerShown: false,
             contentStyle: { backgroundColor: p.canvas },
-            animation: 'slide_from_right',
+            animation: 'default',
           }}
         >
-          <Stack.Screen name="Bots" component={BotsScreen} />
-          <Stack.Screen name="Chat" component={Chat} initialParams={{ profile: 'default' }} />
-          <Stack.Screen name="Conversations" component={Conversations} />
-          <Stack.Screen name="Activity" component={Activity} />
-          <Stack.Screen name="Workshop" component={Workshop} />
-          <Stack.Screen name="Goals" component={Goals} />
+          <Stack.Screen options={{ animation: 'none' }} name="Bots" component={BotsScreen} />
+          <Stack.Screen options={{ animation: 'none' }} name="Chat" component={Chat} initialParams={{ profile: 'default' }} />
+          <Stack.Screen options={{ animation: 'none' }} name="Conversations" component={Conversations} />
+          <Stack.Screen options={{ animation: 'none' }} name="Activity" component={Activity} />
+          <Stack.Screen options={{ animation: 'none' }} name="Workshop" component={Workshop} />
+          <Stack.Screen options={{ animation: 'none' }} name="Goals" component={Goals} />
           <Stack.Screen name="Goal" component={Goal} />
-          <Stack.Screen name="Library" component={Library} />
+          <Stack.Screen options={{ animation: 'none' }} name="Library" component={Library} />
           <Stack.Screen name="File" component={File} />
           <Stack.Screen name="Skills" component={Skills} />
           <Stack.Screen name="Skill" component={Skill} />
@@ -123,7 +124,8 @@ function Navigator({ connectionScreen, target }: { connectionScreen: React.Compo
           <Stack.Screen name="Identity" component={Identity} />
           <Stack.Screen name="Tools" component={Tools} />
           <Stack.Screen name="Browser" component={Browser} />
-          <Stack.Screen name="Settings" component={Settings} />
+          <Stack.Screen options={{ animation: 'none' }} name="Settings" component={Settings} />
+          <Stack.Screen name="WebSettings" component={WebSettings} />
           <Stack.Screen name="Appearance" component={Appearance} />
           <Stack.Screen name="Model" component={Model} />
           <Stack.Screen name="Connection" component={connectionScreen as React.ComponentType<NativeStackScreenProps<RootStackParams, 'Connection'>>} />

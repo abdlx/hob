@@ -1,37 +1,100 @@
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
-import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
-import { File } from 'expo-file-system';
+import { Directory, File, FileMode, Paths } from 'expo-file-system';
+import { getResolvedSharedPayloadsAsync } from 'expo-sharing';
+import { fetch } from 'expo/fetch';
+import { instanceRequest } from './api';
+import type { Connection } from './connection';
+import type { Attachment } from './workspace-types';
 
-export interface PickedFile { name: string; mime: string; base64: string }
-const LIMIT = 5 * 1024 * 1024;
-async function read(uri: string, name: string, mime: string): Promise<PickedFile> {
-  const file = new File(uri);
-  if (!file.size || file.size > LIMIT) throw new Error(`${name} is too large. Choose files up to 5 MB.`);
-  return { name: name.replace(/[\\/\u0000-\u001f]/g, '-').slice(0, 160) || 'attachment', mime, base64: await file.base64() };
-}
-async function image(uri: string, width: number, height: number, name?: string): Promise<PickedFile> {
-  const context = ImageManipulator.manipulate(uri);
-  if (Math.max(width, height) > 2048) context.resize(width >= height ? { width: 2048 } : { height: 2048 });
-  const rendered = await context.renderAsync();
-  const saved = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.85 });
-  return read(saved.uri, `${(name || 'photo').replace(/\.[^.]+$/, '')}.jpg`, 'image/jpeg');
-}
-export async function pickMedia(kind: 'library' | 'camera' | 'files'): Promise<PickedFile[]> {
+interface Entry { path: string; size: number; file?: File; directory?: boolean }
+export type Picker = 'library' | 'camera' | 'files' | 'folder' | 'shared';
+export async function pickMedia(kind: Picker): Promise<Entry[]> {
+  if (kind === 'shared') {
+    return (await getResolvedSharedPayloadsAsync()).flatMap(item => {
+      if (!item.contentUri || !/^(file|content):/.test(item.contentUri)) return [];
+      const file = new File(item.contentUri);
+      return [{ file, path: item.originalName || file.name, size: item.contentSize ?? file.size }];
+    });
+  }
+  if (kind === 'folder') {
+    const folder = await Directory.pickDirectoryAsync();
+    const entries: Entry[] = [];
+    function visit(dir: Directory, path: string) {
+      entries.push({ path, size: 0, directory: true });
+      for (const item of dir.list()) {
+        const name = path + '/' + item.name;
+        if (item instanceof Directory) visit(item, name);
+        else entries.push({ path: name, size: item.size, file: item });
+      }
+    }
+    visit(folder, folder.name);
+    return entries;
+  }
   if (kind === 'files') {
-    const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true });
-    if (result.canceled) return [];
-    if (result.assets.length > 10) throw new Error('Choose up to 10 attachments.');
-    return Promise.all(result.assets.map(asset => read(asset.uri, asset.name, asset.mimeType || 'application/octet-stream')));
+    const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: false });
+    return result.canceled ? [] : result.assets.map(asset => {
+      const file = new File(asset.uri);
+      return { path: asset.name, size: file.size, file };
+    });
   }
-  if (kind === 'camera') {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) throw new Error('Allow camera access in your phone settings to take a photo.');
+  if (kind === 'camera' && !(await ImagePicker.requestCameraPermissionsAsync()).granted) throw new Error('Allow camera access in phone settings.');
+  const result = kind === 'camera' ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'] })
+    : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], allowsMultipleSelection: true, selectionLimit: 0 });
+  return result.canceled ? [] : result.assets.map(asset => {
+    const file = new File(asset.uri);
+    return { path: asset.fileName || file.name, size: file.size, file };
+  });
+}
+
+export async function uploadFiles(connection: Connection, profile: string, session: string, entries: Entry[], signal: AbortSignal, progress: (label: string) => void) {
+  const base = '/api/sessions/' + encodeURIComponent(session) + '/uploads';
+  const options = { token: connection.token, profile, signal };
+  const folder = new Directory(Paths.document, 'uploads', connection.instanceId, profile);
+  folder.create({ intermediates: true, idempotent: true });
+  const checkpoint = new File(folder, session + '.json');
+  const selection = JSON.stringify(entries.map(e => [e.path, e.size, e.file?.modificationTime]));
+  let saved: {selection: string; id: string; chunkSize: number} | null = null;
+  try { saved = JSON.parse(checkpoint.textSync()); } catch { /* First transfer. */ }
+  let resumed = saved?.selection === selection ? saved : null;
+  if (resumed) {
+    try { await instanceRequest(connection.origin, base + '?id=' + resumed.id, options); }
+    catch (err) { if ((err as { status?: number }).status === 404) resumed = null; else throw err; }
   }
-  const result = kind === 'camera' ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.85 })
-    : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], allowsMultipleSelection: true, selectionLimit: 10, quality: 0.85 });
-  if (result.canceled) return [];
-  return Promise.all(result.assets.map((asset, index) => asset.type === 'video'
-    ? read(asset.uri, asset.fileName || `video-${index + 1}.mp4`, asset.mimeType || 'video/mp4')
-    : image(asset.uri, asset.width, asset.height, asset.fileName || `photo-${index + 1}`)));
+  const batch = resumed || await instanceRequest<{ id: string; chunkSize: number }>(connection.origin, base, { ...options, method: 'POST', value: { entries: entries.map(({ path, size, directory }) => ({ path, size, directory })) } });
+  checkpoint.write(JSON.stringify({ ...batch, selection }));
+  const url = base + '?id=' + batch.id;
+  try {
+    for (const [index, entry] of entries.entries()) {
+      if (!entry.file || !entry.size) continue;
+      const handle = entry.file.open(FileMode.ReadOnly);
+      const part = url + '&entry=' + index;
+      try {
+        let offset = resumed ? (await instanceRequest<{ offset: number }>(connection.origin, part, options)).offset : 0, retries = 0;
+        while (offset < entry.size) {
+          progress(entry.path + ' · ' + Math.floor(offset / entry.size * 100) + '%');
+          handle.offset = offset;
+          const chunk = await handle.readBytes(Math.min(entry.size - offset, batch.chunkSize));
+          if (!chunk.length) throw new Error('File changed while uploading.');
+          try {
+            const response = await fetch(connection.origin + part + '&offset=' + offset, { method: 'PUT', redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(60000)]), headers: { Authorization: 'Bearer ' + connection.token, 'X-Hob-Profile': profile, 'Content-Type': 'application/octet-stream' }, body: chunk });
+            if (!response.ok) throw new Error('Upload failed (HTTP ' + response.status + ').');
+            offset = (await response.json()).offset;
+            retries = 0;
+          } catch (error) {
+            if (signal.aborted || ++retries > 3) throw error;
+            offset = (await instanceRequest<{ offset: number }>(connection.origin, part, options)).offset;
+          }
+        }
+      } finally { handle.close(); }
+    }
+    const receipt = await instanceRequest<Attachment>(connection.origin, url, { ...options, method: 'POST' });
+    checkpoint.delete();
+    return receipt;
+  } catch (error) {
+    if (!signal.aborted) throw new Error(String(error) + ' Choose the same selection to resume.');
+    checkpoint.delete();
+    await instanceRequest(connection.origin, url, { ...options, signal: undefined, method: 'DELETE' }).catch(() => undefined);
+    throw error;
+  }
 }

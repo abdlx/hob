@@ -35,9 +35,15 @@ export class ConversationWork {
   version(sessionId: string) { return this.versions.get(sessionId) || 0; }
   error(sessionId: string) { return this.errors.get(sessionId) || null; }
   clearError(sessionId: string) { this.errors.delete(sessionId); }
-  draft(sessionId: string) { return this.drafts.get(sessionId) || ''; }
+  draft(sessionId: string) {
+    if (!this.drafts.has(sessionId)) {
+      try { const saved = localStorage.getItem('hob:draft:' + sessionId); if (saved) this.drafts.set(sessionId, saved); } catch { /* Storage unavailable. */ }
+    }
+    return this.drafts.get(sessionId) || '';
+  }
   setDraft(sessionId: string, text: string) {
     if (this.draft(sessionId) === text) return;
+    try { if (text) localStorage.setItem('hob:draft:' + sessionId, text); else localStorage.removeItem('hob:draft:' + sessionId); } catch { /* Keep the in-memory draft. */ }
     if (text) this.drafts.set(sessionId, text); else this.drafts.delete(sessionId);
     for (const listener of this.draftListeners.get(sessionId) || []) listener();
   }

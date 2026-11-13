@@ -8,7 +8,7 @@ const config: ExpoConfig = {
   ...(project.owner ? { owner: project.owner } : {}),
   ios: { supportsTablet: true, bundleIdentifier: process.env.HOB_IOS_BUNDLE_ID || project.iosBundleIdentifier, infoPlist: { ITSAppUsesNonExemptEncryption: false, NSMicrophoneUsageDescription: microphonePurpose } },
   android: { package: process.env.HOB_ANDROID_PACKAGE || project.androidPackage, softwareKeyboardLayoutMode: 'resize', predictiveBackGestureEnabled: true, permissions: ['android.permission.RECORD_AUDIO'], ...(process.env.GOOGLE_SERVICES_JSON ? { googleServicesFile: process.env.GOOGLE_SERVICES_JSON } : {}) },
-  plugins: ['expo-font', 'expo-secure-store', 'expo-notifications', 'expo-sharing', ['expo-image-picker', { photosPermission: 'Choose media to attach to your hob prompt.', cameraPermission: 'Take a photo to attach to your hob prompt.', microphonePermission: microphonePurpose }]],
+  plugins: ['expo-font', 'expo-secure-store', 'expo-notifications', ['expo-sharing', { android: { enabled: true, singleShareMimeTypes: ['*/*'], multipleShareMimeTypes: ['*/*'] }, ios: { enabled: true, activationRule: { supportsFileWithMaxCount: 1024, supportsImageWithMaxCount: 1024, supportsMovieWithMaxCount: 1024 } } }], ['expo-image-picker', { photosPermission: 'Choose media to attach to your hob prompt.', cameraPermission: 'Take a photo to attach to your hob prompt.', microphonePermission: microphonePurpose }]],
   extra: { ...(projectId ? { eas: { projectId } } : {}) },
 };
 export default config;

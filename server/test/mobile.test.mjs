@@ -89,3 +89,25 @@ test('disabled, revoked and unregistered devices stop receiving queued notificat
   store.register(phone.deviceId, pushToken); store.completed({ profile: 'default', sessionId: 's', admissionId: 'three' }); store.revoke(phone.deviceId); await store.flush(); assert.equal(calls, 1);
   store.close();
 });
+
+test('quiet hours and muted bots apply to approval and failure pushes on this device', async t => {
+  let now = Date.UTC(2026, 10, 13, 19, 30);
+  const messages = [];
+  const store = new MobileDevices({ fingerprint: 'fp', now: () => now, fetchImpl: async (_, request) => {
+    messages.push(...JSON.parse(request.body));
+    return { ok: true, text: async () => JSON.stringify({ data: [{ status: 'ok', id: 'ticket' }] }) };
+  } });
+  t.after(() => store.close());
+  const id = store.login().deviceId;
+  store.register(id, pushToken);
+  store.setPreferences(id, { muted: ['dex'], start: '23:00', end: '07:00', zone: 'Asia/Karachi' });
+  const event = (profile, kind, admissionId) => store.completed({ profile, sessionId: 's', kind, admissionId });
+  event('vex', 'approval', 'night');
+  now += 12 * 3600000;
+  event('dex', 'failed', 'muted');
+  event('vex', 'approval', 'request');
+  event('vex', 'approval', 'request');
+  event('vex', 'failed', 'run');
+  await store.flush();
+  assert.deepEqual(messages.map(m => m.data.kind).sort(), ['approval', 'failed']);
+});

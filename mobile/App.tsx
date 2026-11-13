@@ -4,7 +4,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 import * as Device from 'expo-device';
 import { StatusBar } from 'expo-status-bar';
-import { discover, deviceRequest, login, LoginExpired } from './src/api';
+import { instanceRequest, discover, deviceRequest, login, LoginExpired } from './src/api';
 import { normalizeInstance, notificationTarget } from './src/connection';
 import type { Connection, Instance } from './src/connection';
 import { enableNotifications, Notifications } from './src/notifications';
@@ -20,18 +20,30 @@ function ConnectionScreen({ navigation }: { navigation?: { goBack: () => void } 
   const account = React.useContext(AccountContext)!;
   const [busy, setBusy] = useState(false), [push, setPush] = useState(false), [message, setMessage] = useState(''), operation = useRef(false);
   useEffect(() => { let active = true; void deviceRequest<{ pushEnabled: boolean }>(account.connection, 'device').then(result => { if (active) setPush(result.pushEnabled); }).catch(error => { if (active) setMessage(messageOf(error)); }); return () => { active = false; }; }, [account.connection]);
+  const [prefs, setPrefs] = useState<{ muted: string[]; start: string; end: string; zone: string } | null>(null);
+  const [bots, setBots] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    void Promise.all([deviceRequest<NonNullable<typeof prefs>>(account.connection, 'device/preferences'), instanceRequest<{agents: typeof bots}>(account.connection.origin, '/api/agents', { token: account.connection.token })])
+      .then(([value, roster]) => { setPrefs(value); setBots(roster.agents); }).catch(err => setMessage(messageOf(err)));
+  }, [account.connection]);
   async function act(work: () => Promise<void>) {
     if (operation.current) return; operation.current = true; setBusy(true); setMessage('');
     try { await work(); } catch (error) { setMessage(messageOf(error)); }
     finally { operation.current = false; setBusy(false); }
   }
   return <Page title="Your connection" header={navigation ? <WorkspaceHeader canGoBack onGoBack={() => navigation.goBack()} title="Your connection" /> : undefined}>
-    <Notice>{account.connection.origin}</Notice><Notice>{push ? 'Reply notifications are enabled.' : 'Reply notifications are off for this device.'}</Notice>
+    <Notice>{account.connection.origin}</Notice><Notice>{push ? 'Agent notifications are enabled.' : 'Agent notifications are off for this device.'}</Notice>
     <Button label={push ? 'Disable notifications' : 'Enable notifications'} disabled={busy} onPress={() => void act(async () => {
       if (push) await deviceRequest(account.connection, 'device/push', 'PUT', { pushToken: null }); else await enableNotifications(account.connection);
-      setPush(!push); setMessage(push ? 'Notifications disabled.' : 'This device is registered for reply notifications.');
+      setPush(!push); setMessage(push ? 'Notifications disabled.' : 'This device is registered for agent notifications.');
     })} />
     {push && <Button label="Send a test notification" secondary disabled={busy} onPress={() => void act(async () => { await deviceRequest(account.connection, 'device/test', 'POST'); setMessage('Test notification queued.'); })} />}
+    {push && prefs && <>
+      <Field label="Quiet hours start (HH:MM)" value={prefs.start} onChangeText={start => setPrefs({ ...prefs, start })} placeholder="22:00" />
+      <Field label="Quiet hours end (HH:MM)" value={prefs.end} onChangeText={end => setPrefs({ ...prefs, end })} placeholder="07:00" />
+      {bots.map(bot => <Button key={bot.id} secondary label={bot.name + (prefs.muted.includes(bot.id) ? ' · Muted' : ' · Notifications on')} onPress={() => setPrefs({ ...prefs, muted: prefs.muted.includes(bot.id) ? prefs.muted.filter(id => id !== bot.id) : [...prefs.muted, bot.id] })} />)}
+      <Button label="Save notification preferences" disabled={busy} onPress={() => void act(async () => { await deviceRequest(account.connection, 'device/preferences', 'PUT', { ...prefs, zone: Intl.DateTimeFormat().resolvedOptions().timeZone }); setMessage('Notification preferences saved.'); })} />
+    </>}
     {Boolean(message) && <Notice>{message}</Notice>}
     <Button label="Disconnect this device" secondary danger disabled={busy} onPress={() => Alert.alert('Disconnect this device?', 'This signs out and stops its server-side notifications.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Disconnect', style: 'destructive', onPress: () => void act(account.onDisconnect) }])} />
   </Page>;

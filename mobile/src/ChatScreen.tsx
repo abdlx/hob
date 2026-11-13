@@ -3,7 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   BackHandler,
-  FlatList,
+  FlatList, ScrollView,
   Keyboard,
   Platform,
   Pressable,
@@ -12,12 +12,15 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { Directory, File, Paths } from 'expo-file-system';
+import { useIncomingShare } from 'expo-sharing';
 import * as Haptics from 'expo-haptics';
 import type { Attachment, ChatMessage, RootStackParams, Session } from './workspace-types';
 import { useBotApi, useResource, useWorkspace } from './WorkspaceContext';
 import { AppText as Text, Button, ErrorState, messageOf, Notice, SkeletonCards, ui, usePalette } from './ui';
 import { Icon } from './icons';
-import { pickMedia } from './media';
+import { pickMedia, uploadFiles, type Picker } from './media';
+import { downloadFile } from './download';
 import { NativeMarkdown } from './NativeMarkdown';
 import { requestId, runBusy } from './navigation';
 import { ChatHeader } from './ChatHeader';
@@ -43,6 +46,7 @@ interface Approval {
 }
 
 export function ChatScreen({ route, navigation }: NativeStackScreenProps<RootStackParams, 'Chat'>) {
+  const incoming = useIncomingShare();
   const { profile, readOnly } = route.params;
   const api = useBotApi(profile);
   const p = usePalette(), insets = useSafeAreaInsets();
@@ -63,10 +67,52 @@ export function ChatScreen({ route, navigation }: NativeStackScreenProps<RootSta
   const [drafting, setDrafting] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
-  const [draft, setDraft] = useState(route.params.draft || '');
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const draftFolder = React.useMemo(() => new Directory(Paths.document, 'drafts', connection.instanceId, profile), [connection.instanceId, profile]);
+  const draftFile = (id?: string) => new File(draftFolder, (id || 'new') + '.json');
+  const [saved] = useState<{ text?: string; attachments?: Attachment[] }>(() => {
+    try { return JSON.parse(draftFile(route.params.id).textSync()); } catch { return {}; }
+  });
+  const [draft, setDraft] = useState(route.params.draft || saved.text || '');
+  const [attachments, setAttachments] = useState<Attachment[]>(saved.attachments || []);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        draftFolder.create({ intermediates: true, idempotent: true });
+        const file = new File(draftFolder, (sessionId.current || 'new') + '.json');
+        if (draft || attachments.length) file.write(JSON.stringify({ text: draft, attachments }));
+        else if (file.exists) file.delete();
+      } catch { /* Draft remains in memory if device storage is unavailable. */ }
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [draft, attachments, draftFolder, route.params.id]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [storage, setStorage] = useState<{ id: string; name: string; bytes: number; complete: boolean }[] | null>(null);
+  async function showStorage() {
+    const id = sessionId.current;
+    if (!id) { setStorage([]); return; }
+    try { setStorage((await api.request<{items: NonNullable<typeof storage>}>('/api/sessions/' + encodeURIComponent(id) + '/uploads')).items); }
+    catch (err) { setError(messageOf(err)); }
+  }
+  async function deleteUpload(id: string) {
+    try {
+      await api.request('/api/sessions/' + encodeURIComponent(sessionId.current || '') + '/uploads?id=' + id + '&remove=1', 'DELETE');
+      setAttachments(prev => prev.filter(item => item.uploadId !== id));
+      await showStorage();
+    } catch (err) { setError(messageOf(err)); }
+  }
+  const [downloads, setDownloads] = useState<{path: string; url: string}[]>([]);
+  async function inspectAttachment(file: Attachment) {
+    if (!file.uploadId) { setAttachments(prev => prev.filter(item => item.id !== file.id)); return; }
+    const url = '/api/sessions/' + encodeURIComponent(sessionId.current || '') + '/uploads?id=' + file.uploadId + '&profile=' + encodeURIComponent(profile);
+    try {
+      const data = await api.request<{entries: {path: string; directory: boolean}[]}>(url + '&details=1');
+      setDownloads(data.entries.flatMap((e, i) => e.directory ? [] : [{ path: e.path, url: connection.origin + url + '&download=' + i }]));
+    } catch (err) { setError(messageOf(err)); }
+  }
   const [composerHeight, setComposerHeight] = useState(44);
   const [sending, setSending] = useState(false);
+  const uploadController = useRef<AbortController | null>(null);
+  const [progress, setProgress] = useState('');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [activity, setActivity] = useState('');
@@ -165,6 +211,7 @@ export function ChatScreen({ route, navigation }: NativeStackScreenProps<RootSta
     mounted.current = true;
     return () => {
       mounted.current = false;
+      uploadController.current?.abort();
       stream.current?.abort();
     };
   }, []);
@@ -180,6 +227,7 @@ export function ChatScreen({ route, navigation }: NativeStackScreenProps<RootSta
   async function ensureSession() {
     if (sessionId.current) return sessionId.current;
     creating.current ||= api.request<Session>('/api/sessions', 'POST', { title: 'New Conversation' }).then(session => {
+      try { const old = draftFile(); if (old.exists) old.move(draftFile(session.id)); } catch { /* Next edit persists the draft. */ }
       sessionId.current = session.id;
       if (mounted.current) navigation.setParams({ id: session.id, title: session.title });
       return session.id;
@@ -189,7 +237,7 @@ export function ChatScreen({ route, navigation }: NativeStackScreenProps<RootSta
     return creating.current;
   }
 
-  async function upload(kind: 'camera' | 'library' | 'files') {
+  async function upload(kind: Picker) {
     if (operation.current || readOnly) return;
     operation.current = true;
     setUploading(true);
@@ -197,17 +245,18 @@ export function ChatScreen({ route, navigation }: NativeStackScreenProps<RootSta
     try {
       const files = await pickMedia(kind);
       if (!files.length || !mounted.current) return;
-      if (files.length + attachments.length > 10) throw new Error('Attach up to 10 files per message.');
       const id = await ensureSession();
-      for (const file of files) {
-        const result = await api.request<Attachment>(`/api/sessions/${encodeURIComponent(id)}/attachments`, 'POST', file);
-        if (mounted.current) setAttachments(previous => [...previous, result]);
-      }
+      const controller = new AbortController();
+      uploadController.current = controller;
+      const result = await uploadFiles(connection, profile, id, files, controller.signal, setProgress);
+      if (kind === 'shared') incoming.clearSharedPayloads();
+      if (mounted.current) setAttachments(previous => [...previous, result]);
     } catch (err) {
       if (mounted.current) setError(messageOf(err));
     } finally {
       operation.current = false;
-      if (mounted.current) setUploading(false);
+      uploadController.current = null;
+      if (mounted.current) { setUploading(false); setProgress(''); }
     }
   }
 
@@ -354,7 +403,8 @@ export function ChatScreen({ route, navigation }: NativeStackScreenProps<RootSta
         profile={profile}
         activeSessionId={sessionId.current}
         onSelectSession={session => {
-          sessionId.current = session.id;
+          try { const old = draftFile(); if (old.exists) old.move(draftFile(session.id)); } catch { /* Next edit persists the draft. */ }
+      sessionId.current = session.id;
           navigation.push('Chat', { profile, id: session.id, title: session.title, readOnly: session.readOnly });
         }}
         onOpenBots={() => {
@@ -627,17 +677,30 @@ export function ChatScreen({ route, navigation }: NativeStackScreenProps<RootSta
               paddingHorizontal: 15,
               paddingTop: 6,
               paddingBottom: keyboardHeight > 0
-                ? keyboardHeight + (Platform.OS === 'android' ? 10 : 4)
+                ? (Platform.OS === 'android' ? 10 : keyboardHeight + 4)
                 : drafting
                 ? 14
                 : Math.max(insets.bottom, 6),
               backgroundColor: p.canvas,
             }}
           >
+            {incoming.sharedPayloads.length > 0 && <Button label="Attach shared files to this chat" disabled={uploading || readOnly} onPress={() => void upload('shared')} />}
+            {uploading && Boolean(progress) && <Button label={progress + ' · Cancel'} onPress={() => uploadController.current?.abort()} />}
             {Boolean(error || resource.error) && (
               <ErrorState message={error || resource.error} retry={() => void resource.refresh()} />
             )}
 
+            {downloads.length > 0 && <ScrollView style={{ maxHeight: 160 }}><Button label="Close file list" secondary onPress={() => setDownloads([])} />{downloads.map(item => <Button key={item.url} label={item.path} secondary onPress={() => void downloadFile(connection, item.url, item.path.split('/').pop() || 'file').catch(err => setError(messageOf(err)))} />)}</ScrollView>}
+            {pickerOpen && <ScrollView style={{ maxHeight: 220 }}>
+              {([['files','Choose files'], ['folder','Choose folder'], ['library','Photos and videos'], ['camera','Take a photo']] as const).map(([kind,label]) => <Button key={kind} secondary label={label} onPress={() => { setPickerOpen(false); void upload(kind); }} />)}
+              <Button secondary label="Upload storage" onPress={() => { setPickerOpen(false); void showStorage(); }} />
+            </ScrollView>}
+            {storage && <ScrollView style={{ maxHeight: 200 }}><Button secondary label="Close upload storage" onPress={() => setStorage(null)} />
+              {!storage.length && <Notice>No uploads in this chat.</Notice>}
+              {storage.map(item => <Button secondary key={item.id} label={item.name + ' · ' + (item.bytes / 1048576).toFixed(1) + ' MiB' + (item.complete ? '' : ' · Partial')} onPress={() => Alert.alert('Delete upload?', 'This removes the files from the bot workspace.', [
+                { text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => void deleteUpload(item.id) },
+              ])} />)}
+            </ScrollView>}
             {/* Attachments preview chips */}
             {attachments.length > 0 && (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
@@ -645,8 +708,10 @@ export function ChatScreen({ route, navigation }: NativeStackScreenProps<RootSta
                   <Pressable
                     key={file.id}
                     accessibilityRole="button"
-                    accessibilityLabel={`Remove ${file.name}`}
-                    onPress={() => setAttachments(prev => prev.filter(item => item.id !== file.id))}
+                    accessibilityLabel={file.name}
+                    onPress={() => Alert.alert(file.name, file.size.toLocaleString() + ' bytes', [
+                      { text: 'View files', onPress: () => void inspectAttachment(file) }, { text: 'Remove', onPress: () => setAttachments(prev => prev.filter(item => item.id !== file.id)) }, { text: 'Cancel', style: 'cancel' },
+                    ])}
                     style={{
                       flexDirection: 'row',
                       alignItems: 'center',
@@ -686,14 +751,7 @@ export function ChatScreen({ route, navigation }: NativeStackScreenProps<RootSta
                 accessibilityRole="button"
                 accessibilityLabel="Add attachment"
                 disabled={uploading || sending || readOnly}
-                onPress={() =>
-                  Alert.alert('Add to your prompt', 'Up to 10 files, 5 MB each.', [
-                    { text: 'Photos and videos', onPress: () => void upload('library') },
-                    { text: 'Take a photo', onPress: () => void upload('camera') },
-                    { text: 'Choose files', onPress: () => void upload('files') },
-                    { text: 'Cancel', style: 'cancel' },
-                  ])
-                }
+                onPress={() => setPickerOpen(value => !value)}
                 style={({ pressed }) => ({
                   width: 40,
                   height: 40,

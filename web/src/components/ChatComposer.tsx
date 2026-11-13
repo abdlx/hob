@@ -17,6 +17,8 @@ export interface ChatComposerProps {
   queuedBanner?: ReactNode;
   voiceInput?: ReactNode;
   hasAttachments?: boolean;
+  onStorage?: () => void;
+  onFolder?: () => void;
   onAttach?: () => void;
   placeholder?: string;
   onAddContext?: () => void;
@@ -37,6 +39,8 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   voiceInput,
   hasAttachments = false,
   onAttach,
+  onFolder,
+  onStorage,
   placeholder = 'Message...',
   onAddContext,
 }) => {
@@ -125,7 +129,9 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
                         <span className="font-medium">Attach files</span>
                       </button>
                     )}
-                    {onAddContext && (
+                    {onStorage && <button role="menuitem" className="rounded-xl px-3 py-2 text-left text-[13px] hover:bg-sunken" onClick={() => { setActionMenuOpen(false); onStorage(); }}>Upload storage</button>}
+                  {onFolder && <button type="button" role="menuitem" className="rounded-xl px-3 py-2 text-left text-[13px] hover:bg-sunken" onClick={() => { setActionMenuOpen(false); onFolder(); }}>Attach folder</button>}
+                  {onAddContext && (
                       <button
                         type="button"
                         role="menuitem"

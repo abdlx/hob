@@ -1,6 +1,6 @@
 import { apiFetch } from './api';
 
-export interface ChatAttachment { id: string; name: string; mime: string; size: number; preview?: string }
+export interface ChatAttachment { id: string; name: string; mime: string; size: number; uploadId?: string; preview?: string }
 export interface PickedFile { name: string; mime: string; base64: string }
 const EMPTY: ChatAttachment[] = [];
 const drafts = new Map<string, ChatAttachment[]>(), listeners = new Map<string, Set<() => void>>();
@@ -10,8 +10,23 @@ export const setAttachmentsUploading = (session: string, value: boolean) => {
   if (value) uploading.add(session); else uploading.delete(session);
   for (const listener of listeners.get(session) || []) listener();
 };
-export const attachmentDraft = (session: string) => drafts.get(session) || EMPTY;
+export const attachmentDraft = (session: string) => {
+  if (!drafts.has(session)) {
+    try {
+      const value = JSON.parse(localStorage.getItem('hob:attached:' + session) || '[]');
+      if (Array.isArray(value) && value.length && value.every(f => typeof f?.id === 'string' && typeof f?.name === 'string')) drafts.set(session, value);
+    } catch { /* Keep the in-memory draft. */ }
+  }
+  return drafts.get(session) || EMPTY;
+};
 export const setAttachmentDraft = (session: string, files: ChatAttachment[]) => {
+  try {
+    if (files.length) localStorage.setItem('hob:attached:' + session, JSON.stringify(files.map(({ id, name, size, mime, uploadId }) => ({ id, name, size, mime, uploadId }))));
+    else localStorage.removeItem('hob:attached:' + session);
+  } catch { /* Keep the in-memory draft. */ }
+  for (const old of drafts.get(session) || []) {
+    if (old.preview?.startsWith('blob:') && !files.some(f => f.id === old.id)) URL.revokeObjectURL(old.preview);
+  }
   if (files.length) drafts.set(session, files); else drafts.delete(session);
   for (const listener of listeners.get(session) || []) listener();
 };
@@ -39,27 +54,35 @@ export function pickNativeMedia(): Promise<PickedFile[]> {
     bridge.postMessage(JSON.stringify({ type: 'pick-media', id }));
   });
 }
-export function pickBrowserFiles(): Promise<PickedFile[]> {
-  return new Promise((resolve, reject) => {
-    const input = document.createElement('input'); input.type = 'file'; input.multiple = true; input.style.display = 'none';
-    document.body.append(input);
-    const finish = () => { clearTimeout(timer); input.remove(); };
-    const timer = setTimeout(() => { finish(); reject(new Error('File selection timed out.')); }, 5 * 60_000);
-    input.oncancel = () => { finish(); resolve([]); };
-    input.onchange = async () => {
-      try {
-        const files = [...(input.files || [])];
-        if (files.length > 10 || files.some(file => file.size > 5 * 1024 * 1024 || !file.size)) throw new Error('Choose up to 10 files, each up to 5 MB.');
-        const selected = await Promise.all(files.map(file => new Promise<PickedFile>((yes, no) => {
-          const reader = new FileReader(); reader.onerror = () => no(new Error(`Could not read ${file.name}.`));
-          reader.onload = () => yes({ name: file.name, mime: file.type || 'application/octet-stream', base64: String(reader.result).split(',')[1] }); reader.readAsDataURL(file);
-        })));
-        finish(); resolve(selected);
-      } catch (error) { finish(); reject(error); }
-    };
+interface BrowserEntry { kind: 'directory' | 'file'; name: string; values(): AsyncIterable<BrowserEntry>; getFile(): Promise<File> }
+export interface UploadEntry { path: string; size: number; file?: File; directory?: boolean }
+export async function pickBrowserFiles(folder = false): Promise<UploadEntry[]> {
+  const picker = (window as Window & { showDirectoryPicker?: () => Promise<BrowserEntry> }).showDirectoryPicker;
+  if (folder && picker) {
+    const entries: UploadEntry[] = [];
+    async function visit(handle: BrowserEntry, path: string) {
+      if (handle.kind === 'directory') {
+        entries.push({ path, directory: true, size: 0 });
+        for await (const child of handle.values()) await visit(child, path + '/' + child.name);
+      } else {
+        const file = await handle.getFile();
+        entries.push({ path, file, size: file.size });
+      }
+    }
+    try { const dir = await picker.call(window); await visit(dir, dir.name); return entries; }
+    catch (error) { if (error instanceof DOMException && error.name === 'AbortError') return []; throw error; }
+  }
+  return new Promise(resolve => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.webkitdirectory = folder;
+    input.onchange = () => resolve(Array.from(input.files || [], file => ({ path: file.webkitRelativePath || file.name, size: file.size, file })));
+    input.oncancel = () => resolve([]);
     input.click();
   });
 }
+
 export async function uploadAttachment(profile: string, session: string, file: PickedFile): Promise<ChatAttachment> {
   const result = await apiFetch<ChatAttachment>(`/api/sessions/${encodeURIComponent(session)}/attachments`, {
     method: 'POST', headers: { 'X-Hob-Profile': profile }, body: JSON.stringify(file),

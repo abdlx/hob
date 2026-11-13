@@ -16,12 +16,11 @@ export async function downloadFile(connection: Connection, url: string, name: st
       const response = await fetch(url, { headers: { Authorization: `Bearer ${connection.token}` }, redirect: 'error', signal: AbortSignal.timeout(60000) });
       if (!response.ok || !sameInstance(response.url || url, connection.origin)) throw new Error('The file could not be downloaded.');
       const reader = response.body?.getReader(); if (!reader) throw new Error('The download was empty.');
-      const chunks: Uint8Array[] = []; let total = 0;
+      file.create();
+      const handle = file.open();
       try {
-        while (true) { const { value, done } = await reader.read(); if (done) break; total += value.length; if (total > 25 * 1024 * 1024) throw new Error('Downloads are limited to 25 MB.'); chunks.push(value); }
-      } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
-      const bytes = new Uint8Array(total); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-      await file.write(bytes);
+        while (true) { const { value, done } = await reader.read(); if (done) break; await handle.writeBytes(value); }
+      } finally { handle.close(); await reader.cancel().catch(() => undefined); reader.releaseLock(); }
     }
     if (!await Sharing.isAvailableAsync()) throw new Error('File sharing is unavailable on this device.');
     await Sharing.shareAsync(file.uri, { dialogTitle: 'Save or share your hob file' });

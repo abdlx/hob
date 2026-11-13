@@ -12,6 +12,7 @@
     "bundle:check": "expo export --platform all"
   },
   "dependencies": {
+    "@expo/dom-webview": "~58.0.2",
     "@react-navigation/native": "^7.5.1",
     "@react-navigation/native-stack": "^7.21.0",
     "expo": "~58.0.23",

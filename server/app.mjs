@@ -174,10 +174,10 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
     bots,
     stateDir: process.env.HOB_STATE_DIR || stateDir,
     hermesHome: process.env.HERMES_HOME,
-    onDelivered: notifyCompleted,
+    onDelivered: value => notifyCompleted({ ...value, kind: 'task' }),
     autoStart: false,
   }) : null;
-  const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat, attachmentSecret: secret, onCompleted: notifyCompleted, recoverCompleted: Boolean(artifacts), telemetry, team, cronDelivery, exchanges }) : null;
+  const canonicalChat = nativeSessions && hermesChat ? createHermesCanonicalChatRoutes({ bridge: nativeSessions, client: gateway, journal: runJournal, httpChat: hermesChat, stateDir: hermesMediaState, workspaceRoot: process.env.HOB_WORKSPACE_ROOT || (process.env.HERMES_HOME && path.join(process.env.HERMES_HOME, 'workspaces')), attachmentSecret: secret, onApproval: value => mobile.completed({ ...value, kind: 'approval' }), onFailed: value => mobile.completed({ ...value, kind: 'failed' }), onCompleted: notifyCompleted, recoverCompleted: Boolean(artifacts), telemetry, team, cronDelivery, exchanges }) : null;
   // The relay authenticates each bot with its own relay-scoped credential, not the
   // dashboard session, so it is mounted before the `/api/*` login gate.
   const botRelay = hermes && bots ? createHermesBotRelay({ client: hermes, bots, exchanges, journal: runJournal, bridge: nativeSessions, team, teamArtifacts, memory, onWake: key => canonicalChat?.watch(key) }) : null;
@@ -304,7 +304,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
       }
       if (route === '/api/version' && method === 'GET') return json(res, 200, build);
       if (route === '/api/mobile/discovery' && method === 'GET') return json(res, 200, { app: 'hob', protocol: 1, instanceId: mobile.instanceId,
-        auth: 'password', configured, version: build, capabilities: { workspace: true, attachments: Boolean(canonicalChat), push: true, maxAttachmentBytes: 5 * 1024 * 1024, maxAttachments: 10 } });
+        auth: 'password', configured, version: build, capabilities: { workspace: true, attachments: Boolean(canonicalChat), push: true, chunkedUploads: Boolean(canonicalChat && hermesMediaState), maxAttachmentBytes: 5 * 1024 * 1024, maxAttachments: 10 } });
       if (route === '/api/auth/status' && method === 'GET') {
         const signedIn = Boolean(authenticated(req));
         if (signedIn) renewCookie(req, res);
@@ -328,6 +328,11 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
         issueCookie(res);
         return json(res, 200, { authenticated: true });
       }
+      if (route === '/mobile/settings-connect' && method === 'GET') {
+        const nonce = randomBytes(16).toString('base64');
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': "default-src 'none'; script-src 'nonce-" + nonce + "'; form-action 'self'; frame-ancestors 'none'" });
+        res.end(`<!doctype html><form method="post" action="/api/mobile/bootstrap"><input type="hidden" name="ticket"></form><script nonce="${nonce}">const ticket=location.hash.slice(1);history.replaceState(null,'',location.pathname);document.forms[0].elements.ticket.value=ticket;document.forms[0].submit()</script>`); return;
+      }
       if (route === '/api/mobile/bootstrap' && method === 'POST') {
         let size = 0; const chunks = [];
         for await (const chunk of req) { size += chunk.length; if (size > 1024) throw new HttpError(413, 'Invalid bootstrap request.'); chunks.push(chunk); }
@@ -336,7 +341,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
         const ticket = fields.get('ticket'), entry = bootstrapTickets.get(ticket); bootstrapTickets.delete(ticket);
         if (!entry || entry.expires < sessionNow() || !mobile.active(entry.deviceId)) throw new HttpError(401, 'Reconnect the app to continue.');
         issueCookie(res, entry.deviceId);
-        res.writeHead(303, { Location: '/chat?mobile=1', 'Cache-Control': 'no-store' }); res.end(); return;
+        res.writeHead(303, { Location: entry.profile ? '/mobile/settings?profile=' + encodeURIComponent(entry.profile) : '/chat?mobile=1', 'Cache-Control': 'no-store' }); res.end(); return;
       }
       // Bot-to-bot traffic is authenticated by each bot's own Hermes listener
       // credential, so it must be admitted before the dashboard session gate.
@@ -356,11 +361,15 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
           if (route === '/api/mobile/session' && method === 'POST') {
             for (const [key, value] of bootstrapTickets) if (value.expires < sessionNow()) bootstrapTickets.delete(key);
             if (bootstrapTickets.size >= 1000) throw new HttpError(429, 'Try reconnecting shortly.');
-            const ticket = randomBytes(32).toString('base64url'); bootstrapTickets.set(ticket, { deviceId, expires: sessionNow() + 60_000 });
+            const ticket = randomBytes(32).toString('base64url'); const profile = url.searchParams.get('settings');
+            if (profile && !/^[a-z][a-z0-9_-]{0,63}$/.test(profile)) throw new HttpError(400, 'Invalid profile.');
+            bootstrapTickets.set(ticket, { deviceId, profile, expires: sessionNow() + 60_000 });
             return json(res, 200, { ticket });
           }
           if (route === '/api/mobile/device' && method === 'GET') return json(res, 200, mobile.status(deviceId));
           if (route === '/api/mobile/device' && method === 'DELETE') { mobile.revoke(deviceId); return json(res, 200, { disconnected: true }); }
+          if (route === '/api/mobile/device/preferences' && method === 'GET') return json(res, 200, mobile.preferences(deviceId));
+          if (route === '/api/mobile/device/preferences' && method === 'PUT') return json(res, 200, mobile.setPreferences(deviceId, await body(req)));
           if (route === '/api/mobile/device/push' && method === 'PUT') { const input = await body(req); if (Object.keys(input).some(key => key !== 'pushToken')) throw new HttpError(400, 'Invalid device settings.'); return json(res, 200, mobile.register(deviceId, input.pushToken)); }
           if (route === '/api/mobile/device/test' && method === 'POST') return json(res, 202, mobile.test(deviceId));
           throw new HttpError(404, 'Unknown mobile operation.');

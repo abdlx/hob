@@ -3,7 +3,7 @@ import { HermesError } from './hermes-client.mjs';
 
 export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 const invalid = message => new HermesError(400, message, 'INVALID_ATTACHMENT');
-const imageMime = bytes => bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ? 'image/png'
+export const imageMime = bytes => bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ? 'image/png'
   : bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255 ? 'image/jpeg'
     : ['GIF87a', 'GIF89a'].includes(bytes.subarray(0, 6).toString()) ? 'image/gif'
       : bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP' ? 'image/webp' : null;
@@ -36,7 +36,7 @@ export function createHermesAttachments({ bridge, client, secret, now = Date.now
   }
   function resolve(sessionKey, ids) {
     if (ids === undefined) return { images: [], references: [] };
-    if (!Array.isArray(ids) || ids.length > 10 || new Set(ids).size !== ids.length) throw invalid('Attach up to 10 different files.');
+    if (!Array.isArray(ids) || new Set(ids).size !== ids.length) throw invalid('Attach up to 10 different files.');
     const images = [], references = [];
     for (const id of ids) {
       if (typeof id !== 'string' || id.length > 16000) throw invalid('Invalid attachment reference.');
@@ -49,5 +49,9 @@ export function createHermesAttachments({ bridge, client, secret, now = Date.now
     }
     return { images, references };
   }
-  return { upload, resolve };
+  function reference(sessionKey, filename, name, size, imageMime) {
+    const payload = Buffer.from(JSON.stringify({ sessionKey, ...(imageMime ? { image: { path: filename, mime: imageMime } } : { reference: 'Workspace attachment: ' + JSON.stringify(filename) }), expires: Number.MAX_SAFE_INTEGER })).toString('base64url');
+    return { id: payload + '.' + sign(payload), name, size, mime: imageMime || 'application/octet-stream' };
+  }
+  return { upload, resolve, reference };
 }

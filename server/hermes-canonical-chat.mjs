@@ -3,6 +3,7 @@ import { HermesError, hermesProfile, hermesResource, hermesSessionKey, hermesNat
 import { messageContentText, chatMessageText } from './hermes-content.mjs';
 import { TERMINAL_RUNS, runFingerprint } from './hermes-run-journal.mjs';
 import { createHermesAttachments } from './hermes-attachments.mjs';
+import { workspaceUploads } from './workspace-uploads.mjs';
 import { hermesActivityFeed } from './hermes-activity.mjs';
 
 const iso = value => {
@@ -83,8 +84,9 @@ function describeActivity(event) {
 }
 
 /** Translate custom chat UX into the one native session/FIFO owner, without exposing raw RPC. */
-export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpChat, attachmentSecret = randomUUID(), onCompleted, recoverCompleted = false, telemetry, team, cronDelivery, exchanges }) {
+export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpChat, stateDir, workspaceRoot, attachmentSecret = randomUUID(), onCompleted, onFailed, onApproval, recoverCompleted = false, telemetry, team, cronDelivery, exchanges }) {
   const attachments = createHermesAttachments({ bridge, client, secret: attachmentSecret });
+  const uploads = workspaceUploads({ stateDir, workspaceRoot, reference: attachments.reference });
   const observed = new Set();
   const prompts = new Map();
   const refreshes = new Map();
@@ -114,6 +116,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
       for (const prompt of snapshot.prompts) {
         if (!['clarify', 'approval'].includes(prompt.kind) || typeof prompt.prompt_id !== 'string'
           || !Number.isSafeInteger(prompt.execution_generation) || prompt.execution_generation < 0) continue;
+        if (prompt.kind === 'approval') onApproval?.({ profile: owner.profile, sessionId: owner.sessionId, admissionId: promptId(key, prompt) });
         prompts.set(promptId(key, prompt), { key, owner, prompt });
       }
       let record = journal.get(key);
@@ -142,6 +145,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
             if (measuredSettlements.size > 2000) measuredSettlements.delete(measuredSettlements.values().next().value);
             telemetry.record(owner.profile, 'turn.settlement', Math.max(0, Date.now() - record.submittedAt), record.status === 'completed' ? 'ok' : record.status === 'cancelled' ? 'cancelled' : record.status === 'failed' ? 'error' : 'unknown', { runId: record.runId });
           }
+          if (record.status === 'failed') onFailed?.({ profile: owner.profile, sessionId: owner.sessionId, admissionId: record.runId, createdAt: record.submittedAt });
           if (record.status === 'completed') onCompleted?.({ profile: owner.profile, sessionId: owner.sessionId, admissionId: record.runId, createdAt: record.submittedAt,
             input: record.input || '', output: messageContentText(receipt.result?.final_response) });
         }
@@ -273,7 +277,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
 
   const route = async (req, res, url, { json, body, startEvents, sendEvent, required }) => {
     const method = req.method;
-    const profile = hermesProfile(req.headers['x-hob-profile'] ?? 'default');
+    const profile = hermesProfile(req.headers['x-hob-profile'] ?? (req.method === 'GET' && url.pathname.endsWith('/uploads') ? url.searchParams.get('profile') : null) ?? 'default');
     if (url.pathname === '/api/sessions' && method === 'GET') {
       await scanCron(profile);
       await ensureMain(profile);
@@ -351,7 +355,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
       observed.delete(key);
       json(res, 200, { deleted: true }); return true;
     }
-    const match = /^\/api\/sessions\/([^/]+)\/(messages|turns|attachments|steer|abort|run|recover|resolve-unknown|clarify|title)$/.exec(url.pathname);
+    const match = /^\/api\/sessions\/([^/]+)\/(messages|turns|uploads|attachments|steer|abort|run|recover|resolve-unknown|clarify|title)$/.exec(url.pathname);
     if (!match) return false;
     const key = decodeURIComponent(match[1]);
     const owner = parseHermesSessionKey(key);
@@ -360,6 +364,12 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
       if (match[2] === 'turns' && method === 'POST') throw new HermesError(409,
         'This older API conversation is read-only. Start a new conversation for interactive Hermes chat.', 'LEGACY_SESSION_READ_ONLY');
       return false;
+    }
+    if (match[2] === 'uploads') {
+      if (owner.profile !== profile) throw new HermesError(400, 'Select the conversation owner.', 'INVALID_PROFILE');
+      if (!url.searchParams.has('id')) { await client.credentialBinding(profile); await rpc(owner, 'session.resume'); }
+      await uploads({ req, res, url, owner, key, body, json });
+      return true;
     }
     if (match[2] === 'steer' && method === 'POST') {
       if (owner.profile !== profile) throw new HermesError(400, 'Choose a conversation belonging to the selected bot.', 'INVALID_PROFILE');
