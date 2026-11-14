@@ -5,8 +5,12 @@ import { pathToFileURL } from 'node:url';
 export async function seedHermesConfig(home, workspace) {
   await mkdir(home, { recursive: true, mode: 0o700 });
   // Native Hermes settings only. JSON is a YAML subset; Hermes owns migrations.
-  const config = { gateway: { multiplex_profiles: true }, terminal: { cwd: workspace },
-    auth: { adopt_external_logins: false } };
+  const config = {
+    gateway: { multiplex_profiles: true },
+    terminal: { cwd: workspace },
+    auth: { adopt_external_logins: false },
+    delegation: { child_timeout_seconds: 300 },
+  };
   try {
     await writeFile(join(home, 'config.yaml'), JSON.stringify(config, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
     return true;

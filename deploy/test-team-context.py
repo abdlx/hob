@@ -73,6 +73,8 @@ class ContextTests(unittest.TestCase):
         metadata = types.ModuleType("agent.model_metadata")
         metadata.estimate_request_tokens_rough = lambda rows, tools=None, system_prompt="": len(json.dumps(rows)) // 4 + len(json.dumps(tools or [])) // 4 + len(system_prompt) // 4
         package = types.ModuleType("agent")
+        package.__path__ = ["/opt/hermes/agent"]
+        setattr(package, "hob_coordinator", load("coordinator", "hob-coordinator.py"))
         package.hob_team_context = team
         patch.dict(sys.modules, {"agent": package, "agent.system_prompt": native_prompt, "agent.model_metadata": metadata}).start()
         package.hob_team_retention = load("retention", "hob-team-retention.py")

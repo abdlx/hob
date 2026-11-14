@@ -2,6 +2,7 @@
 import json
 from functools import wraps
 import os
+import re
 
 
 INSTRUCTIONS = """## HOB interactive coordinator
@@ -47,8 +48,54 @@ def restore_prompt(function):
     return call
 
 
-def tool_block(agent, name):
-    if enabled(agent) and name not in COORDINATION_TOOLS:
+def is_relay_command(args):
+    """Check if command is an inter-bot relay or communication command (talk.mjs / work.mjs)."""
+    if isinstance(args, dict):
+        cmd = args.get('command') or args.get('cmd') or ''
+    elif isinstance(args, str):
+        cmd = args
+    else:
+        return False
+    if not isinstance(cmd, str):
+        return False
+    cmd = cmd.strip()
+    if not cmd:
+        return False
+    if 'talk.mjs' not in cmd and 'work.mjs' not in cmd:
+        return False
+    parts = [sub.strip() for sub in re.split(r'\s*&&\s*', cmd)]
+    for part in parts:
+        if part.startswith('test ') or part.startswith('['):
+            continue
+        tokens = part.split()
+        idx = 0
+        if tokens and tokens[0] == 'env':
+            idx = 1
+            while idx < len(tokens) and (tokens[idx].startswith('-') or '=' in tokens[idx]):
+                if tokens[idx] == '-u' and idx + 1 < len(tokens):
+                    idx += 2
+                else:
+                    idx += 1
+        remaining = tokens[idx:]
+        if not remaining:
+            return False
+        exec_name = os.path.basename(remaining[0])
+        if exec_name == 'node' and len(remaining) > 1:
+            script = remaining[1]
+            if script.endswith('talk.mjs') or script.endswith('work.mjs'):
+                continue
+        elif exec_name in ('talk.mjs', 'work.mjs') or remaining[0].endswith('.hob/talk.mjs') or remaining[0].endswith('.hob/work.mjs'):
+            continue
+        return False
+    return True
+
+
+def tool_block(agent, name, args=None):
+    if enabled(agent):
+        if name in COORDINATION_TOOLS:
+            return None
+        if name == 'terminal' and is_relay_command(args):
+            return None
         return ('HOB coordinator: delegate this execution to a background subagent with '
                 'delegate_task(background=true), then end your turn. Keep this chat available for the user.')
     return None

@@ -8,6 +8,9 @@ import sys
 SOURCES = {
     'agent/tool_executor.py': '3fb81cd7ec8946df1f6e50b0879b4be4499223b4236450da0581ac7c0a1727e6',
     'tools/delegate_tool_dispatch.py': 'd34a3e75abba19c628833b2e8b8d35f70ec0a522057d66e7feab1b1ae9511214',
+    'tools/delegate_tool_toolsets.py': 'c839d14a931c3f1397525014ffab8ce41dfd8c171d16f7edb500bbb4cfbdd343',
+    'tools/delegate_tool_child_run.py': '5239e0808e967f71cfc59c040638cb74de34d88a0f83050099195abf5527cb09',
+    'tools/delegate_tool_config.py': 'a0360af946ad929fac017d5299438c400f48ebe5e82edb0c8cd2e38d8d170dcb',
 }
 
 
@@ -22,14 +25,106 @@ def revisions(source):
     key = 'agent/tool_executor.py'
     before = '    block_message, block_error_type = scope_block, "tool_scope_block"\n'
     out[key] = replace(out[key], before,
-        "    from agent import hob_coordinator\n    scope_block = scope_block or hob_coordinator.tool_block(agent, ref.name)\n" + before)
+        "    from agent import hob_coordinator\n    scope_block = scope_block or hob_coordinator.tool_block(agent, ref.name, ref.args)\n" + before)
     key = 'tools/delegate_tool_dispatch.py'
     out[key] = replace(out[key], '    result = _execute_and_aggregate(batch)\n',
         "    from agent import hob_coordinator\n    if hob_coordinator.enabled(batch.parent_agent):\n        return hob_coordinator.refuse_inline(batch, reason)\n    result = _execute_and_aggregate(batch)\n")
     out[key] = replace(out[key], '    if background:\n        return _dispatch_background(batch)\n',
         "    from agent import hob_coordinator\n    if background or hob_coordinator.enabled(batch.parent_agent):\n        return _dispatch_background(batch)\n")
-    out[key] = replace(out[key], '        inline_results.extend(_execute_and_aggregate(unit)["results"])\n',
+    out[key] = replace(out[key], '        inline_results.extend(_execute_and_aggregate(unit)[\"results\"])\n',
         "        from agent import hob_coordinator\n        if hob_coordinator.enabled(batch.parent_agent):\n            inline_results.append(json.loads(hob_coordinator.refuse_inline(unit, 'scheduler_rejected')))\n        else:\n            inline_results.extend(_execute_and_aggregate(unit)[\"results\"])\n")
+
+    key = 'tools/delegate_tool_toolsets.py'
+    before = '    child_toolsets = _strip_blocked_tools(child_toolsets)\n'
+    after = """    try:
+        from tools.mcp_tool_config import _load_mcp_config
+        _mcp_cfg = _load_mcp_config()
+        if isinstance(_mcp_cfg, dict):
+            for _s in _mcp_cfg.keys():
+                _mcp_ts = f"mcp-{_s}"
+                if _mcp_ts not in child_toolsets:
+                    child_toolsets.append(_mcp_ts)
+    except Exception:
+        pass
+    child_toolsets = _strip_blocked_tools(child_toolsets)
+"""
+    out[key] = replace(out[key], before, after)
+
+    key = 'tools/delegate_tool_config.py'
+    out[key] = replace(out[key], 'DEFAULT_CHILD_TIMEOUT: Optional[float] = None\n', 'DEFAULT_CHILD_TIMEOUT: Optional[float] = 300.0\n')
+
+    key = 'tools/delegate_tool_child_run.py'
+    run_before_1 = """        if child_timeout is None:
+            settled.wait()
+            return
+        deadline = time.monotonic() + child_timeout
+        warn_at = deadline - child_timeout * (1.0 - _BUDGET_WARNING_FRACTION)
+        warned = False
+        fingerprint = _child_activity_fingerprint(self.child)
+        while True:
+            now = time.monotonic()
+            remaining = deadline - now
+            if remaining <= 0:
+                return  # no progress for the whole budget
+            wait = min(_LIVENESS_POLL_SECONDS, remaining)
+            if not warned:
+                wait = min(wait, max(warn_at - now, 0.0))
+            settled.wait(timeout=wait)
+            if settled.is_set():
+                return  # the worker finished, or the heartbeat declared the child stale
+            current = _child_activity_fingerprint(self.child)
+            if current != fingerprint:
+                fingerprint = current
+                deadline = time.monotonic() + child_timeout
+                warn_at = deadline - child_timeout * (1.0 - _BUDGET_WARNING_FRACTION)
+                warned = False  # a fresh window gets its own warning
+            elif not warned and time.monotonic() >= warn_at:
+                warned = True
+                _warn_child_budget(self.child, child_timeout - (deadline - time.monotonic()), child_timeout)"""
+
+    run_after_1 = """        import os
+        wall_clock_limit = float(os.environ.get("DELEGATION_WALL_CLOCK_TIMEOUT", 300.0))
+        wall_clock_deadline = time.monotonic() + wall_clock_limit
+        budget = child_timeout if child_timeout is not None else wall_clock_limit
+        deadline = min(time.monotonic() + budget, wall_clock_deadline)
+        warn_at = deadline - budget * (1.0 - _BUDGET_WARNING_FRACTION)
+        warned = False
+        fingerprint = _child_activity_fingerprint(self.child)
+        while True:
+            now = time.monotonic()
+            if now >= wall_clock_deadline:
+                self._timed_out_wall_clock = True
+                return
+            remaining = min(deadline - now, wall_clock_deadline - now)
+            if remaining <= 0:
+                return
+            wait = min(_LIVENESS_POLL_SECONDS, remaining)
+            if not warned:
+                wait = min(wait, max(warn_at - now, 0.0))
+            settled.wait(timeout=wait)
+            if settled.is_set():
+                return
+            if time.monotonic() >= wall_clock_deadline:
+                self._timed_out_wall_clock = True
+                return
+            current = _child_activity_fingerprint(self.child)
+            if current != fingerprint:
+                fingerprint = current
+                deadline = min(time.monotonic() + budget, wall_clock_deadline)
+                warn_at = deadline - budget * (1.0 - _BUDGET_WARNING_FRACTION)
+                warned = False
+            elif not warned and time.monotonic() >= warn_at:
+                warned = True
+                _warn_child_budget(self.child, budget - (deadline - time.monotonic()), budget)"""
+
+    out[key] = replace(out[key], run_before_1, run_after_1)
+    out[key] = replace(out[key],
+        '        timeout_cause = stale_after if stale_after is not None else child_timeout',
+        '        timeout_cause = stale_after if stale_after is not None else (child_timeout or 300.0)')
+    out[key] = replace(out[key],
+        '        if not is_timeout:\n            _err = str(exc)\n        elif stale_after is not None:',
+        '        if not is_timeout:\n            _err = str(exc)\n        elif getattr(self, "_timed_out_wall_clock", False):\n            _err = (\n                f"Subagent exceeded wall-clock timeout of 300s with "\n                f"{child_api_calls} API call(s) completed — runaway worker stopped."\n            )\n        elif stale_after is not None:')
+
     for text in out.values():
         ast.parse(text)
     return out
