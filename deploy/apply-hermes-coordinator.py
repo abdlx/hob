@@ -54,6 +54,23 @@ def revisions(source):
     out[key] = replace(out[key], 'DEFAULT_CHILD_TIMEOUT: Optional[float] = None\n', 'DEFAULT_CHILD_TIMEOUT: Optional[float] = 300.0\n')
 
     key = 'tools/delegate_tool_child_run.py'
+    child_run_mcp_before = """        def _run_with_thread_capture():
+            worker_thread_holder["t"] = threading.current_thread()
+            from agent.delegation_context import delegated_child_context
+            with delegated_child_context(str(getattr(child, "session_id", "") or "")):
+                return child.run_conversation("""
+    child_run_mcp_after = """        def _run_with_thread_capture():
+            worker_thread_holder["t"] = threading.current_thread()
+            from agent.delegation_context import delegated_child_context
+            with delegated_child_context(str(getattr(child, "session_id", "") or "")):
+                try:
+                    from tools.mcp_tool_discovery import discover_mcp_tools
+                    discover_mcp_tools()
+                except Exception:
+                    pass
+                return child.run_conversation("""
+    out[key] = replace(out[key], child_run_mcp_before, child_run_mcp_after)
+
     run_before_1 = """        if child_timeout is None:
             settled.wait()
             return
