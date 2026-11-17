@@ -189,10 +189,10 @@ class CoordinatorTests(unittest.TestCase):
 
     def test_subagent_wall_clock_timeout_guardrails(self):
         cfg_source = self.revised()['tools/delegate_tool_config.py']
-        self.assertIn('DEFAULT_CHILD_TIMEOUT: Optional[float] = 300.0', cfg_source)
+        self.assertIn('DEFAULT_CHILD_TIMEOUT: Optional[float] = 900.0', cfg_source)
 
         run_source = self.revised()['tools/delegate_tool_child_run.py']
-        self.assertIn('wall_clock_limit = float(os.environ.get("DELEGATION_WALL_CLOCK_TIMEOUT", 300.0))', run_source)
+        self.assertIn('wall_clock_limit = float(os.environ.get("DELEGATION_WALL_CLOCK_TIMEOUT", 900.0))', run_source)
         self.assertIn('self._timed_out_wall_clock = True', run_source)
         self.assertIn('Subagent exceeded wall-clock timeout of 300s', run_source)
 

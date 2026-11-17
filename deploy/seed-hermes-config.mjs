@@ -9,7 +9,7 @@ export async function seedHermesConfig(home, workspace) {
     gateway: { multiplex_profiles: true },
     terminal: { cwd: workspace },
     auth: { adopt_external_logins: false },
-    delegation: { child_timeout_seconds: 300 },
+    delegation: { child_timeout_seconds: 900 },
   };
   try {
     await writeFile(join(home, 'config.yaml'), JSON.stringify(config, null, 2) + '\n', { flag: 'wx', mode: 0o600 });

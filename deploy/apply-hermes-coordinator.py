@@ -51,7 +51,7 @@ def revisions(source):
     out[key] = replace(out[key], before, after)
 
     key = 'tools/delegate_tool_config.py'
-    out[key] = replace(out[key], 'DEFAULT_CHILD_TIMEOUT: Optional[float] = None\n', 'DEFAULT_CHILD_TIMEOUT: Optional[float] = 300.0\n')
+    out[key] = replace(out[key], 'DEFAULT_CHILD_TIMEOUT: Optional[float] = None\n', 'DEFAULT_CHILD_TIMEOUT: Optional[float] = 900.0\n')
 
     key = 'tools/delegate_tool_child_run.py'
     child_run_mcp_before = """        def _run_with_thread_capture():
@@ -100,7 +100,7 @@ def revisions(source):
                 _warn_child_budget(self.child, child_timeout - (deadline - time.monotonic()), child_timeout)"""
 
     run_after_1 = """        import os
-        wall_clock_limit = float(os.environ.get("DELEGATION_WALL_CLOCK_TIMEOUT", 300.0))
+        wall_clock_limit = float(os.environ.get("DELEGATION_WALL_CLOCK_TIMEOUT", 900.0))
         wall_clock_deadline = time.monotonic() + wall_clock_limit
         budget = child_timeout if child_timeout is not None else wall_clock_limit
         deadline = min(time.monotonic() + budget, wall_clock_deadline)
