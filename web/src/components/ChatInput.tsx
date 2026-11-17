@@ -15,6 +15,7 @@ export const ChatInput: React.FC = () => {
     sendMessage,
     isLoading,
     isPreparing,
+    isUnconfigured,
     connectionIssue,
     isCreatingConversation,
     sessions,
@@ -40,7 +41,7 @@ export const ChatInput: React.FC = () => {
   const files = useSyncExternalStore(attachmentSubscribe, filesSnapshot);
   const uploading = useSyncExternalStore(attachmentSubscribe, busySnapshot);
   const [attachmentError, setAttachmentError] = useState('');
-  const disabled = isPreparing || isCreatingConversation || readOnly;
+  const disabled = isPreparing || isCreatingConversation || readOnly || isUnconfigured;
   const controller = useRef<AbortController | null>(null);
   const [progress, setProgress] = useState('');
   const [storage, setStorage] = useState<{session: string; items: {id: string; name: string; bytes: number; complete: boolean}[]} | null>(null);
@@ -177,7 +178,9 @@ export const ChatInput: React.FC = () => {
       working={isLoading}
       stopping={isStopping}
       placeholder={
-        readOnly
+        isUnconfigured
+          ? 'Configure a model provider to start chatting'
+          : readOnly
           ? 'Start a new conversation to continue'
           : 'Message'
       }

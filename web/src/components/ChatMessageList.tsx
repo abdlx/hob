@@ -98,7 +98,7 @@ function InlineApprovalPrompt() {
 }
 
 export function ChatMessageList() {
-  const { messages, isLoading, agent, setActiveNav, isPreparing, activeSessionId, activity } = useChat();
+  const { messages, isLoading, agent, setActiveNav, isPreparing, isUnconfigured, activeSessionId, activity } = useChat();
   const runtime = useRuntime();
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
@@ -155,7 +155,25 @@ export function ChatMessageList() {
         }`}
       >
         {isPreparing && visibleMessages.length === 0 && <div role="status" aria-label="Loading conversation" className="w-full space-y-6 py-8"><span className="sr-only">Loading your saved conversation…</span><Skeleton className="ml-auto h-16 w-2/3" /><Skeleton className="h-24 w-4/5" /><Skeleton className="h-12 w-1/2" /></div>}
-        {!isPreparing && visibleMessages.length === 0 && exchanges.rows.length === 0 && (
+        {isUnconfigured && (
+          <div className="mx-auto my-8 max-w-md rounded-2xl border border-amber-500/30 bg-amber-500/10 p-6 text-center shadow-lg backdrop-blur-sm">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/20 text-amber-500">
+              <ShieldAlert size={24} />
+            </div>
+            <h3 className="text-lg font-semibold text-foreground">No model configured.</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              This bot needs an AI model provider before it can chat or run tasks.
+            </p>
+            <button
+              type="button"
+              onClick={() => setActiveNav('settings')}
+              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-black transition-transform hover:scale-[1.02] active:scale-[0.98]"
+            >
+              Add model provider
+            </button>
+          </div>
+        )}
+        {!isPreparing && !isUnconfigured && visibleMessages.length === 0 && exchanges.rows.length === 0 && (
           <section className="hob-welcome py-8 px-4 text-center max-w-xl mx-auto" aria-label="Welcome to hob">
             <h1 className="text-3xl md:text-4xl font-semibold text-ink tracking-tight leading-tight">What can I help you with?</h1>
             <p className="hob-welcome-copy text-muted text-base leading-relaxed my-4">Message {agent?.name || 'your bot'}, or choose a place to start.</p>

@@ -17,7 +17,7 @@ interface ChatContextValue {
   agents: AgentListItem[]; selectAgent: (id: string, options?: { stayOnPage?: boolean; draft?: string }) => Promise<void>;
   activeTab: RightPanelTab; isRightPanelOpen: boolean; isLeftDrawerOpen: boolean; isLoading: boolean;
   isBotsSidebarOpen: boolean; toggleBotsSidebar: () => void; setBotsSidebarOpen: (open: boolean) => void;
-  activeNav: string; error: string | null; connected: boolean; isPreparing: boolean; isCreatingConversation: boolean;
+  activeNav: string; error: string | null; connected: boolean; isPreparing: boolean; isUnconfigured: boolean; isCreatingConversation: boolean;
   connectionIssue: 'offline' | 'reconnecting' | null;
   activityFilter: string | null; setActivityFilter: (id: string | null) => void;
   groups: GroupSummary[]; loadGroups: () => Promise<void>;
@@ -106,6 +106,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     savePreference('hob-active-profile', profile);
   }, []);
   const [isPreparing, setIsPreparing] = useState(true);
+  const isUnconfigured = Boolean(agent && (!agent.model || !agent.model.trim()));
   const [isCreatingConversation, setIsCreatingConversation] = useState(false);
   const getComposerDraft = useCallback((id: string) => workRef.current.draft(id), []);
   const setComposerDraft = useCallback((id: string, text: string) => workRef.current.setDraft(id, text), []);
@@ -625,7 +626,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return () => { clearTimeout(timer); window.removeEventListener('hob:open-conversation', receive); };
   }, [isPreparing, selectAgent, selectSession]);
 
-  return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, agents, selectAgent, tasks, activityWarnings, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isBotsSidebarOpen, toggleBotsSidebar, setBotsSidebarOpen, isLoading, activeNav, error, connected, connectionIssue, isPreparing, isCreatingConversation, activityFilter, setActivityFilter, groups, loadGroups, selectedGroupId, setSelectedGroupId, setActiveNav, sendMessage, selectSession, createNewSession, deleteSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, getComposerDraft, setComposerDraft, subscribeComposerDraft, clearError: () => { operationErrorRef.current = false; workRef.current.clearError(sessionRef.current); setError(null); }, queuedPrompts, removeQueuedPrompt, clearQueue, activity, stopActiveRun, isStopping }}>{children}</ChatContext.Provider>;
+  return <ChatContext.Provider value={{ messages, sessions, activeSessionId, agent, agents, selectAgent, tasks, activityWarnings, approvals, stats, activeTab, isRightPanelOpen, isLeftDrawerOpen, isBotsSidebarOpen, toggleBotsSidebar, setBotsSidebarOpen, isLoading, activeNav, error, connected, connectionIssue, isPreparing, isUnconfigured, isCreatingConversation, activityFilter, setActivityFilter, groups, loadGroups, selectedGroupId, setSelectedGroupId, setActiveNav, sendMessage, selectSession, createNewSession, deleteSession, setActiveTab, toggleRightPanel: () => setIsRightPanelOpen(value => !value), toggleLeftDrawer: () => setIsLeftDrawerOpen(value => !value), resolveApproval, updateAgent, refresh, getComposerDraft, setComposerDraft, subscribeComposerDraft, clearError: () => { operationErrorRef.current = false; workRef.current.clearError(sessionRef.current); setError(null); }, queuedPrompts, removeQueuedPrompt, clearQueue, activity, stopActiveRun, isStopping }}>{children}</ChatContext.Provider>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
