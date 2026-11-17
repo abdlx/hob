@@ -214,5 +214,16 @@ class CoordinatorTests(unittest.TestCase):
             self.assertFalse((target / 'agent/hob_coordinator.py').exists())
 
 
+
+    def test_diagnostic_commands_allowed(self):
+        coordinator = load('hob_coordinator_diag', 'hob-coordinator.py')
+        self.assertTrue(coordinator.is_diagnostic_command("git status"))
+        self.assertTrue(coordinator.is_diagnostic_command("git branch"))
+        self.assertTrue(coordinator.is_diagnostic_command("node -v"))
+        self.assertTrue(coordinator.is_diagnostic_command("pwd"))
+        self.assertFalse(coordinator.is_diagnostic_command("git commit -m 'test'"))
+        self.assertFalse(coordinator.is_diagnostic_command("rm -rf /"))
+        self.assertFalse(coordinator.is_diagnostic_command("git status > file.txt"))
+
 if __name__ == '__main__':
     unittest.main()

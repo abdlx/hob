@@ -3,6 +3,7 @@ import json
 from functools import wraps
 import os
 import re
+import shlex
 
 
 INSTRUCTIONS = """## HOB interactive coordinator
@@ -47,6 +48,42 @@ def restore_prompt(function):
         return result
     return call
 
+
+
+def is_diagnostic_command(command: str) -> bool:
+    """Allow safe, read-only diagnostic inspections directly from the coordinator."""
+    if isinstance(command, dict):
+        command = command.get('command') or command.get('cmd') or ''
+    if not isinstance(command, str) or not command.strip():
+        return False
+    try:
+        tokens = shlex.split(command, posix=True)
+    except Exception:
+        return False
+    if not tokens:
+        return False
+    # Forbid any redirection or chaining
+    for token in tokens:
+        if any(token.startswith(r) for r in (">", ">>", "<", "<<", ">&", "&>", "1>", "2>")):
+            return False
+        if token in ("|", "&&", ";", "||"):
+            return False
+    c0 = tokens[0]
+    if c0 in ("pwd", "date", "uptime") and len(tokens) == 1:
+        return True
+    if c0 in ("node", "npm", "python", "python3") and len(tokens) == 2 and tokens[1] in ("-v", "--version", "-V"):
+        return True
+    if c0 == "which" and len(tokens) == 2:
+        return True
+    if c0 == "git" and len(tokens) >= 2:
+        sub = tokens[1]
+        if sub in ("status", "branch", "rev-parse"):
+            return True
+        if sub == "log" and not any(a in ("-S", "-G", "--patch", "-p") for a in tokens):
+            return True
+        if sub == "diff" and "--stat" in tokens:
+            return True
+    return False
 
 def is_relay_command(args):
     """Check if command is an inter-bot relay or communication command (talk.mjs / work.mjs)."""
@@ -94,7 +131,7 @@ def tool_block(agent, name, args=None):
     if enabled(agent):
         if name in COORDINATION_TOOLS:
             return None
-        if name == 'terminal' and is_relay_command(args):
+        if name == 'terminal' and (is_relay_command(args) or is_diagnostic_command(args)):
             return None
         return ('HOB coordinator: delegate this execution to a background subagent with '
                 'delegate_task(background=true), then end your turn. Keep this chat available for the user.')
