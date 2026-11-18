@@ -154,8 +154,9 @@ function ProfileSettings({ profile, setProfile, section, visited }: { profile: s
             provider: newProvider,
             model: newModel,
             ...(newBaseUrl ? { base_url: newBaseUrl } : {})
-          });
+          }, 'POST');
           await load();
+          window.dispatchEvent(new CustomEvent('hob:reconnect'));
           toast('Model provider saved successfully!');
         }}
       />

@@ -11,7 +11,7 @@ const MANAGEMENT = new Map([
   ['GET config/schema', '/api/config/schema'], ['GET config/defaults', '/api/config/defaults'],
   ['GET credentials', '/api/env'], ['PUT credentials', '/api/env'],
   ['GET models', '/api/model/options'], ['GET model', '/api/model/info'],
-  ['POST model', '/api/model/set'], ['GET skills', '/api/skills'],
+  ['POST model', '/api/model/set'], ['PUT model', '/api/model/set'], ['GET skills', '/api/skills'],
   ['GET custom-endpoints', '/api/providers/custom-endpoints'], ['POST custom-endpoints', '/api/providers/custom-endpoints'],
 ]);
 export const MANAGED_ENV = /^(?:TERMINAL_(?:ENV|BACKEND|CWD|SSH_.*)$|BROWSER_CDP_URL$|BU_CDP_(?:URL|WS)$|API_SERVER_|MUSE_|HOB_|GATEWAY_MULTIPLEX_PROFILES$|HERMES_WRITE_SAFE_ROOT$|HERMES_API_KEY$|HERMES_DASHBOARD_|HERMES_GATEWAY_|HERMES_(?:HOME|DIR|EXECUTABLE|INSTALL_ROOT|PYTHON|RUNTIME_DIR)$|PATH$|PYTHONPATH$|LD_|NODE_OPTIONS$)/;
