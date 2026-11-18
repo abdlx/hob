@@ -235,19 +235,32 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
       rows.set(id, { id, agentId: profile, title: row.title || 'API conversation', createdAt: iso(row.started_at), lastMessageSnippet: row.preview || '', transport: 'api', readOnly: true });
     }
     const main = journal.mainChat(profile);
-    if (main && !rows.has(main)) {
+    // A bound Main session that is not live may be stored-but-unrestorable
+    // (e.g. its stored policy has no usable model). Verify it by resuming:
+    // a live Main needs no check, but a stored-only one must prove it can
+    // still be restored, otherwise Main stays bound to a dead session and
+    // ensureMain re-adopts it from the stored list on every load.
+    const liveIds = new Set((live.sessions || []).map(row => {
+      const sid = String(row.session_id || row.resolved_id || row.id || '');
+      return sid ? hermesNativeSessionKey(profile, sid) : '';
+    }).filter(Boolean));
+    if (main && !liveIds.has(main)) {
       try {
         const snapshot = await rpc(parseHermesSessionKey(main), 'session.resume');
-        rows.set(main, { id: main, agentId: profile, title: 'Main chat', createdAt: iso(snapshot.started_at), lastMessageSnippet: '', transport: 'canonical' });
+        if (!rows.has(main)) {
+          rows.set(main, { id: main, agentId: profile, title: 'Main chat', createdAt: iso(snapshot.started_at), lastMessageSnippet: '', transport: 'canonical' });
+        }
       } catch (err) {
-        // Hermes refusing the bound Main session (409, e.g. storage_unavailable
-        // when its stored policy has no usable model) must not take the whole
-        // session list down. Drop the dead binding so the next ensureMain
-        // creates a fresh Main chat with the current profile model. Other
-        // failures (gateway unreachable, etc.) still throw: the session may
-        // be fine and the binding must be kept.
+        // Hermes refusing the bound Main session (409, e.g. storage_unavailable)
+        // must not take the whole session list down, and must not leave Main
+        // bound to a session that can never be restored. Drop the dead
+        // binding (and its row, so ensureMain does not re-adopt it) so the
+        // next ensureMain creates a fresh Main chat with the current profile
+        // model. Other failures (gateway unreachable, etc.) still throw: the
+        // session may be fine and the binding must be kept.
         if (err?.status === 409 || err?.code === 'storage_unavailable') {
           await journal.clearMainChat(profile).catch(() => undefined);
+          rows.delete(main);
         } else {
           throw err;
         }
@@ -263,7 +276,19 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
       // Adopt an existing conversation once, preserving its history. New bots
       // use a deterministic native creation request so retries cannot mint duplicates.
       const existing = (await sessions(profile)).find(row => row.transport === 'canonical');
-      const key = existing?.id || hermesNativeSessionKey(profile, (await bridge.rpc(profile, 'session.create', {
+      let key = existing?.id;
+      if (key) {
+        // Never adopt a stored session Hermes can no longer restore; adopting
+        // it just re-binds Main to the same dead session the recovery above
+        // dropped. A refusal here falls through to a fresh creation.
+        try {
+          await rpc(parseHermesSessionKey(key), 'session.resume');
+        } catch (err) {
+          if (err?.status === 409 || err?.code === 'storage_unavailable') key = undefined;
+          else throw err;
+        }
+      }
+      key = key || hermesNativeSessionKey(profile, (await bridge.rpc(profile, 'session.create', {
         request_id: 'hob-main-chat-v1', source: 'gui', follow_profile_config: true,
       })).session_id);
       await journal.bindMainChat(profile, key);

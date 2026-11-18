@@ -15,7 +15,7 @@ import { HermesExchanges } from '../hermes-exchanges.mjs';
 
 async function fixture(t, { telemetry, team, exchanges } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'hob-native-chat-'));
-  const shared = { sessions: new Map(), admissions: new Map(), calls: [], mode: 'complete', sequence: 0, generation: 5, activity: { items: [], nextOffset: null } };
+  const shared = { sessions: new Map(), stored: new Map(), admissions: new Map(), calls: [], mode: 'complete', sequence: 0, generation: 5, activity: { items: [], nextOffset: null } };
   const legacyCalls = [];
   const legacy = http.createServer(async (req, res) => {
     legacyCalls.push(req.url);
@@ -41,7 +41,7 @@ async function fixture(t, { telemetry, team, exchanges } = {}) {
         shared.sessions.set(profile + ':' + sid, { session_id: sid, id: sid, title: '', messages: [], prompts: [], pending: [], revision: 1 });
         return { session_id: sid, revision: 1, execution_generation: shared.generation };
       }
-      if (method === 'session.list') return { sessions: params.scope === 'stored' ? [] : [...shared.sessions.entries()]
+      if (method === 'session.list') return { sessions: [...(params.scope === 'stored' ? shared.stored : shared.sessions).entries()]
         .filter(([key]) => key.startsWith(profile + ':')).map(([, item]) => ({ id: item.session_id, session_id: item.session_id, title: item.title })) };
       const session = shared.sessions.get(profile + ':' + params.session_id);
       if (!session) throw new HermesError(409, 'Missing session.', 'not_found');
@@ -393,6 +393,28 @@ test('a Main chat Hermes refuses to restore is dropped and recreated with the cu
   const creates = f.shared.calls.filter(call => call.method === 'session.create' && call.params.request_id === 'hob-main-chat-v1');
   assert.equal(creates.length, 2);
   assert.ok(creates.every(call => call.params.follow_profile_config === true));
+});
+
+test('a stored-only Main chat Hermes refuses to restore is dropped and not re-adopted', async t => {
+  const f = await fixture(t);
+  const listed = await (await f.call('/api/sessions')).json(), main = listed.find(row => row.isMain);
+  assert.ok(main);
+  const sid = parseHermesSessionKey(main.id).sessionId;
+  // The dead session is stored but not live: Hermes lists it from storage
+  // yet refuses to restore it, so the stored row must not shield it from
+  // recovery or let ensureMain re-adopt it.
+  const stored = f.shared.sessions.get('default:' + sid);
+  f.shared.sessions.delete('default:' + sid);
+  f.shared.stored.set('default:' + sid, stored);
+  const recovered = await f.call('/api/sessions');
+  assert.equal(recovered.status, 200);
+  const after = await recovered.json();
+  assert.equal(after.some(row => row.id === main.id), false);
+  assert.equal(f.journal.mainChat('default'), undefined);
+  const relisted = await (await f.call('/api/sessions')).json(), fresh = relisted.find(row => row.isMain);
+  assert.ok(fresh);
+  assert.notEqual(fresh.id, main.id);
+  assert.equal(f.journal.mainChat('default'), fresh.id);
 });
 
 test('new conversations are distinct canonical sessions and inherit only their own current profile setup', async t => {
