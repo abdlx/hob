@@ -20,6 +20,19 @@ test('Main chat bindings persist independently of turns and cannot be reassigned
   await journal.bindMainChat('constructor', special);
   assert.equal((await HermesRunJournal.open(root)).mainChat('constructor'), special);
 }));
+test('clearing a Main chat binding lets the same profile bind a fresh Main chat', async () => fixture(async (root, journal) => {
+  const main = hermesNativeSessionKey('coder', 'persistent-main');
+  await journal.bindMainChat('coder', main);
+  assert.equal(journal.mainChat('coder'), main);
+  assert.equal(await journal.clearMainChat('coder'), true);
+  assert.equal(journal.mainChat('coder'), undefined);
+  assert.equal((await HermesRunJournal.open(root)).mainChat('coder'), undefined);
+  assert.equal(await journal.clearMainChat('coder'), false);
+  const replacement = hermesNativeSessionKey('coder', 'replacement-main');
+  await journal.bindMainChat('coder', replacement);
+  assert.equal(journal.mainChat('coder'), replacement);
+  assert.equal((await HermesRunJournal.open(root)).mainChat('coder'), replacement);
+}));
 async function fixture(run) {
   const root = await mkdtemp(path.join(tmpdir(), 'hob-run-journal-'));
   try { await run(root, await HermesRunJournal.open(root)); }

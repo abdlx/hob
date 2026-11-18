@@ -236,8 +236,22 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     }
     const main = journal.mainChat(profile);
     if (main && !rows.has(main)) {
-      const snapshot = await rpc(parseHermesSessionKey(main), 'session.resume');
-      rows.set(main, { id: main, agentId: profile, title: 'Main chat', createdAt: iso(snapshot.started_at), lastMessageSnippet: '', transport: 'canonical' });
+      try {
+        const snapshot = await rpc(parseHermesSessionKey(main), 'session.resume');
+        rows.set(main, { id: main, agentId: profile, title: 'Main chat', createdAt: iso(snapshot.started_at), lastMessageSnippet: '', transport: 'canonical' });
+      } catch (err) {
+        // Hermes refusing the bound Main session (409, e.g. storage_unavailable
+        // when its stored policy has no usable model) must not take the whole
+        // session list down. Drop the dead binding so the next ensureMain
+        // creates a fresh Main chat with the current profile model. Other
+        // failures (gateway unreachable, etc.) still throw: the session may
+        // be fine and the binding must be kept.
+        if (err?.status === 409 || err?.code === 'storage_unavailable') {
+          await journal.clearMainChat(profile).catch(() => undefined);
+        } else {
+          throw err;
+        }
+      }
     }
     return [...rows.values()].map(row => ({ ...row, isMain: row.id === main, ...(row.id === main ? { title: 'Main chat' } : {}) }))
       .sort((a, b) => Number(b.isMain) - Number(a.isMain) || b.createdAt.localeCompare(a.createdAt));

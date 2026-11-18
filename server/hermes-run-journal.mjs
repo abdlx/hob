@@ -80,6 +80,13 @@ export class HermesRunJournal {
       return key;
     });
   }
+  clearMainChat(profile) {
+    return this.#mutate((records, mainChats) => {
+      if (!Object.hasOwn(mainChats, profile)) return false;
+      delete mainChats[profile];
+      return true;
+    });
+  }
 
   async #mutate(change) {
     const work = this.#queue.then(async () => {

@@ -373,6 +373,28 @@ test('one protected Main chat survives restart while manual chats can be deleted
   assert.ok(calls.every(call => call.params.follow_profile_config === true));
 });
 
+test('a Main chat Hermes refuses to restore is dropped and recreated with the current profile setup', async t => {
+  const f = await fixture(t);
+  const listed = await (await f.call('/api/sessions')).json(), main = listed.find(row => row.isMain);
+  assert.ok(main);
+  assert.equal(f.journal.mainChat('default'), main.id);
+  // Hermes can no longer restore the bound Main session (e.g. its stored
+  // policy has no usable model): the gateway refuses it on resume.
+  f.shared.sessions.delete('default:' + parseHermesSessionKey(main.id).sessionId);
+  const recovered = await f.call('/api/sessions');
+  assert.equal(recovered.status, 200);
+  const after = await recovered.json();
+  assert.equal(after.some(row => row.id === main.id), false);
+  assert.equal(f.journal.mainChat('default'), undefined);
+  const relisted = await (await f.call('/api/sessions')).json(), fresh = relisted.find(row => row.isMain);
+  assert.ok(fresh);
+  assert.notEqual(fresh.id, main.id);
+  assert.equal(f.journal.mainChat('default'), fresh.id);
+  const creates = f.shared.calls.filter(call => call.method === 'session.create' && call.params.request_id === 'hob-main-chat-v1');
+  assert.equal(creates.length, 2);
+  assert.ok(creates.every(call => call.params.follow_profile_config === true));
+});
+
 test('new conversations are distinct canonical sessions and inherit only their own current profile setup', async t => {
   const f = await fixture(t);
   const a = await f.create('coder'), b = await f.create('coder');
