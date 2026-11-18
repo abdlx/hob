@@ -279,8 +279,13 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     const method = req.method;
     const profile = hermesProfile(req.headers['x-hob-profile'] ?? (req.method === 'GET' && url.pathname.endsWith('/uploads') ? url.searchParams.get('profile') : null) ?? 'default');
     if (url.pathname === '/api/sessions' && method === 'GET') {
-      await scanCron(profile);
-      await ensureMain(profile);
+      try {
+        await scanCron(profile);
+        await ensureMain(profile);
+      } catch (err) {
+        // If profile has no model configured or Hermes rejects session creation,
+        // gracefully return existing sessions or empty list without throwing 409 Conflict
+      }
       json(res, 200, await sessions(profile));
       return true;
     }

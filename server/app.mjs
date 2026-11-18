@@ -623,7 +623,7 @@ export function createApp({ gateway, hermes = gateway?.kind === 'hermes' ? gatew
       if (!info?.isFile()) { filename = path.join(root, 'index.html'); info = await stat(filename); }
       const resolved = await realpath(filename);
       if (!resolved.startsWith(root + path.sep)) throw new HttpError(403, 'Asset symlink is outside the frontend.');
-      res.writeHead(200, { 'Content-Type': MIME[path.extname(filename)] || 'application/octet-stream', 'Content-Length': info.size, 'Cache-Control': path.basename(filename) === 'index.html' ? 'no-cache' : 'public, max-age=3600', 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" });
+      res.writeHead(200, { 'Content-Type': MIME[path.extname(filename)] || 'application/octet-stream', 'Content-Length': info.size, 'Cache-Control': path.basename(filename) === 'index.html' ? 'no-cache' : 'public, max-age=3600', 'Content-Security-Policy': "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self'; connect-src 'self' https://cloudflareinsights.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" });
       if (method === 'HEAD') res.end(); else createReadStream(resolved).pipe(res);
     } catch (error) {
       const status = error.status || (error.code === 'UNAVAILABLE' || error.code === 'TIMEOUT' ? 503 : error.code === 'INVALID_REQUEST' ? 400 : 502);
