@@ -369,7 +369,7 @@ test('one protected Main chat survives restart while manual chats can be deleted
   await f.stop(); await f.start();
   assert.equal((await (await f.call('/api/sessions')).json()).find(row => row.isMain).id, main.id);
   const calls = f.shared.calls.filter(call => call.method === 'session.create');
-  assert.equal(calls.filter(call => call.params.request_id === 'hob-main-chat-v1').length, 1);
+  assert.equal(calls.filter(call => call.params.request_id.startsWith('hob-main-chat-')).length, 1);
   assert.ok(calls.every(call => call.params.follow_profile_config === true));
 });
 
@@ -390,8 +390,11 @@ test('a Main chat Hermes refuses to restore is dropped and recreated with the cu
   assert.ok(fresh);
   assert.notEqual(fresh.id, main.id);
   assert.equal(f.journal.mainChat('default'), fresh.id);
-  const creates = f.shared.calls.filter(call => call.method === 'session.create' && call.params.request_id === 'hob-main-chat-v1');
+  const creates = f.shared.calls.filter(call => call.method === 'session.create' && call.params.request_id.startsWith('hob-main-chat-'));
   assert.equal(creates.length, 2);
+  // Each Main creation mints a fresh idempotency key; a fixed key would
+  // replay the first (dead) session instead of creating a new one.
+  assert.notEqual(creates[0].params.request_id, creates[1].params.request_id);
   assert.ok(creates.every(call => call.params.follow_profile_config === true));
 });
 

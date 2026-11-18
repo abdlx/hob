@@ -289,8 +289,15 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
         }
       }
       key = key || hermesNativeSessionKey(profile, (await bridge.rpc(profile, 'session.create', {
-        request_id: 'hob-main-chat-v1', source: 'gui', follow_profile_config: true,
-      })).session_id);
+        // A fresh idempotency key per creation: the old fixed
+        // 'hob-main-chat-v1' replays the FIRST session ever created under it,
+        // so after that session becomes unrestorable every Main recovery
+        // re-binds the same dead session instead of minting a new one.
+        // Concurrent duplicate creation is already prevented by the
+        // mainCreations in-flight cache above, and a bound Main is never
+        // re-created (journal.mainChat is checked first).
+        request_id: `hob-main-chat-${randomUUID()}`, source: 'gui', follow_profile_config: true,
+      }).catch(err => { console.error('[hermes] Main session creation failed', { profile, status: err?.status, code: err?.code, message: err?.message }); throw err; })).session_id);
       await journal.bindMainChat(profile, key);
       return key;
     })();
@@ -324,6 +331,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
       } catch (err) {
         // If profile has no model configured or Hermes rejects session creation,
         // gracefully return existing sessions or empty list without throwing 409 Conflict
+        console.error('[hermes] Main session setup failed on list', { profile, status: err?.status, code: err?.code, message: err?.message });
       }
       json(res, 200, await sessions(profile));
       return true;
