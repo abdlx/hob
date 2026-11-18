@@ -86,7 +86,18 @@ export function createSavedProviders(client, bots, { home, managedEnv }) {
         } catch { unavailableProfiles.push(source.displayName); }
       }));
     }
-    return { connections: connections.sort((a, b) => a.name.localeCompare(b.name) || a.sourceName.localeCompare(b.sourceName)), unavailableProfiles };
+    const byProvider = new Map();
+    for (const c of connections) {
+      const existing = byProvider.get(c.provider);
+      if (!existing) {
+        byProvider.set(c.provider, { ...c, usedBy: [c.sourceName] });
+      } else {
+        if (!existing.usedBy.includes(c.sourceName)) existing.usedBy.push(c.sourceName);
+        if (c.configured) existing.configured = true;
+      }
+    }
+    const deduplicated = Array.from(byProvider.values());
+    return { connections: deduplicated.sort((a, b) => a.name.localeCompare(b.name)), unavailableProfiles };
   }
   async function resolve(id, target) {
     if (typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id)) throw invalid('Select a saved provider.');
@@ -107,9 +118,19 @@ export function createSavedProviders(client, bots, { home, managedEnv }) {
     return result.value;
   }
   async function operate(target, input) {
-    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['id', 'action'].includes(key)) || !['connect', 'verify'].includes(input.action)) throw invalid('Select a saved provider action.');
+    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['id', 'action'].includes(key)) || !['connect', 'verify', 'delete'].includes(input.action)) throw invalid('Select a saved provider action.');
     return exclusive(target, async () => {
       const row = await resolve(input.id, target);
+      if (input.action === 'delete') {
+        const roster = await profiles();
+        for (const source of roster) {
+          try {
+            await client.dashboard('/api/env', { profile: source.name, method: 'DELETE', body: { key: row.key, profile: source.name } });
+          } catch {}
+        }
+        verified.delete(row.id);
+        return { ok: true, deleted: true, message: `${row.name} removed from saved providers.` };
+      }
       if (input.action === 'connect') {
         const targetInventory = await inventory(target);
         if (targetInventory.env[row.key]?.is_set || targetInventory.rows.some(targetRow => targetRow.provider === row.provider)) throw new HermesError(409, 'This provider is already configured for this bot. Its existing key was preserved.', 'PROVIDER_CONFIGURED');
