@@ -165,6 +165,8 @@ const managedBlock = (self, roster, coordinatorOnly = false, architecture = fals
     '',
     ...roster.map(bot => `- ${label(bot)} — id: \`${bot.name}\`${bot.name === 'default' ? ' (Main coordinator)' : ''}${bot.tags?.length ? ` [${bot.tags.map(blockText).join(', ')}]` : ''}${blockText(bot.description) ? ` — ${blockText(bot.description)}` : ''}`),
     '',
+    'You have a bundled Linux computer with a real desktop browser (the `hob_computer` MCP server). Use it when the user asks you to do something on a computer or in a browser — open a site, click, fill a form, take a screenshot, read or write files, or run a terminal command. Read the `hob-computer` skill before driving it. Do not ask the user to do computer or browser work themselves.',
+    '',
     'Use the terminal to talk to another bot through HOB:',
     '',
     '```sh',

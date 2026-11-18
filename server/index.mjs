@@ -93,6 +93,8 @@ const syncProfiles = async () => {
   if (nativePortal) for (const bot of bots.roster().filter(bot => bot.state === 'active')) {
     try { await nativePortal.migrate(bot.name); }
     catch { console.warn('[hob] A legacy computer binding could not be migrated; it will retry on the next profile sync.'); }
+    try { await nativePortal.ensureComputerSkill(bot.name); }
+    catch { console.warn('[hob] The bundled-computer skill could not be seeded; it will retry on the next profile sync.'); }
   }
   if (result.adopted.length) console.log(`Adopted new Hermes profile${result.adopted.length === 1 ? '' : 's'}: ${result.adopted.join(', ')}.`);
   if (result.revoked.length) console.log(`Retired dashboard bot${result.revoked.length === 1 ? '' : 's'} whose Hermes profile is gone: ${result.revoked.join(', ')}.`);

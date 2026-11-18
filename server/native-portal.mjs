@@ -1,7 +1,32 @@
 import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseDocument } from 'yaml';
 import { HermesError, hermesProfile } from './hermes-client.mjs';
+
+// Hermes's remote-MCP schema reads HTTP auth from `headers`, not from a
+// `bearer_token` key. A `bearer_token` entry in config.yaml is silently
+// ignored, so Hermes never sends the token, the computer answers 401, and
+// after retries the server is parked with 0 tools registered. These helpers
+// keep the single place that writes the bundled-computer MCP entry honest,
+// and let readers accept a legacy `bearer_token` entry (written before this
+// fix) by converting it on the fly.
+export function computerAuthHeaders(token) {
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+export function computerToken(entry) {
+  const fromHeader = typeof entry?.headers?.Authorization === 'string'
+    ? /^Bearer\s+(.+)$/i.exec(entry.headers.Authorization)?.[1] : undefined;
+  return fromHeader || (typeof entry?.bearer_token === 'string' ? entry.bearer_token : '');
+}
+export function computerAuthEntry(entry) {
+  // Return a copy of an MCP entry with the token expressed as `headers`,
+  // dropping any legacy `bearer_token` key Hermes would ignore.
+  if (!entry || typeof entry !== 'object') return entry;
+  const { bearer_token: _legacy, ...rest } = entry;
+  const token = computerToken(entry);
+  return { ...rest, ...(token ? { headers: computerAuthHeaders(token) } : { headers: {} }) };
+}
 
 // Only the application reads the owner key. Agents receive profile-bound MCP
 // tokens; the browser uses HOB's session-authenticated VNC proxy.
@@ -45,13 +70,37 @@ export class NativePortal {
   binding(config) {
     return config.mcp_servers?.hob_computer || (config.mcp_servers?.portal?.url === this.url + '/mcp' ? config.mcp_servers.portal : undefined);
   }
+  async ensureComputerSkill(profile) {
+    // Seed the bundled-computer skill so the agent knows it has a computer
+    // and browser by default. Only creates it when missing, so an operator's
+    // edits to the skill are never overwritten.
+    return this.#serialize(profile, async () => {
+      const skills = await this.client.dashboard('/api/skills', { profile });
+      const names = new Set((Array.isArray(skills) ? skills : skills?.skills || []).map(item => typeof item === 'string' ? item : item?.name));
+      if (names.has('hob-computer')) return false;
+      const skillPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'skills', 'hob-computer', 'SKILL.md');
+      const content = await readFile(skillPath, 'utf8');
+      if (!content.trim()) return false;
+      await this.client.dashboard('/api/skills', { profile, method: 'POST', body: { name: 'hob-computer', content, profile } });
+      return true;
+    });
+  }
   migrate(profile) {
     return this.#serialize(profile, async () => {
       const config = await this.#config(profile);
+      const current = config.mcp_servers?.hob_computer;
+      // Repair an entry written before the headers fix: a `bearer_token`
+      // key is ignored by Hermes, so convert it to `headers` in place.
+      if (current && computerToken(current) && !current.headers?.Authorization) {
+        await this.client.dashboard('/api/config', { profile, method: 'PUT', body: { profile, config: {
+          mcp_servers: { hob_computer: computerAuthEntry(current) },
+        } } });
+        return true;
+      }
       const legacy = config.mcp_servers?.portal;
-      if (config.mcp_servers?.hob_computer || legacy?.url !== this.url + '/mcp') return false;
+      if (current || legacy?.url !== this.url + '/mcp') return false;
       await this.client.dashboard('/api/config', { profile, method: 'PUT', body: { profile, config: {
-        mcp_servers: { hob_computer: { ...legacy }, portal: { enabled: false, bearer_token: '' } },
+        mcp_servers: { hob_computer: computerAuthEntry(legacy), portal: { enabled: false, headers: {} } },
       } } });
       return true;
     });
@@ -73,8 +122,8 @@ export class NativePortal {
       const result = await this.request('/api/ui/hob/bots/' + profile, 'PUT', { name: profile === 'default' ? 'Main' : profile });
       if (config.terminal?.cwd && path.resolve(config.terminal.cwd) !== path.resolve(result.workspace)) throw new HermesError(409, 'This bot has a custom execution directory. Align its HOB working directory before assigning the bundled computer.', 'PORTAL_WORKSPACE_MISMATCH');
       await this.client.dashboard('/api/config', { profile, method: 'PUT', body: { profile, config: {
-        mcp_servers: { hob_computer: { url: this.url + '/mcp', bearer_token: result.plaintext, enabled: true },
-          ...(config.mcp_servers?.portal?.url === this.url + '/mcp' ? { portal: { enabled: false, bearer_token: '' } } : {}) },
+        mcp_servers: { hob_computer: { url: this.url + '/mcp', headers: computerAuthHeaders(result.plaintext), enabled: true },
+          ...(config.mcp_servers?.portal?.url === this.url + '/mcp' ? { portal: { enabled: false, headers: {} } } : {}) },
       } } });
       return { ok: true, workspace: result.workspace };
     });
@@ -86,8 +135,8 @@ export class NativePortal {
       // Revoke first: a settings outage must not leave an agent with access.
       await this.revoke(profile);
       await this.client.dashboard('/api/config', { profile, method: 'PUT', body: { profile, config: {
-        mcp_servers: { hob_computer: { url: this.url + '/mcp', enabled: false, bearer_token: '' },
-          ...(config.mcp_servers?.portal?.url === this.url + '/mcp' ? { portal: { enabled: false, bearer_token: '' } } : {}) },
+        mcp_servers: { hob_computer: { url: this.url + '/mcp', enabled: false, headers: {} },
+          ...(config.mcp_servers?.portal?.url === this.url + '/mcp' ? { portal: { enabled: false, headers: {} } } : {}) },
       } } });
       return { ok: true };
     });

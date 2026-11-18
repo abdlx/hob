@@ -3,6 +3,7 @@ import path from 'node:path';
 import { parseDocument } from 'yaml';
 import { WebSocketServer, WebSocket } from 'ws';
 import { HermesError, hermesProfile } from './hermes-client.mjs';
+import { computerAuthHeaders, computerToken } from './native-portal.mjs';
 import { normalizeOrigin } from '../portal/src/credential-vault.mjs';
 
 // Portal speaks the same MCP + REST + VNC surface as Agent Computer, so one
@@ -81,11 +82,10 @@ export function createAgentComputerRoutes({ client, hermesHome, authenticated = 
       }
     }
     // Environment configuration belongs only to Main, never to another bot.
-    if (!config && profile === 'default' && env[desc.envUrl]) config = { url: env[desc.envUrl], bearer_token: env[desc.envToken] || '' };
+    if (!config && profile === 'default' && env[desc.envUrl]) config = { url: env[desc.envUrl], headers: computerAuthHeaders(env[desc.envToken] || '') };
     if (!config || config.enabled === false) return { connected: false };
     const url = endpoint(config.url);
-    const authorization = config.headers?.Authorization ?? config.headers?.authorization ?? '';
-    const token = config.bearer_token ?? (/^Bearer\s+(.+)$/i.exec(authorization)?.[1]) ?? '';
+    const token = computerToken(config);
     if (typeof token !== 'string' || token.length > 8192 || /[\r\n]|\$\{|\[stored credential\]/.test(token)) throw invalid('Configure a resolved computer credential for this bot.');
     return { connected: true, serverName: desc.serverName, mcpUrl: url.href, origin: url.origin, token };
   }

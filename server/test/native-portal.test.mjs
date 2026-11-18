@@ -54,6 +54,48 @@ test('HOB assignment preserves external Portal and Agent Computer connections', 
   assert.deepEqual(config.mcp_servers.agent_computer, external.agent_computer);
 });
 
+test('a hob_computer entry written with bearer_token is repaired to headers on migrate', async t => {
+  const { root, home } = await fixture(t);
+  const hermesHome = path.join(root, 'hermes');
+  await mkdir(path.join(hermesHome, 'profiles', 'alpha'), { recursive: true });
+  const filename = path.join(hermesHome, 'profiles', 'alpha', 'config.yaml');
+  let config = { mcp_servers: { hob_computer: { url: 'http://127.0.0.1:9879/mcp', bearer_token: 'stale-bot-token', enabled: true } } };
+  await writeFile(filename, JSON.stringify(config));
+  let writes = 0;
+  const portal = new NativePortal({ home, hermesHome, url: 'http://127.0.0.1:9879', client: { dashboard: async (_route, options) => {
+    writes++;
+    config.mcp_servers = { hob_computer: { ...options.body.config.mcp_servers.hob_computer } };
+    await writeFile(filename, JSON.stringify(config));
+  } } });
+  assert.equal(await portal.migrate('alpha'), true);
+  assert.equal(await portal.migrate('alpha'), false);
+  assert.equal(writes, 1);
+  assert.equal(config.mcp_servers.hob_computer.headers.Authorization, 'Bearer stale-bot-token');
+  assert.equal('bearer_token' in config.mcp_servers.hob_computer, false);
+});
+
+test('the bundled-computer skill is seeded once and never overwrites an existing skill', async t => {
+  const { root, home } = await fixture(t);
+  const hermesHome = path.join(root, 'hermes');
+  await mkdir(hermesHome, { recursive: true });
+  const created = [];
+  let existing = [];
+  const portal = new NativePortal({ home, hermesHome, url: 'http://127.0.0.1:9879', client: { dashboard: async (route, options) => {
+    if (route === '/api/skills' && options?.method === 'POST') { created.push(options.body); return { ok: true }; }
+    if (route === '/api/skills') return existing;
+    throw new Error('unexpected dashboard route ' + route);
+  } } });
+  assert.equal(await portal.ensureComputerSkill('default'), true);
+  assert.equal(created.length, 1);
+  assert.equal(created[0].name, 'hob-computer');
+  assert.equal(created[0].profile, 'default');
+  assert.match(created[0].content, /bundled Linux computer/);
+  assert.match(created[0].content, /hob_computer/);
+  existing = [{ name: 'hob-computer' }];
+  assert.equal(await portal.ensureComputerSkill('default'), false);
+  assert.equal(created.length, 1);
+});
+
 test('legacy bundled assignments migrate once without rotating their profile token', async t => {
   const { root, home } = await fixture(t);
   const hermesHome = path.join(root, 'hermes');
@@ -74,7 +116,10 @@ test('legacy bundled assignments migrate once without rotating their profile tok
   assert.equal(await portal.migrate('alpha'), true);
   assert.equal(await portal.migrate('alpha'), false);
   assert.equal(writes, 1);
-  assert.equal(config.mcp_servers.hob_computer.bearer_token, 'existing-bot-token');
+  // The migrated entry carries the token as `headers`, the only form
+  // Hermes's remote-MCP schema reads; the legacy `bearer_token` key is gone.
+  assert.equal(config.mcp_servers.hob_computer.headers.Authorization, 'Bearer existing-bot-token');
+  assert.equal('bearer_token' in config.mcp_servers.hob_computer, false);
   assert.equal(config.mcp_servers.portal.enabled, false);
 });
 
@@ -266,8 +311,8 @@ test('native assignment writes only the selected MCP binding; unassign revokes b
   await Promise.all([portal.assign('alpha'), portal.assign('alpha')]);
   assert.equal(writes[0].profile, 'alpha');
   assert.deepEqual(Object.keys(writes[0].body.config.mcp_servers), ['hob_computer']);
-  const key = writes[0].body.config.mcp_servers.hob_computer.bearer_token;
-  assert.equal(writes[1].body.config.mcp_servers.hob_computer.bearer_token, key);
+  const key = writes[0].body.config.mcp_servers.hob_computer.headers.Authorization.replace(/^Bearer /, '');
+  assert.equal(writes[1].body.config.mcp_servers.hob_computer.headers.Authorization, 'Bearer ' + key);
   await portal.unassign('alpha');
   assert.equal(store.tokenByHash(hashToken(key)).revoked, true);
   assert.equal(writes.at(-1).body.config.mcp_servers.hob_computer.enabled, false);
