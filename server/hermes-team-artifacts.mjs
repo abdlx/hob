@@ -7,7 +7,7 @@ import { containsTeamCredentials, teamDirectory } from './hermes-team.mjs';
 import { parseTeamReply, parseTeamTask } from './hermes-team-protocol.mjs';
 import { readObservedFile } from './bounded-file.mjs';
 
-const MAX = 25 * 1024 * 1024;
+const MAX = 100 * 1024 * 1024;
 const sha = value => createHash('sha256').update(value).digest('hex');
 const refuse = (message = 'Only the assigned, non-sensitive worker output can be handed to the coordinator.', status = 400, code = 'TEAM_ARTIFACT_REFUSED') => new HermesError(status, message, code);
 const privatePath = /(?:^|\/)(?:\.[^/]*|memories|credentials?|secrets?|auth(?:\.json)?|AGENTS\.md|SOUL\.md|USER\.md|MEMORY\.md|TEAM_CORE\.md|config\.ya?ml|state\.db)(?:\/|$)|\.(?:pem|key|sqlite|db)$/i;

@@ -5,6 +5,12 @@ export function displayGatewayNotice(message: string): string {
   if (/(?:Your request couldn't be completed:\s*)?(?:⚠️\s*)?Couldn't sign in to the AI service\./.test(message)) {
     return 'Could not sign in to the AI service. Open Settings → Models & credentials to connect your provider, then retry.';
   }
+    // Transform verbose delegated worker dispatches into clean, direct action text
+  const workerMatch = /^(?:Dispatched\s+(?:single-turn\s+|single-execution\s+|focused\s+background\s+|background\s+)?worker\s+\S+\s+to\s+)(.+?)(?:\.\s*Standing by\.?|\s*Standing by\.?)?$/i.exec(message.trim());
+  if (workerMatch) {
+    const rawAction = workerMatch[1].trim();
+    return rawAction.charAt(0).toUpperCase() + rawAction.slice(1);
+  }
   return message;
 }
 

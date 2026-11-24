@@ -39,7 +39,7 @@ export function workspaceUploads({ stateDir, workspaceRoot, reference }) {
       return json(res, 200, { items });
     }
     if (!id && req.method === 'POST') {
-      const input = await body(req, { maxBytes: 8 * 1024 * 1024 });
+      const input = await body(req, { maxBytes: 105 * 1024 * 1024 });
       if (!Array.isArray(input.entries) || !input.entries.length) throw fail('Choose files or a folder.');
       const entries = input.entries.map(validateEntry);
       const names = new Set(entries.map(e => e.path.toLowerCase()));

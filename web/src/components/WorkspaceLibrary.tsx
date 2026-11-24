@@ -109,11 +109,11 @@ export function WorkspaceLibrary({ profile, scope }: { profile: string; scope?: 
     const current = ++sequence.current;
     setLoading(true); setError('');
     try {
-      const result = await api<{ entries: LibraryEntry[]; deliveries?: { status: string }[] }>('files', {}, { path: directory });
+      const result = await api<{ entries: LibraryEntry[]; deliveries?: { status: string }[] }>('files', {}, tab === 'media' ? { path: '', recursive: 'true' } : { path: directory });
       if (current === sequence.current) { setEntries(result.entries); setDeliveryFailures(result.deliveries?.filter(item => item.status === 'failed').length || 0); }
     } catch (reason) { if (current === sequence.current) setError(errorText(reason)); }
     finally { if (current === sequence.current) setLoading(false); }
-  }, [api, directory]);
+  }, [api, directory, tab]);
   useEffect(() => { const requests = sequence, timer = window.setTimeout(load, 0); return () => { requests.current++; window.clearTimeout(timer); }; }, [load]);
   const read = useCallback<Reader>((file, signal) => api<LibraryPreview>('file', { signal }, { path: file.path }), [api]);
   const navigate = (path: string) => { setDirectory(path); setSelected(null); setSearch(''); setFilter('all'); setLimit(12); };

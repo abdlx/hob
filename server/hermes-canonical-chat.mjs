@@ -469,7 +469,7 @@ export function createHermesCanonicalChatRoutes({ bridge, client, journal, httpC
     if (match[2] === 'run' && method === 'GET') { json(res, 200, { run: (await refresh(key)).run }); return true; }
     if (match[2] === 'attachments' && method === 'POST') {
       if (owner.profile !== profile) throw new HermesError(400, 'The conversation belongs to another selected bot.', 'INVALID_PROFILE');
-      json(res, 201, await attachments.upload(owner, key, await body(req, { maxBytes: 8 * 1024 * 1024 }))); return true;
+      json(res, 201, await attachments.upload(owner, key, await body(req, { maxBytes: 105 * 1024 * 1024 }))); return true;
     }
     if (match[2] === 'recover' && method === 'POST') {
       // There is no public lookup of a completed admission by submission ID.

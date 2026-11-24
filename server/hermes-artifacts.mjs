@@ -43,7 +43,7 @@ export function createArtifactPublisher({ home, workspaceRoot, stateDir, authori
     }
     if (!filename) throw denied();
     const info = await lstat(filename);
-    if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size > 25 * 1024 * 1024) throw denied();
+    if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size > 100 * 1024 * 1024) throw denied();
     const handle = await open(filename, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
     let bytes;
     try {

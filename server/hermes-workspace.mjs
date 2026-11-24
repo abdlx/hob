@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { lstat, open, realpath } from 'node:fs/promises';
+import { lstat, open, realpath, readdir, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { HermesError, hermesProfile, hermesResource, parseHermesSessionKey } from './hermes-client.mjs';
 import { scheduleProblem } from './schedule-input.mjs';
@@ -199,6 +199,26 @@ export function createHermesWorkspaceRoutes({ client, bridge, workspaceRoot, bot
       catch (error) { if (error.code === 'ENOENT') throw new HermesError(404, 'Workspace path does not exist.', 'NOT_FOUND'); throw error; }
       if (root !== base || !within(root, target) || sensitive.test(path.relative(root, target))) throw invalid('Linked or sensitive paths outside this workspace are unavailable.');
       if (route === 'files') {
+        if (url.searchParams.get('recursive') === 'true') {
+          const scanDir = async (dir, rel = '') => {
+            const dirents = await readdir(dir, { withFileTypes: true }).catch(() => []);
+            const results = [];
+            for (const d of dirents) {
+              if (d.name.startsWith('.') || d.name === 'node_modules') continue;
+              const childRel = rel ? `${rel}/${d.name}` : d.name;
+              const childFull = path.join(dir, d.name);
+              if (d.isDirectory()) {
+                results.push(...await scanDir(childFull, childRel));
+              } else if (d.isFile()) {
+                const s = await stat(childFull).catch(() => null);
+                if (s) results.push({ name: d.name, path: childRel, size: s.size, mtime: s.mtimeMs, directory: false });
+              }
+            }
+            return results;
+          };
+          const allFiles = await scanDir(base);
+          return json(res, 200, { entries: allFiles });
+        }
         const listing = await dashboard('/api/files', { query: { path: target } });
         if (!Array.isArray(listing.entries)) throw new HermesError(502, 'Hermes returned an invalid directory.', 'HERMES_PROTOCOL_ERROR');
         const entries = listing.entries.filter(item => typeof item.path === 'string' && path.isAbsolute(item.path) && within(root, item.path)
@@ -208,7 +228,7 @@ export function createHermesWorkspaceRoutes({ client, bridge, workspaceRoot, bot
       }
       const info = await lstat(target);
       if (route === 'download') {
-        if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size > 25 * 1024 * 1024) throw invalid('Downloads support independent files up to 25 MB.');
+        if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size > 100 * 1024 * 1024) throw invalid('Downloads support independent files up to 100 MB.');
         const handle = await open(target, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
         try {
           const current = await handle.stat();

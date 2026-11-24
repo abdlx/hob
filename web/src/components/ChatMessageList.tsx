@@ -208,7 +208,7 @@ export function ChatMessageList() {
         {exchanges.earlier && <p className="mb-2 text-center text-xs text-muted">Earlier bot conversations are available in Bot conversations.</p>}
         {exchanges.error && <p className="my-2 text-xs text-red-600" role="alert">Bot exchanges: {exchanges.error}</p>}
         {timeline.map((item, index) => <Fragment key={item.id}>
-          {day(item.at) && (index === 0 || day(timeline[index - 1].at) !== day(item.at)) && <div className="my-4 text-center text-xs text-muted">{new Date(item.at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</div>}
+          {day(item.at) && (index === 0 || day(timeline[index - 1].at) !== day(item.at)) && <div className="my-1.5 text-center text-xs text-muted">{new Date(item.at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</div>}
           {item.node}
         </Fragment>)}
 
@@ -219,7 +219,7 @@ export function ChatMessageList() {
         )}
 
         {isLoading && (
-          <div className="flex items-center gap-2.5 text-[13px] text-muted my-3 ml-2 select-none" role="status" aria-live="polite">
+          <div className="flex items-center gap-2.5 text-[13px] text-muted my-1 ml-2 select-none" role="status" aria-live="polite">
             <span className="relative flex h-2.5 w-2.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75 motion-reduce:hidden" />
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent" />

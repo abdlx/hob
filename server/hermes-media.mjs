@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HermesError, hermesProfile } from './hermes-client.mjs';
 
-const MAX = 25 * 1024 * 1024;
+const MAX = 100 * 1024 * 1024;
 const IMAGE = /\.(?:png|jpe?g|gif|webp|avif|bmp)$/i;
 const MIME = new Map([
   ['.png', 'image/png'],
